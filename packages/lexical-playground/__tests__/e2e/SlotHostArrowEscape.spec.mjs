@@ -6,10 +6,7 @@
  *
  */
 
-import {
-  moveToLineBeginning,
-  moveToLineEnd,
-} from '../keyboardShortcuts/index.mjs';
+import {moveToLineEnd} from '../keyboardShortcuts/index.mjs';
 import {
   click,
   evaluate,
@@ -26,20 +23,6 @@ async function insertReview(page) {
   await waitForSelector(page, '.typeahead-popover');
   await page.keyboard.press('Enter');
   await waitForSelector(page, '.lexical-review-chrome');
-}
-
-async function insertCard(page) {
-  await page.keyboard.type('/card');
-  await waitForSelector(page, '.typeahead-popover');
-  await page.keyboard.press('Enter');
-  await waitForSelector(page, '.lexical-card-node');
-}
-
-async function insertPullQuote(page) {
-  await page.keyboard.type('/pull');
-  await waitForSelector(page, '.typeahead-popover');
-  await page.keyboard.press('Enter');
-  await waitForSelector(page, '.lexical-pullquote-node');
 }
 
 // Drop the empty boundary paragraph at the given edge of the document so the
@@ -119,43 +102,9 @@ async function blockCount(page) {
   );
 }
 
-// Place the caret at the end of a named slot value via the editor API. Used for
-// the PullQuote quote, whose seeded text wraps to several lines, so a keyboard
-// line-end would land mid-text rather than at the slot's true end.
-async function selectSlotEnd(page, hostType, slotName) {
-  await evaluate(
-    page,
-    ([type, slot]) => {
-      const editor = window.lexicalEditor;
-      editor.update(
-        () => {
-          const map = editor.getEditorState()._nodeMap;
-          for (const child of map.get('root').getChildren()) {
-            if (child.getType() === type) {
-              const value = map.get(child.__slots.get(slot));
-              if (value) {
-                value.selectEnd();
-              }
-            }
-          }
-        },
-        {discrete: true},
-      );
-    },
-    [hostType, slotName],
-  );
-  await sleep(60);
-}
-
 const REVIEW = '.lexical-review-node';
 const REVIEW_AUTHOR = '.lexical-review-author [data-lexical-slot="author"] p';
 const REVIEW_BODY_FIRST = '.lexical-review-children p:first-child';
-const CARD = '.lexical-card-node';
-const CARD_TITLE = '[data-lexical-slot="title"] p';
-const CARD_BODY = '.lexical-card-node > p';
-const PULLQUOTE = '.lexical-pullquote-node';
-const PQ_QUOTE_FIRST = '[data-lexical-slot="quote"] p:first-child';
-const PQ_ATTRIBUTION = '[data-lexical-slot="attribution"] p';
 
 // The slot-aware ArrowDown/Up navigation (registerSlotHostArrowEscape) keeps a
 // slot host from trapping the caret: it steps between the host's regions across
@@ -164,8 +113,8 @@ const PQ_ATTRIBUTION = '[data-lexical-slot="attribution"] p';
 // so the host is never a dead end. Stepping into an existing sibling is left to
 // the browser.
 test.describe('Slot host ArrowDown/Up escape', () => {
-  test.beforeEach(({isCollab, isPlainText, page}) => {
-    test.skip(isPlainText);
+  test.skip(({isPlainText}) => isPlainText, 'Requires rich text');
+  test.beforeEach(({isCollab, page}) => {
     return initialize({isCollab, page});
   });
 
@@ -201,25 +150,6 @@ test.describe('Slot host ArrowDown/Up escape', () => {
     ).toBe('Jane');
   });
 
-  test('Review: ArrowUp at the start of the body (first block) exits above it', async ({
-    page,
-  }) => {
-    await focusEditor(page);
-    await insertReview(page);
-    await click(page, REVIEW_BODY_FIRST);
-    await page.keyboard.type('Body');
-    // Insertion seeds no leading paragraph, so the Review is already the first
-    // block.
-
-    await click(page, REVIEW_BODY_FIRST);
-    await moveToLineBeginning(page);
-    await page.keyboard.press('ArrowUp');
-    await page.keyboard.type('Before');
-    await sleep(120);
-
-    expect(await blockOutsideHost(page, REVIEW, 'before')).toBe('Before');
-  });
-
   test('Review: ArrowDown from the body steps into the author', async ({
     page,
   }) => {
@@ -246,135 +176,6 @@ test.describe('Slot host ArrowDown/Up escape', () => {
       true,
     );
     // Stepping between regions must not insert a paragraph.
-    expect(await blockCount(page)).toBe(before);
-  });
-
-  test('Review: ArrowUp from the author steps into the body', async ({
-    page,
-  }) => {
-    await focusEditor(page);
-    await insertReview(page);
-    await click(page, REVIEW_BODY_FIRST);
-    await page.keyboard.type('Body');
-    await click(page, REVIEW_AUTHOR);
-    await page.keyboard.type('Jane');
-    const before = await blockCount(page);
-
-    // From the start of the author, ArrowUp steps up into the body above it.
-    await click(page, REVIEW_AUTHOR);
-    await moveToLineBeginning(page);
-    await page.keyboard.press('ArrowUp');
-    await sleep(100);
-
-    expect(await caretInSelector(page, '.lexical-review-children')).toBe(true);
-    expect(await blockCount(page)).toBe(before);
-  });
-
-  test('Card: ArrowDown at the end of the body (last block) exits below it', async ({
-    page,
-  }) => {
-    await focusEditor(page);
-    await insertCard(page);
-    await click(page, CARD_BODY);
-    await page.keyboard.type('Body');
-    await makeHostEdgeBlock(page, 'last');
-
-    await click(page, CARD_BODY);
-    await moveToLineEnd(page);
-    await page.keyboard.press('ArrowDown');
-    await page.keyboard.type('After');
-    await sleep(120);
-
-    expect(await blockOutsideHost(page, CARD, 'after')).toBe('After');
-  });
-
-  test('Card: ArrowUp at the start of the title (first block) exits above it', async ({
-    page,
-  }) => {
-    await focusEditor(page);
-    await insertCard(page);
-    await click(page, CARD_TITLE);
-    await page.keyboard.type('Title');
-    // The Card is already the first block (insertion seeds no leading paragraph).
-
-    await click(page, CARD_TITLE);
-    await moveToLineBeginning(page);
-    await page.keyboard.press('ArrowUp');
-    await page.keyboard.type('Before');
-    await sleep(120);
-
-    expect(await blockOutsideHost(page, CARD, 'before')).toBe('Before');
-  });
-
-  test('PullQuote: ArrowDown at the end of the attribution (last block) exits below it', async ({
-    page,
-  }) => {
-    await focusEditor(page);
-    await insertPullQuote(page);
-    await makeHostEdgeBlock(page, 'last');
-
-    await click(page, PQ_ATTRIBUTION);
-    await moveToLineEnd(page);
-    await page.keyboard.press('ArrowDown');
-    await page.keyboard.type('After');
-    await sleep(120);
-
-    expect(await blockOutsideHost(page, PULLQUOTE, 'after')).toBe('After');
-  });
-
-  test('PullQuote: ArrowUp at the start of the quote (first block) exits above it', async ({
-    page,
-  }) => {
-    await focusEditor(page);
-    await insertPullQuote(page);
-    // The PullQuote is already the first block (insertion seeds no leading
-    // paragraph).
-
-    await click(page, PQ_QUOTE_FIRST);
-    await moveToLineBeginning(page);
-    await page.keyboard.press('ArrowUp');
-    await page.keyboard.type('Before');
-    await sleep(120);
-
-    expect(await blockOutsideHost(page, PULLQUOTE, 'before')).toBe('Before');
-  });
-
-  test('PullQuote: ArrowDown from the quote steps into the attribution', async ({
-    page,
-  }) => {
-    await focusEditor(page);
-    await insertPullQuote(page);
-    const before = await blockCount(page);
-
-    // From the end of the quote, ArrowDown steps into the attribution below it
-    // across the contentEditable island.
-    await click(page, PQ_QUOTE_FIRST);
-    await selectSlotEnd(page, 'pullquote', 'quote');
-    await page.keyboard.press('ArrowDown');
-    await sleep(100);
-
-    expect(
-      await caretInSelector(page, '[data-lexical-slot="attribution"]'),
-    ).toBe(true);
-    expect(await blockCount(page)).toBe(before);
-  });
-
-  test('PullQuote: ArrowUp from the attribution steps into the quote', async ({
-    page,
-  }) => {
-    await focusEditor(page);
-    await insertPullQuote(page);
-    const before = await blockCount(page);
-
-    // From the start of the attribution, ArrowUp steps into the quote above it.
-    await click(page, PQ_ATTRIBUTION);
-    await moveToLineBeginning(page);
-    await page.keyboard.press('ArrowUp');
-    await sleep(100);
-
-    expect(await caretInSelector(page, '[data-lexical-slot="quote"]')).toBe(
-      true,
-    );
     expect(await blockCount(page)).toBe(before);
   });
 });

@@ -401,7 +401,7 @@ function serializeHMRState(
       } recorded by another editor sharing this history. They can only be applied to the editor that recorded them, which this reload replaced.`,
     );
   }
-  return {family: serializeEditorStateFamily(states), history};
+  return {family: serializeEditorStateFamily(states, editor), history};
 }
 
 /**

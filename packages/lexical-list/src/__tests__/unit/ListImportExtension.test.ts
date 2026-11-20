@@ -6,25 +6,32 @@
  *
  */
 
+import {$insertDataTransferForRichText} from '@lexical/clipboard';
 import {
   buildEditorFromExtensions,
   getExtensionDependencyFromEditor,
   HorizontalRuleExtension,
+  NodeStructureExtension,
 } from '@lexical/extension';
 import {DOMImportExtension} from '@lexical/html';
+import {$isLinkNode, LinkExtension} from '@lexical/link';
 import {
   $isListItemNode,
   $isListNode,
   ListExtension,
-  ListImportExtension,
   ListItemNode,
   ListNode,
   WordListImportExtension,
 } from '@lexical/list';
+import {RichTextExtension} from '@lexical/rich-text';
 import {JSDOM} from 'jsdom';
 import {
+  $createParagraphNode,
+  $createTextNode,
   $getEditor,
   $getRoot,
+  $getSelection,
+  $isElementNode,
   defineExtension,
   type LexicalEditor,
   type LexicalNode,
@@ -61,8 +68,11 @@ function buildEditor() {
 function $generate(html: string): LexicalNode[] {
   const editor = $getEditor();
   const dep = getExtensionDependencyFromEditor(editor, DOMImportExtension);
-  const dom = new JSDOM(`<!doctype html><html><body>${html}</body></html>`);
-  return dep.output.$generateNodesFromDOM(dom.window.document);
+  const dom = new DOMParser().parseFromString(
+    `<!doctype html><html><body>${html}</body></html>`,
+    'text/html',
+  );
+  return dep.output.$generateNodesFromDOM(dom);
 }
 
 function importInto(editor: LexicalEditor, html: string): void {
@@ -185,19 +195,6 @@ describe('ListImportExtension', () => {
       }
     });
   });
-
-  test('deprecated ListImportExtension alias still imports lists', () => {
-    using editor = buildEditorFromExtensions(
-      defineExtension({
-        dependencies: [ListImportExtension],
-        name: 'list-alias-host',
-      }),
-    );
-    importInto(editor, '<ul><li>a</li></ul>');
-    editor.read(() => {
-      expect($items($rootList()).map(i => i.getTextContent())).toEqual(['a']);
-    });
-  });
 });
 
 // ----------------------------------------------------------------------------
@@ -229,6 +226,7 @@ function importHTMLDocument(editor: LexicalEditor, html: string): void {
   editor.update(
     () => {
       const dep = getExtensionDependencyFromEditor(editor, DOMImportExtension);
+      // Word list imports need CSSOM rules; jsdom's DOMParser omits styleSheets.
       const dom = new JSDOM(html);
       const nodes = dep.output.$generateNodesFromDOM(dom.window.document);
       $getRoot().clear().splice(0, 0, nodes);
@@ -432,6 +430,91 @@ describe('ListItemNode block flattening', () => {
         'text',
       ]);
     });
+  });
+
+  test('with NodeStructureExtension, no line break is left next to a block decorator', () => {
+    // The normalization splits the list around the rule; a line break next
+    // to it would be left at the edge of each half as an empty line.
+    using editor = buildEditorFromExtensions(
+      defineExtension({
+        dependencies: [
+          HorizontalRuleExtension,
+          ListExtension,
+          NodeStructureExtension,
+        ],
+        name: 'list-hr-structure-host',
+      }),
+    );
+    const shapeOf = (node: LexicalNode): unknown =>
+      $isListNode(node)
+        ? [
+            node.getStart(),
+            ...node
+              .getChildren()
+              .map(item =>
+                $isElementNode(item)
+                  ? item.getChildren().map(c => c.getType())
+                  : item.getType(),
+              ),
+          ]
+        : node.getType();
+    importInto(editor, '<ol><li>x</li><li>a<hr />b</li><li>y</li></ol>');
+    expect(editor.read(() => $getRoot().getChildren().map(shapeOf))).toEqual([
+      [1, ['text'], ['text']],
+      'horizontalrule',
+      // The second list continues the numbering: "b" is 3, "y" is 4.
+      [3, ['text'], ['text']],
+    ]);
+    importInto(editor, '<ul><li>a<p>b</p><hr /><p>c</p>d</li></ul>');
+    expect(editor.read(() => $getRoot().getChildren().map(shapeOf))).toEqual([
+      [1, ['text', 'linebreak', 'text']],
+      'horizontalrule',
+      [1, ['text', 'linebreak', 'text']],
+    ]);
+  });
+
+  test('with NodeStructureExtension, a pasted link around a list item stays on its text', () => {
+    const run = (withStructure: boolean): unknown => {
+      using editor = buildEditorFromExtensions(
+        defineExtension({
+          dependencies: [
+            RichTextExtension,
+            LinkExtension,
+            ListExtension,
+            ...(withStructure ? [NodeStructureExtension] : []),
+          ],
+          name: 'list-link-structure-host',
+        }),
+      );
+      editor.update(
+        () => {
+          const text = $createTextNode('AB');
+          $getRoot().clear().append($createParagraphNode().append(text));
+          text.select(2, 2);
+        },
+        {discrete: true},
+      );
+      editor.update(
+        () => {
+          const data = new DataTransfer();
+          data.setData('text/html', '<a href="https://a">l<li>x</li></a>');
+          $insertDataTransferForRichText(data, $getSelection()!, editor);
+        },
+        {discrete: true},
+      );
+      const shapeOf = (node: LexicalNode): unknown =>
+        $isLinkNode(node)
+          ? [`link:${node.getURL()}`, ...node.getChildren().map(shapeOf)]
+          : $isElementNode(node)
+            ? [node.getType(), ...node.getChildren().map(shapeOf)]
+            : node.getTextContent();
+      return editor.read(() => $getRoot().getChildren().map(shapeOf));
+    };
+    expect(run(true)).toEqual(run(false));
+    expect(run(true)).toEqual([
+      ['paragraph', 'AB', ['link:https://a', 'l']],
+      ['list', ['listitem', ['link:https://a', 'x']]],
+    ]);
   });
 
   test('preserves a nested list instead of flattening it', () => {

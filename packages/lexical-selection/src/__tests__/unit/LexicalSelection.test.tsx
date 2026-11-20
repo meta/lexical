@@ -2394,6 +2394,114 @@ describe('LexicalSelection tests', () => {
     });
   });
 
+  describe('$patchStyle', () => {
+    it('should patch the style with the new style object', async () => {
+      await act(async () => {
+        await editor!.update(() => {
+          const root = $getRoot();
+          const paragraph = $createParagraphNode();
+          const textNode = $createTextNode('Hello, World!');
+          textNode.setStyle('font-family: serif; color: red;');
+          paragraph.append(textNode);
+          root.append(paragraph);
+
+          const selection = $createRangeSelection();
+          $setSelection(selection);
+          selection.insertParagraph();
+          $setAnchorPoint({
+            key: textNode.getKey(),
+            offset: 0,
+            type: 'text',
+          });
+
+          $setFocusPoint({
+            key: textNode.getKey(),
+            offset: 10,
+            type: 'text',
+          });
+
+          const newStyle = {
+            color: 'blue',
+            'font-family': 'Arial',
+          };
+
+          $patchStyleText(selection, newStyle);
+
+          const cssFontFamilyValue = $getSelectionStyleValueForProperty(
+            selection,
+            'font-family',
+            '',
+          );
+          expect(cssFontFamilyValue).toBe('Arial');
+
+          const cssColorValue = $getSelectionStyleValueForProperty(
+            selection,
+            'color',
+            '',
+          );
+          expect(cssColorValue).toBe('blue');
+        });
+      });
+    });
+
+    it('should patch the style with property function', async () => {
+      await act(async () => {
+        await editor!.update(() => {
+          const currentColor = 'red';
+          const nextColor = 'blue';
+
+          const root = $getRoot();
+          const paragraph = $createParagraphNode();
+          const textNode = $createTextNode('Hello, World!');
+          textNode.setStyle(`color: ${currentColor};`);
+          paragraph.append(textNode);
+          root.append(paragraph);
+
+          const selection = $createRangeSelection();
+          $setSelection(selection);
+          selection.insertParagraph();
+          $setAnchorPoint({
+            key: textNode.getKey(),
+            offset: 0,
+            type: 'text',
+          });
+
+          $setFocusPoint({
+            key: textNode.getKey(),
+            offset: 10,
+            type: 'text',
+          });
+
+          const newStyle = {
+            color: vi.fn(
+              (current: string | null, target: LexicalNode | RangeSelection) =>
+                nextColor,
+            ),
+          };
+
+          $patchStyleText(selection, newStyle);
+
+          const cssColorValue = $getSelectionStyleValueForProperty(
+            selection,
+            'color',
+            '',
+          );
+
+          expect(cssColorValue).toBe(nextColor);
+          expect(newStyle.color).toHaveBeenCalledTimes(1);
+
+          const lastCall = newStyle.color.mock.lastCall!;
+          expect(lastCall[0]).toBe(currentColor);
+          // @ts-ignore - It expected to be a LexicalNode
+          expect($isTextNode(lastCall[1])).toBeTruthy();
+        });
+      });
+    });
+  });
+});
+
+// These cases create their own editors; they do not need the React fixture.
+describe('LexicalSelection tests', () => {
   describe('Node.replace', () => {
     let text1: TextNode,
       text2: TextNode,
@@ -2631,111 +2739,6 @@ describe('LexicalSelection tests', () => {
           '',
         );
         expect(cssColorValue).toBe('red');
-      });
-    });
-  });
-
-  describe('$patchStyle', () => {
-    it('should patch the style with the new style object', async () => {
-      await act(async () => {
-        await editor!.update(() => {
-          const root = $getRoot();
-          const paragraph = $createParagraphNode();
-          const textNode = $createTextNode('Hello, World!');
-          textNode.setStyle('font-family: serif; color: red;');
-          paragraph.append(textNode);
-          root.append(paragraph);
-
-          const selection = $createRangeSelection();
-          $setSelection(selection);
-          selection.insertParagraph();
-          $setAnchorPoint({
-            key: textNode.getKey(),
-            offset: 0,
-            type: 'text',
-          });
-
-          $setFocusPoint({
-            key: textNode.getKey(),
-            offset: 10,
-            type: 'text',
-          });
-
-          const newStyle = {
-            color: 'blue',
-            'font-family': 'Arial',
-          };
-
-          $patchStyleText(selection, newStyle);
-
-          const cssFontFamilyValue = $getSelectionStyleValueForProperty(
-            selection,
-            'font-family',
-            '',
-          );
-          expect(cssFontFamilyValue).toBe('Arial');
-
-          const cssColorValue = $getSelectionStyleValueForProperty(
-            selection,
-            'color',
-            '',
-          );
-          expect(cssColorValue).toBe('blue');
-        });
-      });
-    });
-
-    it('should patch the style with property function', async () => {
-      await act(async () => {
-        await editor!.update(() => {
-          const currentColor = 'red';
-          const nextColor = 'blue';
-
-          const root = $getRoot();
-          const paragraph = $createParagraphNode();
-          const textNode = $createTextNode('Hello, World!');
-          textNode.setStyle(`color: ${currentColor};`);
-          paragraph.append(textNode);
-          root.append(paragraph);
-
-          const selection = $createRangeSelection();
-          $setSelection(selection);
-          selection.insertParagraph();
-          $setAnchorPoint({
-            key: textNode.getKey(),
-            offset: 0,
-            type: 'text',
-          });
-
-          $setFocusPoint({
-            key: textNode.getKey(),
-            offset: 10,
-            type: 'text',
-          });
-
-          const newStyle = {
-            color: vi.fn(
-              (current: string | null, target: LexicalNode | RangeSelection) =>
-                nextColor,
-            ),
-          };
-
-          $patchStyleText(selection, newStyle);
-
-          const cssColorValue = $getSelectionStyleValueForProperty(
-            selection,
-            'color',
-            '',
-          );
-
-          expect(cssColorValue).toBe(nextColor);
-          expect(newStyle.color).toHaveBeenCalledTimes(1);
-
-          const lastCall = newStyle.color.mock.lastCall!;
-          expect(lastCall[0]).toBe(currentColor);
-          // @ts-ignore - It expected to be a LexicalNode
-          expect($isTextNode(lastCall[1])).toBeTruthy();
-        });
       });
     });
   });

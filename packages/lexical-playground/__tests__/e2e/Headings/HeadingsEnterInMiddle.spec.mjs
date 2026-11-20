@@ -20,12 +20,12 @@ import {
   test,
 } from '../../utils/index.mjs';
 
+test.skip(({isPlainText}) => isPlainText, 'Requires rich text');
+
 test(`Headings - stays as a heading when you press enter in the middle of a heading`, async ({
   page,
   isCollab,
-  isPlainText,
 }) => {
-  test.skip(isPlainText);
   await initialize({isCollab, page});
   await focusEditor(page);
 

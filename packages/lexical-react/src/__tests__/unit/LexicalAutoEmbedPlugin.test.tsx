@@ -6,9 +6,7 @@
  *
  */
 
-import type {LexicalEditor, NodeKey} from 'lexical';
-
-import {AutoLinkNode, LinkNode} from '@lexical/link';
+import {$isLinkNode, AutoLinkNode, LinkNode} from '@lexical/link';
 import {
   AutoEmbedOption,
   type EmbedConfig,
@@ -26,12 +24,21 @@ import {EditorRefPlugin} from '@lexical/react/LexicalEditorRefPlugin';
 import {LexicalErrorBoundary} from '@lexical/react/LexicalErrorBoundary';
 import {type MenuRenderFn} from '@lexical/react/LexicalNodeMenuPlugin';
 import {RichTextPlugin} from '@lexical/react/LexicalRichTextPlugin';
+import {$createQuoteNode, $isQuoteNode, QuoteNode} from '@lexical/rich-text';
+import {$getNearestNodeOfType} from '@lexical/utils';
 import {
   $createParagraphNode,
   $createTextNode,
   $getNodeByKey,
   $getRoot,
+  $getSelection,
+  $isParagraphNode,
   $isTextNode,
+  $setSelection,
+  type LexicalEditor,
+  type LexicalNode,
+  type NodeKey,
+  type ParagraphNode,
   PASTE_COMMAND,
   PASTE_TAG,
 } from 'lexical';
@@ -60,13 +67,17 @@ const MATCHERS = [
 
 const menuRenderFn: MenuRenderFn<AutoEmbedOption> = (
   anchorElementRef,
-  {options},
+  {options, selectOptionAndCleanUp},
 ) =>
   anchorElementRef.current && options.length
     ? ReactDOM.createPortal(
         <ul data-testid="auto-embed-menu">
           {options.map(option => (
-            <li key={option.key}>{option.title}</li>
+            <li key={option.key}>
+              <button onClick={() => selectOptionAndCleanUp(option)}>
+                {option.title}
+              </button>
+            </li>
           ))}
         </ul>,
         anchorElementRef.current,
@@ -81,15 +92,48 @@ function createPasteEvent(data: Record<string, string>): ClipboardEvent {
   return new ClipboardEvent('paste', {clipboardData});
 }
 
-describe('LexicalAutoEmbedPlugin', () => {
-  let container: HTMLDivElement;
-  let reactRoot: Root;
-  let editor: LexicalEditor;
-  let onError: Mock<(error: Error) => void>;
-  let parseUrl: ReturnType<
-    typeof vi.fn<(url: string) => EmbedMatchResult | null>
-  >;
+let container: HTMLDivElement;
+let reactRoot: Root;
+let editor: LexicalEditor;
+let onError: Mock<(error: Error) => void>;
+let parseUrl: Mock<EmbedConfig['parseUrl']>;
+let insertNode: Mock<EmbedConfig['insertNode']>;
+let embedConfig: EmbedConfig;
+const editorRef = React.createRef<LexicalEditor>();
 
+function App({
+  $disableMenuFor,
+}: {
+  $disableMenuFor?: (node: LexicalNode) => boolean;
+}) {
+  return (
+    <LexicalComposer
+      initialConfig={{
+        namespace: 'test-auto-embed',
+        nodes: [LinkNode, AutoLinkNode, QuoteNode],
+        onError,
+        theme: {},
+      }}>
+      <RichTextPlugin
+        contentEditable={<ContentEditable />}
+        placeholder={null}
+        ErrorBoundary={LexicalErrorBoundary}
+      />
+      <AutoLinkPlugin matchers={MATCHERS} />
+      <EditorRefPlugin editorRef={editorRef} />
+      <LexicalAutoEmbedPlugin
+        embedConfigs={[embedConfig]}
+        getMenuOptions={(_config, embedFn) => [
+          new AutoEmbedOption('Embed', {onSelect: embedFn}),
+        ]}
+        menuRenderFn={menuRenderFn}
+        $disableMenuFor={$disableMenuFor}
+      />
+    </LexicalComposer>
+  );
+}
+
+describe('LexicalAutoEmbedPlugin', () => {
   beforeEach(async () => {
     class ResizeObserverMock {
       // LexicalMenu only constructs ResizeObserver and calls observe/unobserve/disconnect.
@@ -110,39 +154,12 @@ describe('LexicalAutoEmbedPlugin', () => {
       const match = /(?:youtube\.com\/watch\?v=|youtu\.be\/)([\w-]+)/.exec(url);
       return match ? {id: match[1], url} : null;
     });
-    const embedConfig: EmbedConfig = {
-      insertNode: vi.fn(),
+    insertNode = vi.fn();
+    embedConfig = {
+      insertNode,
       parseUrl,
       type: 'youtube-video',
     };
-    const editorRef = React.createRef<LexicalEditor>();
-
-    function App() {
-      return (
-        <LexicalComposer
-          initialConfig={{
-            namespace: 'test-auto-embed',
-            nodes: [LinkNode, AutoLinkNode],
-            onError,
-            theme: {},
-          }}>
-          <RichTextPlugin
-            contentEditable={<ContentEditable />}
-            placeholder={null}
-            ErrorBoundary={LexicalErrorBoundary}
-          />
-          <AutoLinkPlugin matchers={MATCHERS} />
-          <EditorRefPlugin editorRef={editorRef} />
-          <LexicalAutoEmbedPlugin
-            embedConfigs={[embedConfig]}
-            getMenuOptions={(_config, embedFn) => [
-              new AutoEmbedOption('Embed', {onSelect: embedFn}),
-            ]}
-            menuRenderFn={menuRenderFn}
-          />
-        </LexicalComposer>
-      );
-    }
 
     await act(async () => {
       reactRoot.render(<App />);
@@ -188,6 +205,165 @@ describe('LexicalAutoEmbedPlugin', () => {
   function getMenu(): Element | null {
     return document.querySelector('[data-testid="auto-embed-menu"]');
   }
+
+  function deferParseUrl(): (result: EmbedMatchResult | null) => void {
+    let resolve!: (result: EmbedMatchResult | null) => void;
+    parseUrl.mockReturnValueOnce(
+      new Promise<EmbedMatchResult | null>(res => {
+        resolve = res;
+      }),
+    );
+    return resolve;
+  }
+
+  function getEmbedButton(): HTMLButtonElement {
+    const button = getMenu()?.querySelector('button') ?? null;
+    expect(button).not.toBeNull();
+    return button!;
+  }
+
+  async function selectEmbedOption(): Promise<void> {
+    const button = getEmbedButton();
+    await act(async () => {
+      button.click();
+    });
+  }
+
+  function $getParagraph(): ParagraphNode {
+    return $assertNodeType($getRoot().getFirstChild(), $isParagraphNode);
+  }
+
+  function $getPastedLink(): LinkNode {
+    return $assertNodeType($getParagraph().getFirstChild(), $isLinkNode);
+  }
+
+  it('embeds an unchanged link without parsing its URL again', async () => {
+    await paste({'text/plain': YOUTUBE_URL});
+    await selectEmbedOption();
+
+    expect(parseUrl).toHaveBeenCalledOnce();
+    expect(insertNode).toHaveBeenCalledExactlyOnceWith(editor, {
+      id: 'jNQXAC9IVRw',
+      url: YOUTUBE_URL,
+    });
+    expect(onError).not.toHaveBeenCalled();
+    editor.read(() => {
+      expect($getRoot().getTextContent()).toBe('');
+    });
+  });
+
+  it('embeds an unchanged link with no selection', async () => {
+    await paste({'text/plain': YOUTUBE_URL});
+    await act(async () => {
+      editor.update(() => $setSelection(null));
+    });
+    await selectEmbedOption();
+
+    expect(parseUrl).toHaveBeenCalledOnce();
+    expect(insertNode).toHaveBeenCalledExactlyOnceWith(editor, {
+      id: 'jNQXAC9IVRw',
+      url: YOUTUBE_URL,
+    });
+    expect(onError).not.toHaveBeenCalled();
+    editor.read(() => {
+      expect($getRoot().getTextContent()).toBe('');
+      expect($getSelection()).not.toBeNull();
+    });
+  });
+
+  it('does not embed a link removed by a pending update', async () => {
+    await paste({'text/plain': YOUTUBE_URL});
+    const button = getEmbedButton();
+
+    await act(async () => {
+      editor.update(() => {
+        $getPastedLink().remove();
+        $getParagraph().selectEnd();
+      });
+      button.click();
+    });
+
+    expect(insertNode).not.toHaveBeenCalled();
+    expect(onError).not.toHaveBeenCalled();
+    editor.read(() => {
+      expect($getRoot().getTextContent()).toBe('');
+    });
+  });
+
+  it('does not embed a link whose URL changed in a pending update', async () => {
+    await paste({'text/plain': YOUTUBE_URL});
+    const button = getEmbedButton();
+
+    await act(async () => {
+      editor.update(() => {
+        $getPastedLink().setURL('https://example.com/');
+      });
+      button.click();
+    });
+
+    expect(insertNode).not.toHaveBeenCalled();
+    expect(onError).not.toHaveBeenCalled();
+    editor.read(() => {
+      expect($getPastedLink().getURL()).toBe('https://example.com/');
+    });
+  });
+
+  it('does not let an older paste that resolves late replace the menu', async () => {
+    const OTHER_URL = 'https://www.youtube.com/watch?v=OTHERvid123';
+    const resolveFirst = deferParseUrl();
+    await paste({'text/plain': YOUTUBE_URL});
+    expect(getMenu()).toBeNull();
+    await paste({'text/plain': OTHER_URL}, () => {
+      const paragraph = $createParagraphNode();
+      $getRoot().append(paragraph);
+      paragraph.select();
+    });
+    expect(getMenu()).not.toBeNull();
+
+    await act(async () => {
+      resolveFirst({id: 'jNQXAC9IVRw', url: YOUTUBE_URL});
+    });
+    await selectEmbedOption();
+
+    expect(insertNode).toHaveBeenCalledExactlyOnceWith(editor, {
+      id: 'OTHERvid123',
+      url: OTHER_URL,
+    });
+  });
+
+  it('does not offer to embed a link whose URL changed while parsing', async () => {
+    const resolveParseUrl = deferParseUrl();
+    await paste({'text/plain': YOUTUBE_URL});
+    expect(getMenu()).toBeNull();
+
+    await act(async () => {
+      editor.update(() => {
+        $getPastedLink().setURL('https://example.com/');
+      });
+    });
+    await act(async () => {
+      resolveParseUrl({id: 'jNQXAC9IVRw', url: YOUTUBE_URL});
+    });
+
+    expect(getMenu()).toBeNull();
+    expect(onError).not.toHaveBeenCalled();
+  });
+
+  it('does not offer to embed a link with a pending URL change when parsing resolves', async () => {
+    const resolveParseUrl = deferParseUrl();
+    await paste({'text/plain': YOUTUBE_URL});
+    expect(getMenu()).toBeNull();
+
+    await act(async () => {
+      resolveParseUrl({id: 'jNQXAC9IVRw', url: YOUTUBE_URL});
+      editor.update(() => {
+        $getPastedLink().setURL('https://example.com/');
+      });
+    });
+
+    expect(getMenu()).toBeNull();
+    expect(onError).not.toHaveBeenCalled();
+  });
 
   it('offers to embed a bare URL pasted as plain text', async () => {
     await paste({'text/plain': YOUTUBE_URL});
@@ -317,5 +493,69 @@ describe('LexicalAutoEmbedPlugin', () => {
     editor.read(() => {
       expect($getRoot().getTextContent()).toBe('replaced');
     });
+  });
+
+  it('does not show the menu when a $disableMenuFor predicate matches the link location', async () => {
+    await act(async () => {
+      reactRoot.render(
+        <App
+          $disableMenuFor={node =>
+            $getNearestNodeOfType(node, QuoteNode) !== null
+          }
+        />,
+      );
+    });
+    await act(async () => {
+      editor.update(
+        () => {
+          $getRoot().append($createQuoteNode().append($createParagraphNode()));
+        },
+        {discrete: true},
+      );
+    });
+
+    await paste({'text/plain': YOUTUBE_URL}, () => {
+      const quote = $assertNodeType($getRoot().getLastChild(), $isQuoteNode);
+      $assertNodeType(quote.getFirstChild(), $isParagraphNode).selectEnd();
+    });
+
+    // The menu never opens, so the URL is never even parsed and the pasted
+    // link is left untouched.
+    expect(parseUrl).not.toHaveBeenCalled();
+    expect(getMenu()).toBeNull();
+    expect(onError).not.toHaveBeenCalled();
+    editor.read(() => {
+      const quote = $assertNodeType($getRoot().getLastChild(), $isQuoteNode);
+      const paragraph = $assertNodeType(
+        quote.getFirstChild(),
+        $isParagraphNode,
+      );
+      expect($assertNodeType(paragraph.getFirstChild(), $isLinkNode)).toBe(
+        paragraph.getFirstChild(),
+      );
+    });
+  });
+
+  it('shows the menu when no $disableMenuFor predicate matches', async () => {
+    await act(async () => {
+      reactRoot.render(
+        <App
+          $disableMenuFor={node =>
+            $getNearestNodeOfType(node, QuoteNode) !== null
+          }
+        />,
+      );
+    });
+
+    // The default paste target is the root paragraph, outside any quote.
+    await paste({'text/plain': YOUTUBE_URL});
+
+    expect(getMenu()).not.toBeNull();
+    await selectEmbedOption();
+    expect(insertNode).toHaveBeenCalledExactlyOnceWith(editor, {
+      id: 'jNQXAC9IVRw',
+      url: YOUTUBE_URL,
+    });
+    expect(onError).not.toHaveBeenCalled();
   });
 });

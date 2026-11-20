@@ -6,19 +6,13 @@
  *
  */
 
-import {
-  $isCodeNode,
-  CodeExtension,
-  CodeImportExtension,
-  type CodeNode,
-} from '@lexical/code-core';
+import {$isCodeNode, CodeExtension, type CodeNode} from '@lexical/code-core';
 import {
   buildEditorFromExtensions,
   getExtensionDependencyFromEditor,
 } from '@lexical/extension';
 import {DOMImportExtension} from '@lexical/html';
 import {$isTableNode, TableExtension} from '@lexical/table';
-import {JSDOM} from 'jsdom';
 import {
   $getEditor,
   $getRoot,
@@ -44,8 +38,11 @@ function buildEditor() {
 function $generate(html: string): LexicalNode[] {
   const editor = $getEditor();
   const dep = getExtensionDependencyFromEditor(editor, DOMImportExtension);
-  const dom = new JSDOM(`<!doctype html><html><body>${html}</body></html>`);
-  return dep.output.$generateNodesFromDOM(dom.window.document);
+  const dom = new DOMParser().parseFromString(
+    `<!doctype html><html><body>${html}</body></html>`,
+    'text/html',
+  );
+  return dep.output.$generateNodesFromDOM(dom);
 }
 
 function importInto(editor: LexicalEditor, html: string): void {
@@ -199,21 +196,6 @@ describe('CodeImportExtension', () => {
         !$isCodeNode(root.getFirstChild()),
         'plain table should not become a CodeNode',
       );
-    });
-  });
-
-  test('deprecated CodeImportExtension alias still imports <pre>', () => {
-    using editor = buildEditorFromExtensions(
-      defineExtension({
-        dependencies: [CodeImportExtension],
-        name: 'code-alias-host',
-      }),
-    );
-    importInto(editor, '<pre data-language="ts">const x = 1;</pre>');
-    editor.read(() => {
-      const node = $getRoot().getFirstChild();
-      assert($isCodeNode(node), 'expected CodeNode');
-      expect(node.getLanguage()).toBe('ts');
     });
   });
 });

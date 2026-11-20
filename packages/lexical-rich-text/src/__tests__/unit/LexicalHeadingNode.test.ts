@@ -6,6 +6,7 @@
  *
  */
 
+import {$createLinkNode} from '@lexical/link';
 import {
   $createListItemNode,
   $createListNode,
@@ -20,18 +21,23 @@ import {
   HeadingNode,
 } from '@lexical/rich-text';
 import {
+  $createLineBreakNode,
   $createParagraphNode,
+  $createRangeSelection,
   $createTextNode,
   $getRoot,
   $getSelection,
   $isElementNode,
   $isTextNode,
+  $setSelection,
+  type LexicalNode,
   ParagraphNode,
   type RangeSelection,
   type TextNode,
 } from 'lexical';
 import {
   $assertNodeType,
+  $createTestDecoratorNode,
   $createTestElementNode,
   initializeUnitTest,
   invariant,
@@ -521,6 +527,167 @@ describe('Backspace at start of heading (#4359)', () => {
         expect(children).toHaveLength(1);
         expect($isHeadingNode(children[0])).toBe(false);
         expect(children[0].getType()).toBe('paragraph');
+      });
+    });
+  });
+});
+
+describe('Enter in a heading after a line break or an inline decorator (#9293)', () => {
+  function $replaceRootWithHeading(...children: LexicalNode[]): HeadingNode {
+    const heading = $createHeadingNode('h1').append(...children);
+    $getRoot().clear().append(heading);
+    return heading;
+  }
+
+  function $describeBlocks(): string[][] {
+    return $getRoot()
+      .getChildren()
+      .map(block => {
+        invariant($isElementNode(block));
+        return [
+          $isHeadingNode(block) ? block.getTag() : block.getType(),
+          ...block
+            .getChildren()
+            .map(child =>
+              $isTextNode(child) ? child.getTextContent() : child.getType(),
+            ),
+        ];
+      });
+  }
+
+  initializeUnitTest(testEnv => {
+    test.for<{
+      name: string;
+      $build: () => RangeSelection;
+      expected: string[][];
+    }>([
+      {
+        $build: () => {
+          const second = $createTextNode('second');
+          $replaceRootWithHeading(
+            $createTextNode('first'),
+            $createLineBreakNode(),
+            second,
+          );
+          return second.select(0, 0);
+        },
+        expected: [
+          ['h1', 'first', 'linebreak'],
+          ['h1', 'second'],
+        ],
+        name: 'start of the text after a line break splits the heading',
+      },
+      {
+        $build: () => {
+          const text = $createTextNode(' b');
+          $replaceRootWithHeading(
+            $createTextNode('a '),
+            $createTestDecoratorNode(),
+            text,
+          );
+          return text.select(0, 0);
+        },
+        expected: [
+          ['h1', 'a ', 'test_decorator'],
+          ['h1', ' b'],
+        ],
+        name: 'just after an inline decorator splits the heading',
+      },
+      {
+        $build: () =>
+          $replaceRootWithHeading(
+            $createTextNode('first'),
+            $createLineBreakNode(),
+          ).select(2, 2),
+        expected: [['h1', 'first', 'linebreak'], ['paragraph']],
+        name: 'end of a heading that ends with a line break adds a paragraph',
+      },
+      {
+        $build: () =>
+          $replaceRootWithHeading(
+            $createTextNode('a '),
+            $createTestDecoratorNode(),
+          ).select(2, 2),
+        expected: [['h1', 'a ', 'test_decorator'], ['paragraph']],
+        name: 'end of a heading that ends with an inline decorator adds a paragraph',
+      },
+      {
+        $build: () => {
+          const first = $createTextNode('first');
+          $replaceRootWithHeading(
+            first,
+            $createLineBreakNode(),
+            $createTextNode('second'),
+          );
+          return first.select(0, 0);
+        },
+        expected: [['paragraph'], ['h1', 'first', 'linebreak', 'second']],
+        name: 'start of the heading adds a paragraph above',
+      },
+      {
+        $build: () => {
+          const link = $createLinkNode('https://lexical.dev').append(
+            $createTextNode('a'),
+          );
+          $replaceRootWithHeading(link, $createTextNode(' b'));
+          // link.select(0, 0) would move into the text: a link can't be empty.
+          const selection = $createRangeSelection();
+          selection.anchor.set(link.getKey(), 0, 'element');
+          selection.focus.set(link.getKey(), 0, 'element');
+          $setSelection(selection);
+          return selection;
+        },
+        expected: [['paragraph'], ['h1', 'link', ' b']],
+        name: '(link, 0) in a leading link adds a paragraph above',
+      },
+      {
+        $build: () =>
+          $replaceRootWithHeading(
+            $createTestDecoratorNode(),
+            $createTextNode(' b'),
+          ).select(0, 0),
+        expected: [['paragraph'], ['h1', 'test_decorator', ' b']],
+        name: 'start of the heading before an inline decorator adds a paragraph above',
+      },
+      {
+        $build: () => {
+          const second = $createTextNode('second');
+          $replaceRootWithHeading(
+            $createTextNode('first'),
+            $createLineBreakNode(),
+            second,
+          );
+          return second.select(3, 3);
+        },
+        expected: [
+          ['h1', 'first', 'linebreak', 'sec'],
+          ['h1', 'ond'],
+        ],
+        name: 'middle of a word splits the heading',
+      },
+      {
+        $build: () => {
+          const second = $createTextNode('second');
+          $replaceRootWithHeading(
+            $createTextNode('first'),
+            $createLineBreakNode(),
+            second,
+          );
+          return second.select(6, 6);
+        },
+        expected: [['h1', 'first', 'linebreak', 'second'], ['paragraph']],
+        name: 'end of the text adds a paragraph',
+      },
+    ])('$name', ({$build, expected}) => {
+      const {editor} = testEnv;
+      editor.update(
+        () => {
+          $build().insertParagraph();
+        },
+        {discrete: true},
+      );
+      editor.read(() => {
+        expect($describeBlocks()).toEqual(expected);
       });
     });
   });

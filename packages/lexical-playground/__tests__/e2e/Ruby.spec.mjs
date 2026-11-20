@@ -25,8 +25,12 @@ import {
   pasteFromClipboard,
   sleep,
   test,
-  withExclusiveClipboardAccess,
 } from '../utils/index.mjs';
+
+test.skip(
+  ({isPlainText, isCollab}) => isPlainText || !!isCollab,
+  'Requires rich text without collaboration',
+);
 
 async function insertRubyViaToolbar(page, annotation) {
   await click(page, 'button[aria-label="Insert ruby annotation"]');
@@ -139,13 +143,7 @@ async function selectNodeText(page, textContent) {
 test.describe('Ruby', () => {
   test.beforeEach(({isCollab, page}) => initialize({isCollab, page}));
 
-  test('Can insert a ruby annotation via toolbar', async ({
-    page,
-    isCollab,
-    isPlainText,
-  }) => {
-    test.skip(isPlainText);
-    test.skip(isCollab);
+  test('Can insert a ruby annotation via toolbar', async ({page}) => {
     await focusEditor(page);
 
     await page.keyboard.type('Hello');
@@ -174,11 +172,7 @@ test.describe('Ruby', () => {
 
   test('Ruby DOM has wrapper span with inner annotated span', async ({
     page,
-    isCollab,
-    isPlainText,
   }) => {
-    test.skip(isPlainText);
-    test.skip(isCollab);
     await focusEditor(page);
 
     await page.keyboard.type('漢');
@@ -208,13 +202,7 @@ test.describe('Ruby', () => {
     expect(structure.innerText).toBe('漢');
   });
 
-  test('Arrow left skips over ruby node', async ({
-    page,
-    isCollab,
-    isPlainText,
-  }) => {
-    test.skip(isPlainText);
-    test.skip(isCollab);
+  test('Arrow left skips over ruby node', async ({page}) => {
     await focusEditor(page);
 
     // "ABC" → select "B" → ruby → "A" + ruby("B","び") + "C"
@@ -235,13 +223,7 @@ test.describe('Ruby', () => {
     expect(info.anchor.offset).toBe(1);
   });
 
-  test('Arrow right skips over ruby node', async ({
-    page,
-    isCollab,
-    isPlainText,
-  }) => {
-    test.skip(isPlainText);
-    test.skip(isCollab);
+  test('Arrow right skips over ruby node', async ({page}) => {
     await focusEditor(page);
 
     // "ABC" → select "B" → ruby → "A" + ruby("B","び") + "C"
@@ -264,11 +246,7 @@ test.describe('Ruby', () => {
 
   test('Backspace at ruby boundary deletes ruby as atomic unit', async ({
     page,
-    isCollab,
-    isPlainText,
   }) => {
-    test.skip(isPlainText);
-    test.skip(isCollab);
     await focusEditor(page);
 
     // "ABC" → select "B" → ruby → "A" + ruby("B","び") + "C"
@@ -296,11 +274,7 @@ test.describe('Ruby', () => {
 
   test('Delete key at ruby boundary deletes ruby as atomic unit', async ({
     page,
-    isCollab,
-    isPlainText,
   }) => {
-    test.skip(isPlainText);
-    test.skip(isCollab);
     await focusEditor(page);
 
     // "ABC" → select "B" → ruby → "A" + ruby("B","び") + "C"
@@ -326,13 +300,7 @@ test.describe('Ruby', () => {
     );
   });
 
-  test('Select-all and typing replaces ruby', async ({
-    page,
-    isCollab,
-    isPlainText,
-  }) => {
-    test.skip(isPlainText);
-    test.skip(isCollab);
+  test('Select-all and typing replaces ruby', async ({page}) => {
     await focusEditor(page);
 
     await page.keyboard.type('XY');
@@ -360,11 +328,7 @@ test.describe('Ruby', () => {
 
   test('Toggle ruby off removes annotation and restores plain text', async ({
     page,
-    isCollab,
-    isPlainText,
   }) => {
-    test.skip(isPlainText);
-    test.skip(isCollab);
     await focusEditor(page);
 
     await page.keyboard.type('Word');
@@ -391,13 +355,7 @@ test.describe('Ruby', () => {
     expect(textContent).toContain('Word');
   });
 
-  test('Copy and paste preserves ruby annotation', async ({
-    page,
-    isCollab,
-    isPlainText,
-  }) => {
-    test.skip(isPlainText);
-    test.skip(isCollab);
+  test('Copy and paste preserves ruby annotation', async ({page}) => {
     await focusEditor(page);
 
     await page.keyboard.type('Test');
@@ -406,7 +364,7 @@ test.describe('Ruby', () => {
 
     await selectAll(page);
 
-    await withExclusiveClipboardAccess(async () => {
+    {
       const clipboard = await copyToClipboard(page);
 
       // Collapse selection to end before Enter (webkit keeps selection
@@ -414,7 +372,7 @@ test.describe('Ruby', () => {
       await page.keyboard.press('ArrowRight');
       await page.keyboard.press('Enter');
       await pasteFromClipboard(page, clipboard);
-    });
+    }
 
     await sleep(100);
 
@@ -424,49 +382,7 @@ test.describe('Ruby', () => {
     expect(rubies[1]).toEqual({annotation: 'テスト', text: 'Test'});
   });
 
-  test('Ruby node serializes correctly to JSON', async ({
-    page,
-    isCollab,
-    isPlainText,
-  }) => {
-    test.skip(isPlainText);
-    test.skip(isCollab);
-    await focusEditor(page);
-
-    await page.keyboard.type('漢字');
-    await selectAll(page);
-    await insertRubyViaToolbar(page, 'かんじ');
-
-    const roundTrip = await evaluate(page, () => {
-      const editor = window.lexicalEditor;
-      let json;
-      editor.read(() => {
-        json = editor.getEditorState().toJSON();
-      });
-      const paragraph = json.root.children[0];
-      const rubyJSON = paragraph.children.find(c => c.type === 'ruby');
-      return rubyJSON
-        ? {
-            annotation: rubyJSON.annotation,
-            text: rubyJSON.text,
-            type: rubyJSON.type,
-          }
-        : null;
-    });
-
-    expect(roundTrip).not.toBeNull();
-    expect(roundTrip.type).toBe('ruby');
-    expect(roundTrip.text).toBe('漢字');
-    expect(roundTrip.annotation).toBe('かんじ');
-  });
-
-  test('Multiple adjacent ruby nodes are independent', async ({
-    page,
-    isCollab,
-    isPlainText,
-  }) => {
-    test.skip(isPlainText);
-    test.skip(isCollab);
+  test('Multiple adjacent ruby nodes are independent', async ({page}) => {
     await focusEditor(page);
 
     await page.keyboard.type('AB');
@@ -498,45 +414,7 @@ test.describe('Ruby', () => {
     expect(rubies[1]).toEqual({annotation: 'びー', text: 'B'});
   });
 
-  test('Ruby exportDOM produces semantic <ruby> with <rt>', async ({
-    page,
-    isCollab,
-    isPlainText,
-  }) => {
-    test.skip(isPlainText);
-    test.skip(isCollab);
-    await focusEditor(page);
-
-    await page.keyboard.type('漢');
-    await selectAll(page);
-    await insertRubyViaToolbar(page, 'かん');
-
-    const exportedHTML = await evaluate(page, () => {
-      const editor = window.lexicalEditor;
-      let result = '';
-      editor.read(() => {
-        for (const [, node] of editor.getEditorState()._nodeMap) {
-          if (node.getType() === 'ruby') {
-            const {element} = node.exportDOM();
-            result = element.outerHTML;
-          }
-        }
-      });
-      return result;
-    });
-
-    expect(exportedHTML).toBe(
-      '<ruby>漢<rp>(</rp><rt>かん</rt><rp>)</rp></ruby>',
-    );
-  });
-
-  test('Ruby node with collapsed selection is a no-op', async ({
-    page,
-    isCollab,
-    isPlainText,
-  }) => {
-    test.skip(isPlainText);
-    test.skip(isCollab);
+  test('Ruby node with collapsed selection is a no-op', async ({page}) => {
     await focusEditor(page);
 
     await page.keyboard.type('Hello');
@@ -566,11 +444,7 @@ test.describe('Ruby — Shift+arrow selection', () => {
 
   test('Shift+Right extends selection past ruby to next text', async ({
     page,
-    isCollab,
-    isPlainText,
   }) => {
-    test.skip(isPlainText);
-    test.skip(isCollab);
     await focusEditor(page);
 
     // "ABC" → select "B" → ruby → "A" + ruby("B","び") + "C"
@@ -600,11 +474,7 @@ test.describe('Ruby — Shift+arrow selection', () => {
 
   test('Shift+Left extends selection past ruby to previous text', async ({
     page,
-    isCollab,
-    isPlainText,
   }) => {
-    test.skip(isPlainText);
-    test.skip(isCollab);
     await focusEditor(page);
 
     // "ABC" → select "B" → ruby → "A" + ruby("B","び") + "C"
@@ -631,11 +501,7 @@ test.describe('Ruby — Shift+arrow selection', () => {
 
   test('repeated Shift+Right across a ruby keeps extending the selection', async ({
     page,
-    isCollab,
-    isPlainText,
   }) => {
-    test.skip(isPlainText);
-    test.skip(isCollab);
     await focusEditor(page);
 
     // "ABCDEF" → select "B" → ruby → "A" + ruby("B","び") + "CDEF"
@@ -674,13 +540,7 @@ test.describe('Ruby — Shift+arrow selection', () => {
     }
   });
 
-  test('Shift+Right skips consecutive ruby group', async ({
-    page,
-    isCollab,
-    isPlainText,
-  }) => {
-    test.skip(isPlainText);
-    test.skip(isCollab);
+  test('Shift+Right skips consecutive ruby group', async ({page}) => {
     await focusEditor(page);
 
     // "ABCD" → select "B" → ruby, then select "C" → ruby
@@ -726,13 +586,7 @@ test.describe('Ruby — Shift+arrow selection', () => {
     expect(info.focus.type).toBe('ruby');
   });
 
-  test('Shift+Left skips consecutive ruby group', async ({
-    page,
-    isCollab,
-    isPlainText,
-  }) => {
-    test.skip(isPlainText);
-    test.skip(isCollab);
+  test('Shift+Left skips consecutive ruby group', async ({page}) => {
     await focusEditor(page);
 
     // "ABCD" → rubies on "B" and "C"
@@ -783,11 +637,7 @@ test.describe('Ruby — line boundary navigation', () => {
 
   test('Arrow left at line start when ruby is first child does not get stuck', async ({
     page,
-    isCollab,
-    isPlainText,
   }) => {
-    test.skip(isPlainText);
-    test.skip(isCollab);
     await focusEditor(page);
 
     // "AB" → select "A" → ruby → ruby("A","えい") + "B"
@@ -828,11 +678,7 @@ test.describe('Ruby — line boundary navigation', () => {
 
   test('Arrow right at line end when ruby is last child does not get stuck', async ({
     page,
-    isCollab,
-    isPlainText,
   }) => {
-    test.skip(isPlainText);
-    test.skip(isCollab);
     await focusEditor(page);
 
     // "AB" → select "B" → ruby → "A" + ruby("B","び")
@@ -857,11 +703,7 @@ test.describe('Ruby — line boundary navigation', () => {
 
   test('Shift+Left at line start when ruby is first child extends to boundary', async ({
     page,
-    isCollab,
-    isPlainText,
   }) => {
-    test.skip(isPlainText);
-    test.skip(isCollab);
     await focusEditor(page);
 
     // "AB" → select "A" → ruby → ruby("A","えい") + "B"
@@ -901,11 +743,7 @@ test.describe('Ruby — line boundary navigation', () => {
 
   test('Shift+Right at line end when ruby is last child extends to boundary', async ({
     page,
-    isCollab,
-    isPlainText,
   }) => {
-    test.skip(isPlainText);
-    test.skip(isCollab);
     await focusEditor(page);
 
     // "AB" → select "B" → ruby → "A" + ruby("B","び")
@@ -929,11 +767,7 @@ test.describe('Ruby — line boundary navigation', () => {
 
   test('Arrow keys do not get stuck when ruby is the only child', async ({
     page,
-    isCollab,
-    isPlainText,
   }) => {
-    test.skip(isPlainText);
-    test.skip(isCollab);
     await focusEditor(page);
 
     // Type single char, select all, convert to ruby
@@ -973,10 +807,9 @@ test.describe('Ruby — line boundary navigation', () => {
 // popup's own root node (getActiveElement) or the popup closes while its
 // input still has focus.
 test.describe('Ruby — floating editor in shadow DOM', () => {
-  test.beforeEach(({isCollab, isPlainText, page}) => {
+  test.beforeEach(({page}) => {
     // Rich-text-only; collab renders in split iframes which is an
     // orthogonal concern to shadow root encapsulation.
-    test.skip(isPlainText || isCollab);
     return initialize({isShadowDOM: true, page});
   });
 

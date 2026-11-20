@@ -8,7 +8,7 @@
 
 import type {InitialEditorStateType} from '@lexical/react/LexicalComposer';
 import type {Provider} from '@lexical/yjs';
-import type {ElementNode, LexicalEditor} from 'lexical';
+import type {LexicalEditor} from 'lexical';
 
 import {LexicalCollaboration} from '@lexical/react/LexicalCollaborationContext';
 import {
@@ -24,9 +24,11 @@ import {
   $createParagraphNode,
   $createTextNode,
   $getRoot,
+  $isParagraphNode,
   createEditor,
   UNDO_COMMAND,
 } from 'lexical';
+import {$assertNodeType} from 'lexical/src/__tests__/utils';
 import * as React from 'react';
 import {act} from 'react';
 import {createRoot, type Root} from 'react-dom/client';
@@ -300,7 +302,7 @@ describe(`LexicalCollaborationPlugin`, () => {
     };
   }
 
-  // https://github.com/facebook/lexical/issues/7110
+  // https://github.com/meta/lexical/issues/7110
   test(`the bootstrapped initialEditorState can not be undone`, async () => {
     const {editor, readText} = await renderBootstrapped($appendInitialContent);
     expect(readText()).toBe('Initial content');
@@ -384,7 +386,7 @@ describe(`LexicalCollaborationPlugin`, () => {
     });
     expect(readText()).not.toBe('typed after the failure');
   });
-  // https://github.com/facebook/lexical/issues/7136
+  // https://github.com/meta/lexical/issues/7136
   test(`provider is replaced when providerFactory changes`, () => {
     const doc = new Y.Doc();
     const providerA = createTestProvider();
@@ -569,7 +571,10 @@ describe(`LexicalCollaborationPlugin`, () => {
       // the caret of every node that predates it from being published.
       await act(async () => {
         editor!.update(() => {
-          const paragraph = $getRoot().getFirstChildOrThrow<ElementNode>();
+          const paragraph = $assertNodeType(
+            $getRoot().getFirstChildOrThrow(),
+            $isParagraphNode,
+          );
           paragraph.selectStart();
         });
       });

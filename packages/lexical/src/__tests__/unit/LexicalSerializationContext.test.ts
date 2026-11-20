@@ -6,24 +6,30 @@
  *
  */
 
+// @vitest-environment node
+
 import {buildEditorFromExtensions, defineExtension} from '@lexical/extension';
 import {
   $create,
   $createParagraphNode,
   $createTextNode,
+  $getEditor,
   $getRoot,
   $isCompactExport,
   $isElementNode,
   $setSlot,
   $withCompactExport,
+  type CompactSerializedEditorState,
   createEditor,
   type LexicalEditor,
   nodeSchema,
   rawValue,
+  type SerializedEditorState,
   type SerializedElementNode,
   type SerializedLexicalNode,
   type SerializedPartial,
   type SerializedRootNode,
+  type SerializedTextNode,
   TextNode,
   withAccessors,
 } from 'lexical';
@@ -409,5 +415,113 @@ describe('$withCompactExport refuses an asynchronous callback', () => {
     void (() => $withCompactExport(true, async () => 1));
     // …and a synchronous callback still infers its return type.
     expectTypeOf($withCompactExport(true, () => 1)).toEqualTypeOf<number>();
+  });
+});
+
+// exportJSON can depend on the editor, e.g. to read an extension's config
+// (https://github.com/meta/lexical/issues/9934).
+class EditorReadingTextNode extends TextNode {
+  $config() {
+    return this.config('editor-reading-text', {extends: TextNode});
+  }
+
+  exportJSON(): SerializedTextNode {
+    return {...super.exportJSON(), text: $getEditor().getKey()};
+  }
+}
+
+describe('export with the editor active', () => {
+  test('exports with the editor active', () => {
+    using editor = buildEditorFromExtensions(
+      defineExtension({
+        name: 'editor-reading-export',
+        nodes: [EditorReadingTextNode],
+      }),
+    );
+    editor.update(
+      () => {
+        $getRoot()
+          .clear()
+          .append(
+            $createParagraphNode().append($create(EditorReadingTextNode)),
+          );
+      },
+      {discrete: true},
+    );
+    const [paragraph] = childrenOf(editor.toJSON().editorState.root);
+    expect(childrenOf(paragraph)[0]).toMatchObject({text: editor.getKey()});
+  });
+
+  test('EditorState.toJSON exports with the editor of the read it is in', () => {
+    using editor = buildEditorFromExtensions(
+      defineExtension({
+        name: 'editor-reading-state-export',
+        nodes: [EditorReadingTextNode],
+      }),
+    );
+    editor.update(
+      () => {
+        $getRoot()
+          .clear()
+          .append(
+            $createParagraphNode().append($create(EditorReadingTextNode)),
+          );
+      },
+      {discrete: true},
+    );
+    const editorState = editor.getEditorState();
+    const [paragraph] = childrenOf(
+      editorState.read(() => editorState.toJSON(), {editor}).root,
+    );
+    expect(childrenOf(paragraph)[0]).toMatchObject({text: editor.getKey()});
+    // Also a state other than the one read, such as a listener's
+    // prevEditorState read inside editor.read().
+    editor.update(() => $getRoot().clear(), {discrete: true});
+    expect(editor.read(() => editorState.toJSON())).toEqual(
+      editorState.toJSON({editor}),
+    );
+  });
+});
+
+describe('EditorState.toJSON options', () => {
+  test('exports with the given editor, in the form `compact` states', () => {
+    using editor = buildEditorFromExtensions(
+      defineExtension({
+        name: 'editor-reading-state-options',
+        nodes: [EditorReadingTextNode],
+      }),
+    );
+    editor.update(
+      () => {
+        $getRoot()
+          .clear()
+          .append(
+            $createParagraphNode().append($create(EditorReadingTextNode)),
+          );
+      },
+      {discrete: true},
+    );
+    const editorState = editor.getEditorState();
+    const legacy = editorState.toJSON({editor});
+    expectTypeOf(legacy).toEqualTypeOf<SerializedEditorState>();
+    expect(legacy).toEqual(
+      editorState.read(() => editorState.toJSON(), {editor}),
+    );
+    expect(childrenOf(childrenOf(legacy.root)[0])[0]).toMatchObject({
+      text: editor.getKey(),
+    });
+    const compact = editorState.toJSON({compact: true, editor});
+    expectTypeOf(compact).toEqualTypeOf<CompactSerializedEditorState>();
+    expect(compact).toEqual(
+      editorState.read(() => editorState.toJSON(true), {editor}),
+    );
+    expect(compact).not.toEqual(legacy);
+    // Without `editor`, the editor of the read it is called in.
+    expect(
+      editor.read(editorState, () => editorState.toJSON({compact: true})),
+    ).toEqual(compact);
+    expect(
+      editor.read(editorState, () => editorState.toJSON({editor: null})),
+    ).toEqual(legacy);
   });
 });

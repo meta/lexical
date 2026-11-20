@@ -38,7 +38,11 @@ const editor = buildEditorFromExtensions(
     namespace: 'Vanilla JS iframe Demo',
     register: ed =>
       ed.registerUpdateListener(({editorState}) => {
-        stateRef.value = JSON.stringify(editorState.toJSON(true), undefined, 2);
+        stateRef.value = JSON.stringify(
+          editorState.read(() => editorState.toJSON(true), {editor: ed}),
+          undefined,
+          2,
+        );
       }),
     theme: {
       // Adding styling to Quote node, see styles.css

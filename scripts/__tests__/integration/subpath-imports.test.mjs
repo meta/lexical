@@ -128,4 +128,50 @@ describe('published extension subpaths', () => {
     expect(Object.keys(barrel)).toContain('HorizontalRuleNode');
     expect(Object.keys(barrel)).toContain('signal');
   });
+
+  // A module shared by two entries of a package must be reached through one
+  // of them; bundled into both, it defines its extensions twice, and an
+  // editor that uses the two copies fails to build.
+  it('defines each extension in only one published entry', () => {
+    /** @type {Map<string, {extension: unknown, module: string}>} */
+    const seen = new Map();
+    /** @param {unknown} value @param {string} module */
+    const visit = (value, module) => {
+      const extension = Array.isArray(value) ? value[0] : value;
+      if (
+        !extension ||
+        typeof extension !== 'object' ||
+        typeof extension.name !== 'string' ||
+        !(
+          'dependencies' in extension ||
+          'register' in extension ||
+          'build' in extension ||
+          'nodes' in extension ||
+          'config' in extension
+        )
+      ) {
+        return;
+      }
+      const previous = seen.get(extension.name);
+      if (previous) {
+        expect(
+          previous.extension === extension,
+          `${extension.name} from ${module} and ${previous.module}`,
+        ).toBe(true);
+        return;
+      }
+      seen.set(extension.name, {extension, module});
+      for (const dependency of extension.dependencies || []) {
+        visit(dependency, module);
+      }
+    };
+    for (const pkg of packagesManager.getPublicPackages()) {
+      for (const {name} of pkg.getExportedNpmModuleEntries()) {
+        for (const value of Object.values(require(name))) {
+          visit(value, name);
+        }
+      }
+    }
+    expect(seen.get('@lexical/html/DOMImport')).toBeDefined();
+  });
 });

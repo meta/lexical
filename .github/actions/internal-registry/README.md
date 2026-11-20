@@ -28,11 +28,11 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - id: auth
-        uses: facebook/lexical/.github/actions/internal-registry/auth@internal-registry-auth-v1
+        uses: meta/lexical/.github/actions/internal-registry/auth@internal-registry-auth-v1
         with:
           write-npmrc: 'false'
           on-missing-oidc: skip
-      - uses: facebook/lexical/.github/actions/internal-registry/dependency-check@internal-registry-dependency-check-v2
+      - uses: meta/lexical/.github/actions/internal-registry/dependency-check@internal-registry-dependency-check-v2
         with:
           token: ${{ steps.auth.outputs.token }}
 ```
@@ -43,7 +43,7 @@ Installing or publishing scoped packages:
       - uses: actions/setup-node@v6 # BEFORE auth: setup-node rewrites the npm config
         with:
           node-version: '24'
-      - uses: facebook/lexical/.github/actions/internal-registry/auth@internal-registry-auth-v1
+      - uses: meta/lexical/.github/actions/internal-registry/auth@internal-registry-auth-v1
         with:
           scopes: '@acme @acme-ui'
       - run: npm publish

@@ -8,12 +8,11 @@
     "html"
   ],
   "license": "MIT",
-  "version": "0.52.0",
-  "main": "./dist/LexicalHtml.js",
+  "version": "0.53.0",
   "types": "./dist/typescript-too-old.d.ts",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/facebook/lexical.git",
+    "url": "git+https://github.com/meta/lexical.git",
     "directory": "packages/lexical-html"
   },
   "dependencies": {
@@ -26,6 +25,22 @@
   "module": "./dist/LexicalHtml.js",
   "sideEffects": false,
   "exports": {
+    "./BlockIdHTMLExtension": {
+      "source": "./src/BlockIdHTMLExtension.ts",
+      "types@<5.2": "./dist/typescript-too-old.d.ts",
+      "types": "./dist/BlockIdHTMLExtension.d.ts",
+      "development": "./dist/LexicalHtmlBlockIdHTMLExtension.dev.js",
+      "production": "./dist/LexicalHtmlBlockIdHTMLExtension.prod.js",
+      "default": "./dist/LexicalHtmlBlockIdHTMLExtension.js"
+    },
+    "./BlockIdHTMLExtension.js": {
+      "source": "./src/BlockIdHTMLExtension.ts",
+      "types@<5.2": "./dist/typescript-too-old.d.ts",
+      "types": "./dist/BlockIdHTMLExtension.d.ts",
+      "development": "./dist/LexicalHtmlBlockIdHTMLExtension.dev.js",
+      "production": "./dist/LexicalHtmlBlockIdHTMLExtension.prod.js",
+      "default": "./dist/LexicalHtmlBlockIdHTMLExtension.js"
+    },
     ".": {
       "source": "./src/index.ts",
       "types@<5.2": "./dist/typescript-too-old.d.ts",

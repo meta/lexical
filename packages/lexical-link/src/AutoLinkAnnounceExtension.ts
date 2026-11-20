@@ -10,7 +10,7 @@ import {AriaLiveRegionExtension} from '@lexical/a11y';
 import {effect, namedSignals} from '@lexical/extension';
 import {defineExtension, safeCast} from 'lexical';
 
-import {AutoLinkNode} from './LexicalLinkNode';
+import {AutoLinkNode, takeMadeLink} from './LexicalLinkNode';
 
 export interface AutoLinkAnnounceExtensionConfig {
   /** Announced when typing turns text into a link. */
@@ -74,10 +74,14 @@ export const AutoLinkAnnounceExtension = defineExtension({
             nodes => {
               let createdCount = 0;
               let destroyedCount = 0;
-              for (const [, mutation] of nodes) {
+              for (const [key, mutation] of nodes) {
                 if (mutation === 'created') {
                   createdCount++;
-                } else if (mutation === 'destroyed') {
+                } else if (
+                  mutation === 'destroyed' &&
+                  // Made a link by $toggleLink: the text is still a link.
+                  !takeMadeLink(editor, key)
+                ) {
                   destroyedCount++;
                 }
               }

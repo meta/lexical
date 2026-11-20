@@ -15,10 +15,8 @@ import {
   $isHeadingNode,
   $isQuoteNode,
   RichTextExtension,
-  RichTextImportExtension,
   ShadowRootQuoteRule,
 } from '@lexical/rich-text';
-import {JSDOM} from 'jsdom';
 import {
   $getEditor,
   $getRoot,
@@ -45,8 +43,11 @@ function buildEditor() {
 function $generate(html: string): LexicalNode[] {
   const editor = $getEditor();
   const dep = getExtensionDependencyFromEditor(editor, DOMImportExtension);
-  const dom = new JSDOM(`<!doctype html><html><body>${html}</body></html>`);
-  return dep.output.$generateNodesFromDOM(dom.window.document);
+  const dom = new DOMParser().parseFromString(
+    `<!doctype html><html><body>${html}</body></html>`,
+    'text/html',
+  );
+  return dep.output.$generateNodesFromDOM(dom);
 }
 
 function importInto(editor: LexicalEditor, html: string): void {
@@ -153,21 +154,6 @@ describe('RichTextImportExtension', () => {
       assert($isHeadingNode(node), 'expected HeadingNode');
       expect(node.getTag()).toBe('h1');
       expect(node.getTextContent()).toBe('Title');
-    });
-  });
-
-  test('deprecated RichTextImportExtension alias still imports headings', () => {
-    using editor = buildEditorFromExtensions(
-      defineExtension({
-        dependencies: [RichTextImportExtension],
-        name: 'rich-text-alias-host',
-      }),
-    );
-    importInto(editor, '<h2>x</h2>');
-    editor.read(() => {
-      const node = $getRoot().getFirstChild();
-      assert($isHeadingNode(node), 'expected HeadingNode');
-      expect(node.getTag()).toBe('h2');
     });
   });
 });

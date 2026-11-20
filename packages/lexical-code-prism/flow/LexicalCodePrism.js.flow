@@ -41,5 +41,5 @@ declare export function normalizeCodeLanguage(lang: string): string;
 declare export var getCodeLanguages: () => string[];
 declare export function getLanguageFriendlyName(lang: string): string;
 
-declare export var CODE_LANGUAGE_FRIENDLY_NAME_MAP: {[string]: string};
-declare export var CODE_LANGUAGE_MAP: {[string]: string};
+declare export var CODE_LANGUAGE_FRIENDLY_NAME_MAP: {[key: string]: string};
+declare export var CODE_LANGUAGE_MAP: {[key: string]: string};

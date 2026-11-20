@@ -6,6 +6,8 @@
  *
  */
 
+// @vitest-environment node
+
 import {buildEditorFromExtensions} from '@lexical/extension';
 import {
   type Binding,
@@ -21,7 +23,7 @@ import {
   defineExtension,
   type LexicalEditor,
 } from 'lexical';
-import {describe, expect, test} from 'vitest';
+import {describe, expect, onTestFinished, test} from 'vitest';
 import {
   applyUpdate,
   Doc,
@@ -126,6 +128,59 @@ function restore(editor: LexicalEditor, binding: Binding): void {
 }
 
 describe('createYjsBinding', () => {
+  test.each(['none', 'v1', 'legacy-v1', 'v2'])(
+    'records detachments only after opting into v1 (%s)',
+    mode => {
+      using editor = buildEditorFromExtensions(
+        defineExtension({name: 'yjs-move-tracking-test'}),
+      );
+      const {doc, docMap} = createTestDoc();
+      onTestFinished(() => doc.destroy());
+      if (mode === 'v1') {
+        createYjsBinding({doc, docMap, editor, id: 'test'});
+      } else if (mode === 'legacy-v1') {
+        createBinding(editor, {} as Provider, 'test', doc, docMap);
+      } else if (mode === 'v2') {
+        createBindingV2__EXPERIMENTAL(editor, 'test', doc, docMap);
+      }
+      editor.update(
+        () => {
+          $getRoot().append(
+            ...Array.from({length: 4}, () => $createParagraphNode()),
+          );
+        },
+        {discrete: true},
+      );
+
+      // Exercise both single-node and contiguous-range detachment paths.
+      for (const operation of ['insertAfter', 'splice']) {
+        const prevNodeMap = editor.getEditorState()._nodeMap;
+        let detachedKey = '';
+        editor.update(
+          () => {
+            const root = $getRoot();
+            const children = root.getChildren();
+            detachedKey = children[1].getKey();
+            if (operation === 'insertAfter') {
+              children[2].insertAfter(children[1]);
+            } else {
+              root.splice(1, 1, []);
+            }
+          },
+          {discrete: true},
+        );
+
+        const movedNodes = editor.getEditorState()._movedNodes;
+        if (mode === 'v1' || mode === 'legacy-v1') {
+          expect(movedNodes).not.toBeNull();
+          expect(movedNodes!.get(prevNodeMap)).toEqual(new Set([detachedKey]));
+        } else {
+          expect(movedNodes).toBeNull();
+        }
+      }
+    },
+  );
+
   test('uses default rootName "root"', () => {
     using editor = buildEditorFromExtensions(
       defineExtension({name: 'yjs-binding-test'}),

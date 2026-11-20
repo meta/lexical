@@ -6,10 +6,6 @@
  *
  */
 
-import {HorizontalRuleExtension} from '@lexical/extension';
-import {defineExtension} from 'lexical';
-
-import {CoreImportExtension} from './CoreImportExtension';
 import {HorizontalRuleRule} from './coreImportRules';
 
 /**
@@ -20,19 +16,3 @@ import {HorizontalRuleRule} from './coreImportRules';
  * @experimental
  */
 export const HorizontalRuleImportRules = [HorizontalRuleRule];
-
-/**
- * Bundles the runtime {@link HorizontalRuleExtension} together with
- * {@link CoreImportExtension}, whose {@link CoreImportRules} include the
- * registration-gated `<hr>` rule.
- *
- * @experimental
- * @deprecated The `<hr>` import rule now ships with
- * {@link CoreImportRules} and activates whenever `HorizontalRuleNode` is
- * registered — depend on `HorizontalRuleExtension` (plus any extension
- * that brings in `CoreImportExtension`) directly instead.
- */
-export const HorizontalRuleImportExtension = defineExtension({
-  dependencies: [HorizontalRuleExtension, CoreImportExtension],
-  name: '@lexical/html/HorizontalRuleImport',
-});

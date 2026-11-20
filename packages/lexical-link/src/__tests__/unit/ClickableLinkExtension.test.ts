@@ -6,10 +6,19 @@
  *
  */
 
-import {buildEditorFromExtensions, defineExtension} from '@lexical/extension';
+import {
+  buildEditorFromExtensions,
+  configExtension,
+  defineExtension,
+} from '@lexical/extension';
 import {$createLinkNode, ClickableLinkExtension} from '@lexical/link';
 import {RichTextExtension} from '@lexical/rich-text';
-import {$createParagraphNode, $createTextNode, $getRoot} from 'lexical';
+import {
+  $createParagraphNode,
+  $createTextNode,
+  $getRoot,
+  type AnyLexicalExtension,
+} from 'lexical';
 import {
   afterEach,
   beforeEach,
@@ -31,6 +40,14 @@ const extension = defineExtension({
   },
   dependencies: [ClickableLinkExtension, RichTextExtension],
   name: '[root]',
+});
+
+const newTabExtension = defineExtension({
+  dependencies: [
+    extension,
+    configExtension(ClickableLinkExtension, {newTab: true}),
+  ],
+  name: '[newTab]',
 });
 
 /**
@@ -60,8 +77,11 @@ describe('ClickableLinkExtension', () => {
     windowOpen.mockRestore();
   });
 
-  function withEditor(fn: (anchor: HTMLAnchorElement) => void): void {
-    using editor = buildEditorFromExtensions(extension);
+  function withEditor(
+    fn: (anchor: HTMLAnchorElement) => void,
+    rootExtension: AnyLexicalExtension = extension,
+  ): void {
+    using editor = buildEditorFromExtensions(rootExtension);
     const rootElement = document.createElement('div');
     rootElement.contentEditable = 'true';
     document.body.appendChild(rootElement);
@@ -89,8 +109,17 @@ describe('ClickableLinkExtension', () => {
       dispatch(anchor, 'auxclick', 1);
 
       expect(windowOpen).toHaveBeenCalledTimes(1);
-      expect(windowOpen).toHaveBeenCalledWith(URL, '_blank');
+      expect(windowOpen).toHaveBeenCalledWith(URL, '_blank', 'noopener');
     });
+  });
+
+  test('with newTab, a left click opens the link in a new tab without an opener', () => {
+    withEditor(anchor => {
+      dispatch(anchor, 'click', 0);
+
+      expect(windowOpen).toHaveBeenCalledTimes(1);
+      expect(windowOpen).toHaveBeenCalledWith(URL, '_blank', 'noopener');
+    }, newTabExtension);
   });
 
   test('a middle click cancels the browser opening the link itself', () => {

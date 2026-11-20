@@ -176,8 +176,14 @@ export const PagesExtension = defineExtension({
         const children = contentNode.getChildren();
         const childNodes = Array.from(contentElement.childNodes);
         if (children.length !== childNodes.length) {
-          childNodes.forEach(childNode => childNode.remove());
-          contentNode.reconcileObservedMutation(contentElement, editor);
+          // Measure this update's children, which may still be rendered on
+          // another page.
+          contentElement.replaceChildren(
+            ...children.flatMap(child => {
+              const dom = editor.getElementByKey(child.getKey());
+              return dom ? [dom] : [];
+            }),
+          );
           return $getOverflowingChildren(node);
         }
         pageElement.style.minHeight = 'unset';
@@ -708,7 +714,7 @@ export const PagesExtension = defineExtension({
               (_mutations, {prevEditorState}) => {
                 const change = $getStateChange(
                   editor.read('latest', $getRoot),
-                  prevEditorState.read($getRoot),
+                  editor.read(prevEditorState, $getRoot),
                   pageSetupState,
                 );
                 if (!change) {

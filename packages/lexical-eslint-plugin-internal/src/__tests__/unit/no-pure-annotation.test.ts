@@ -6,6 +6,8 @@
  *
  */
 
+// @vitest-environment node
+
 import {RuleTester} from 'eslint';
 import {describe, expect, it} from 'vitest';
 

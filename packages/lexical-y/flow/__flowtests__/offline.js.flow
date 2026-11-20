@@ -1,0 +1,98 @@
+/**
+ * Copyright (c) Meta Platforms, Inc. and affiliates.
+ *
+ * This source code is licensed under the MIT license found in the
+ * LICENSE file in the root directory of this source tree.
+ *
+ * @flow strict
+ */
+
+// Checked by `pnpm run flow` (not shipped): @lexical/y/offline's required
+// `leftovers` and `autoReplay`. A replay never drops a block: a call
+// without `leftovers`, or with a value that is neither `{wrap}` nor
+// `{handle}`, is an error; and it never picks a replay policy for you.
+
+import type {HeadlessYConfig, YUnsyncedReport} from '@lexical/y/headless';
+import type {
+  YAutoReplay,
+  YLeftovers,
+  YOfflineBinding,
+  YOfflineRecoverInput,
+  YOfflineStore,
+  YReplayInput,
+  YReplayResult,
+} from '@lexical/y/offline';
+
+import {
+  recoverYOfflineEdits,
+  replayUnsyncedEdits,
+  wrapLeftoversAsQuote,
+} from '@lexical/y/offline';
+
+declare const binding: YOfflineBinding;
+declare const report: YUnsyncedReport;
+declare const store: YOfflineStore;
+declare const config: HeadlessYConfig;
+
+const wrap = wrapLeftoversAsQuote('Offline edits that did not merge');
+const handle = () => {};
+
+// The two choices.
+const wrapped: YLeftovers = {wrap};
+const placed: YLeftovers = {placement: 'top', wrap};
+const handled: YLeftovers = {handle};
+const result: YReplayResult = replayUnsyncedEdits({
+  autoReplay: 'replayable',
+  binding,
+  leftovers: wrapped,
+  report,
+});
+const noReplay: YAutoReplay = 'none';
+const recent: YAutoReplay = {maxBaseAge: 3 * 24 * 3600 * 1000};
+const inserted: ReadonlyArray<string> = result.inserted;
+const fallback: string | null = result.leftovers[0].fallback;
+const given: ReadonlyArray<string> = result.handled;
+const labelled = wrapLeftoversAsQuote(context => String(context.capturedAt));
+recoverYOfflineEdits({
+  autoReplay: recent,
+  binding,
+  config,
+  epoch: 'e2',
+  key: 'doc',
+  leftovers: handled,
+  stage: 'replay',
+  store,
+});
+
+// $FlowExpectedError[incompatible-type] leftovers is required
+const withoutLeftovers: YReplayInput = {autoReplay: 'none', binding, report};
+// $FlowExpectedError[incompatible-type] autoReplay is required
+const withoutPolicy: YReplayInput = {binding, leftovers: wrapped, report};
+// $FlowExpectedError[incompatible-type] there is no default policy
+const anyPolicy: YAutoReplay = 'auto';
+// $FlowExpectedError[incompatible-type] maxBaseAge is milliseconds
+const days: YAutoReplay = {maxBaseAge: '3d'};
+const noLeftovers = {autoReplay: 'replayable', binding, config, epoch: 'e2'};
+const offStage = {...noLeftovers, key: 'doc', stage: 'off', store};
+// $FlowExpectedError[incompatible-type] leftovers is required, at any stage
+const recoverWithout: YOfflineRecoverInput = offStage;
+// $FlowExpectedError[incompatible-type] leftovers is required, in the call
+replayUnsyncedEdits({autoReplay: 'replayable', binding, report});
+// $FlowExpectedError[incompatible-type] undefined is not a choice
+const none: YLeftovers = undefined;
+// $FlowExpectedError[incompatible-type] null is not a choice
+const nothing: YLeftovers = null;
+// $FlowExpectedError[incompatible-type] neither wrap nor handle
+const empty: YLeftovers = {};
+// $FlowExpectedError[incompatible-type] a placement alone writes nothing
+const placementOnly: YLeftovers = {placement: 'top'};
+// $FlowExpectedError[incompatible-type] one of wrap and handle, not both
+const both: YLeftovers = {handle, wrap};
+// $FlowExpectedError[incompatible-type] a handler has no placement
+const handledAt: YLeftovers = {handle, placement: 'top'};
+// $FlowExpectedError[incompatible-type] placement is 'after-block' or 'top'
+const bottom: YLeftovers = {placement: 'bottom', wrap};
+// $FlowExpectedError[incompatible-type] there is no report-only mode
+const reportOnly: YLeftovers = 'report-only';
+// $FlowExpectedError[incompatible-type] the default wrapper needs its label
+const unlabelled = wrapLeftoversAsQuote();

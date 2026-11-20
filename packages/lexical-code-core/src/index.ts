@@ -6,7 +6,7 @@
  *
  */
 
-export {CodeExtension, CodeImportExtension} from './CodeExtension';
+export {CodeExtension} from './CodeExtension';
 export {registerCodeGutter} from './CodeGutter';
 export {
   $createCodeHighlightNode,
@@ -33,6 +33,8 @@ export {
   $getFirstCodeNodeOfLine,
   $getLastCodeNodeOfLine,
   $getStartOfCodeInLine,
+  $keepCodeNodeState,
   $outdentLeadingSpaces,
   $plainifyCodeContent,
+  $replaceCodeTokensAddedTo,
 } from './FlatStructureUtils';

@@ -31,12 +31,12 @@
     "@types/react-dom": "^19.1.2",
     "@vitejs/plugin-react": "^6.1.1",
     "typescript": "^6.0.3",
-    "vite": "^8.2.2"
+    "vite": "^8.3.3"
   },
   "optionalDependencies": {
-    "@rollup/rollup-linux-x64-gnu": "4.63.1",
-    "@rollup/rollup-darwin-arm64": "4.63.1",
-    "@rollup/rollup-win32-x64-msvc": "4.63.1",
-    "@rollup/wasm-node": "4.63.1"
+    "@rollup/rollup-linux-x64-gnu": "4.63.5",
+    "@rollup/rollup-darwin-arm64": "4.63.5",
+    "@rollup/rollup-win32-x64-msvc": "4.63.5",
+    "@rollup/wasm-node": "4.63.5"
   }
 }

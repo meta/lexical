@@ -6,14 +6,27 @@
  *
  */
 
+// @vitest-environment node
+
 import {$isCodeNode} from '@lexical/code-core';
 import {
+  $isHorizontalRuleNode,
+  type AnyLexicalExtensionArgument,
   buildEditorFromExtensions,
   type LexicalEditorWithDispose,
 } from '@lexical/extension';
+import {HistoryExtension} from '@lexical/history';
 import {$isLinkNode} from '@lexical/link';
 import {$isListItemNode, $isListNode} from '@lexical/list';
 import {$isHeadingNode, $isQuoteNode} from '@lexical/rich-text';
+import {
+  $createTableCellNode,
+  $createTableNode,
+  $createTableRowNode,
+  $isTableCellNode,
+  $isTableNode,
+  $isTableRowNode,
+} from '@lexical/table';
 import {
   $createParagraphNode,
   $createTextNode,
@@ -24,28 +37,37 @@ import {
   $isParagraphNode,
   $isRangeSelection,
   $isTextNode,
+  configExtension,
   defineExtension,
   KEY_ENTER_COMMAND,
   type LexicalEditor,
   type LexicalNode,
+  UNDO_COMMAND,
 } from 'lexical';
 import {$assertNodeType} from 'lexical/src/__tests__/utils';
-import {describe, expect, it} from 'vitest';
+import {assert, describe, expect, it} from 'vitest';
 
 import {
+  $convertFromMarkdownString,
+  $convertToMarkdownString,
   MdastCommonMarkExtension,
+  MdastExtension,
   MdastGfmExtension,
+  MdastRichTextExtension,
   MdastShortcutsExtension,
 } from '../../index';
 import {codeFenceState, codeMetaState} from '../../state';
 
-function createEditor(): LexicalEditorWithDispose {
+function createEditor(
+  ...extensions: AnyLexicalExtensionArgument[]
+): LexicalEditorWithDispose {
   const editor = buildEditorFromExtensions(
     defineExtension({
       dependencies: [
         MdastCommonMarkExtension,
         MdastGfmExtension,
         MdastShortcutsExtension,
+        ...extensions,
       ],
       name: '[root]',
     }),
@@ -168,6 +190,60 @@ describe('@lexical/mdast streaming shortcuts', () => {
     });
   });
 
+  describe('a task marker typed in a list that has task items', () => {
+    /** Imports `markdown`, puts the caret at the start or end of the first item. */
+    function importList(markdown: string, at: 'start' | 'end') {
+      const editor = createEditor();
+      editor.update(
+        () => {
+          $convertFromMarkdownString(markdown);
+          const list = $assertNodeType($getRoot().getFirstChild(), $isListNode);
+          const item = $assertNodeType(list.getFirstChild(), $isListItemNode);
+          if (at === 'start') {
+            item.selectStart();
+          } else {
+            item.selectEnd();
+          }
+        },
+        {discrete: true},
+      );
+      return editor;
+    }
+
+    it('[x] on a new line keeps the ticks of the other task items', () => {
+      using editor = importList('- plain\n- [x] done', 'end');
+      // A new line after `plain`, as Enter makes it.
+      editor.update(
+        () => {
+          const selection = $getSelection();
+          assert($isRangeSelection(selection));
+          selection.insertParagraph();
+        },
+        {discrete: true},
+      );
+      type(editor, ['[', 'x', ']', ' ', 'new']);
+      expect(editor.read(() => $convertToMarkdownString())).toBe(
+        '- [ ] plain\n- [x] new\n- [x] done',
+      );
+    });
+
+    it('[ ] at the start of a plain item keeps the ticks of the other task items', () => {
+      using editor = importList('- plain\n- [x] done', 'start');
+      type(editor, ['[', ' ', ']', ' ']);
+      expect(editor.read(() => $convertToMarkdownString())).toBe(
+        '- [ ] plain\n- [x] done',
+      );
+    });
+
+    it('[x] at the start of an unchecked task item checks it', () => {
+      using editor = importList('- [ ] todo\n- plain', 'start');
+      type(editor, ['[', 'x', ']', ' ']);
+      expect(editor.read(() => $convertToMarkdownString())).toBe(
+        '- [x] todo\n- [ ] plain',
+      );
+    });
+  });
+
   // `> ## H2` imports as a QuoteNode holding a HeadingNode, so typing the
   // same markers has to build the same tree instead of leaving the marker as
   // literal text inside the quote.
@@ -208,6 +284,17 @@ describe('@lexical/mdast streaming shortcuts', () => {
       });
     });
 
+    it('Enter keeps an indented line in the quote as text', () => {
+      using editor = createEditor();
+      type(editor, ['>', ' ', '    indented line']);
+      editor.dispatchCommand(KEY_ENTER_COMMAND, null);
+      editor.read(() => {
+        const quote = $assertNodeType($getRoot().getFirstChild(), $isQuoteNode);
+        expect(quote.getChildren().some($isCodeNode)).toBe(false);
+        expect(quote.getTextContent()).toBe('    indented line');
+      });
+    });
+
     it('```js + Enter -> code block nested in the quote', () => {
       using editor = createEditor();
       type(editor, ['>', ' ', '```js']);
@@ -217,6 +304,21 @@ describe('@lexical/mdast streaming shortcuts', () => {
         const code = $assertNodeType(quote.getFirstChild(), $isCodeNode);
         expect(code.getLanguage()).toBe('js');
         expect(code.getTextContent()).toBe('');
+      });
+    });
+
+    it('--- -> horizontal rule nested in the quote', () => {
+      using editor = createEditor();
+      type(editor, ['>', ' ', '-', '-', '-', ' ', 'after']);
+      editor.read(() => {
+        const quote = $assertNodeType($getRoot().getFirstChild(), $isQuoteNode);
+        expect(quote.isShadowRoot()).toBe(true);
+        const [rule, next, ...rest] = quote.getChildren();
+        $assertNodeType(rule, $isHorizontalRuleNode);
+        const paragraph = $assertNodeType(next, $isParagraphNode);
+        expect(paragraph.getTextContent()).toBe('after');
+        expect(rest).toEqual([]);
+        expect($convertToMarkdownString()).toBe('> ---\n>\n> after');
       });
     });
 
@@ -262,6 +364,37 @@ describe('@lexical/mdast streaming shortcuts', () => {
       expect(inlineFormats(editor).some(f => f !== 0)).toBe(true);
     });
 
+    // CommonMark reads `__init__` as a bold "init", but in a sentence it is
+    // a name, like Python's `__init__`, so typed it stays as typed, and it
+    // exports with the underscores that could open emphasis escaped.
+    it.each([
+      ['the __init__', 'the \\_\\_init\\_\\_'],
+      ['__main__', '\\_\\_main\\_\\_'],
+      ['obj.__init__', 'obj.\\_\\_init\\_\\_'],
+      ['__my_var__', '\\_\\_my_var\\_\\_'],
+    ])('a `__` run around one name leaves %s as text', (text, markdown) => {
+      using editor = createEditor();
+      type(editor, [text.slice(0, -1), text.slice(-1)]);
+      editor.read(() => {
+        expect($getRoot().getTextContent()).toBe(text);
+        expect($convertToMarkdownString().trim()).toBe(markdown);
+      });
+      expect(inlineFormats(editor).every(f => f === 0)).toBe(true);
+    });
+
+    it.each([
+      ['**init**', 'init'],
+      ['__two words__', 'two words'],
+      ['_init_', 'init'],
+    ])('%s still converts', (text, result) => {
+      using editor = createEditor();
+      type(editor, [text.slice(0, -1), text.slice(-1)]);
+      editor.read(() => {
+        expect($getRoot().getTextContent()).toBe(result);
+      });
+      expect(inlineFormats(editor).some(f => f !== 0)).toBe(true);
+    });
+
     it('*italic* applies italic', () => {
       using editor = createEditor();
       type(editor, ['*italic', '*']);
@@ -289,6 +422,31 @@ describe('@lexical/mdast streaming shortcuts', () => {
       expect(inlineFormats(editor).some(f => f !== 0)).toBe(true);
     });
 
+    it('applies emphasis beside CJK punctuation as importPunctuation reads it', () => {
+      for (const [chunks, text] of [
+        [['中文**「强调」*', '*'], '「强调」'],
+        [['中文~~「强调」~', '~'], '「强调」'],
+      ] as const) {
+        using editor = createEditor();
+        type(editor, [...chunks]);
+        editor.read(() => {
+          expect($getRoot().getTextContent()).toBe(`中文${text}`);
+        });
+        expect(inlineFormats(editor).filter(f => f !== 0)).toHaveLength(1);
+
+        using strict = createEditor(
+          configExtension(MdastExtension, {
+            importPunctuation: 'strict-commonmark',
+          }),
+        );
+        type(strict, [...chunks]);
+        strict.read(() => {
+          expect($getRoot().getTextContent()).toBe(chunks.join(''));
+        });
+        expect(inlineFormats(strict).every(f => f === 0)).toBe(true);
+      }
+    });
+
     it('[text](url) becomes a link', () => {
       using editor = createEditor();
       type(editor, ['[lexical](https://lexical.dev', ')']);
@@ -303,6 +461,37 @@ describe('@lexical/mdast streaming shortcuts', () => {
         expect(link!.getTextContent()).toBe('lexical');
       });
     });
+
+    // CommonMark opens a `*` or `~` run inside a word too, so `2*3*4` reads
+    // as emphasis on import. Typed, it is math or an identifier, so the
+    // shortcut leaves it alone; `_` runs never open inside a word anyway.
+    it.each(['2*3*', 'x*y*', 'mid*word*', 'foo**bar**', 'x~~y~~'])(
+      'a closing delimiter after a mid-word opener leaves %s as text',
+      text => {
+        using editor = createEditor();
+        type(editor, [text.slice(0, -1), text.slice(-1)]);
+        editor.read(() => {
+          expect($getRoot().getTextContent()).toBe(text);
+        });
+        expect(inlineFormats(editor).every(f => f === 0)).toBe(true);
+      },
+    );
+
+    it.each([
+      ['a *b*', 'a b'],
+      ['(*b*', '(b'],
+      ['中文*强调*', '中文强调'],
+    ])(
+      'still applies emphasis after a space, punctuation or CJK: %s',
+      (text, result) => {
+        using editor = createEditor();
+        type(editor, [text.slice(0, -1), text.slice(-1)]);
+        editor.read(() => {
+          expect($getRoot().getTextContent()).toBe(result);
+        });
+        expect(inlineFormats(editor).some(f => f !== 0)).toBe(true);
+      },
+    );
 
     it('only fires when the closing delimiter is at the caret', () => {
       using editor = createEditor();
@@ -328,6 +517,17 @@ describe('@lexical/mdast streaming shortcuts', () => {
       });
     });
 
+    it('a fence indented up to three spaces still converts', () => {
+      using editor = createEditor();
+      type(editor, ['   ```js']);
+      editor.dispatchCommand(KEY_ENTER_COMMAND, null);
+      editor.read(() => {
+        const code = $assertNodeType($getRoot().getFirstChild(), $isCodeNode);
+        expect(code.getLanguage()).toBe('js');
+        expect(code.getTextContent()).toBe('');
+      });
+    });
+
     it('```js title=x + Enter keeps the info-string meta and fence', () => {
       using editor = createEditor();
       type(editor, ['~~~js title=x']);
@@ -339,6 +539,254 @@ describe('@lexical/mdast streaming shortcuts', () => {
         expect($getState(code, codeFenceState)).toBe('~~~');
       });
     });
+  });
+
+  describe('horizontal rule (on space or Enter)', () => {
+    /**
+     * Asserts the root holds a rule and then the paragraph the caret moved
+     * to, and that the rule is exported with the marker it was typed with.
+     */
+    function expectRuleThenLine(editor: LexicalEditor, marker: string): void {
+      editor.read(() => {
+        const [rule, next, ...rest] = $getRoot().getChildren();
+        $assertNodeType(rule, $isHorizontalRuleNode);
+        const paragraph = $assertNodeType(next, $isParagraphNode);
+        expect(paragraph.getTextContent()).toBe('after');
+        expect(rest).toEqual([]);
+        expect($convertToMarkdownString()).toBe(`${marker}\n\nafter`);
+      });
+    }
+
+    describe.each(['---', '***', '___'])('%s', marker => {
+      it('+ space -> horizontal rule, caret on a new line under it', () => {
+        using editor = createEditor();
+        type(editor, [...marker, ' ', 'after']);
+        expectRuleThenLine(editor, marker);
+      });
+
+      it('+ Enter -> horizontal rule, caret on a new line under it', () => {
+        using editor = createEditor();
+        type(editor, [...marker]);
+        editor.dispatchCommand(KEY_ENTER_COMMAND, null);
+        type(editor, ['after']);
+        expectRuleThenLine(editor, marker);
+      });
+    });
+
+    it('-- + Enter stays text', () => {
+      using editor = createEditor();
+      type(editor, ['-', '-']);
+      editor.dispatchCommand(KEY_ENTER_COMMAND, null);
+      editor.read(() => {
+        const paragraph = $assertNodeType(
+          $getRoot().getFirstChild(),
+          $isParagraphNode,
+        );
+        expect(paragraph.getTextContent()).toBe('--');
+        expect($getRoot().getChildren().some($isHorizontalRuleNode)).toBe(
+          false,
+        );
+      });
+    });
+
+    it('a space typed between --- and text converts nothing', () => {
+      using editor = createEditor();
+      // `--- after` is a paragraph in Markdown, not a rule followed by text,
+      // even though the text up to the caret (`--- `) is a rule.
+      editor.update(
+        () => {
+          const paragraph = $createParagraphNode();
+          const text = $createTextNode('---after');
+          paragraph.append(text);
+          $getRoot().clear().append(paragraph);
+          text.select(3, 3);
+        },
+        {discrete: true},
+      );
+      type(editor, [' ']);
+      $expectFirstChild(editor, $isParagraphNode);
+      editor.read(() => {
+        expect($getRoot().getTextContent()).toBe('--- after');
+      });
+    });
+
+    it.each([
+      ['space', ' '],
+      ['Enter', null],
+    ])('--- + %s in a table cell stays text', (_key, key) => {
+      using editor = createEditor();
+      // A cell has no Markdown for a rule: the table export would write it
+      // after the table.
+      editor.update(
+        () => {
+          const paragraph = $createParagraphNode();
+          $getRoot()
+            .clear()
+            .append(
+              $createTableNode().append(
+                $createTableRowNode().append(
+                  $createTableCellNode().append(paragraph),
+                ),
+              ),
+            );
+          paragraph.select();
+        },
+        {discrete: true},
+      );
+      type(editor, ['-', '-', '-']);
+      if (key === null) {
+        editor.dispatchCommand(KEY_ENTER_COMMAND, null);
+      } else {
+        type(editor, [key]);
+      }
+      editor.read(() => {
+        const table = $assertNodeType($getRoot().getFirstChild(), $isTableNode);
+        const row = $assertNodeType(table.getFirstChild(), $isTableRowNode);
+        const cell = $assertNodeType(row.getFirstChild(), $isTableCellNode);
+        expect(cell.getChildren().some($isHorizontalRuleNode)).toBe(false);
+        expect(cell.getTextContent()).toContain('---');
+      });
+    });
+
+    /** Presses space (`' '`) or Enter (`null`). */
+    function press(editor: LexicalEditor, key: ' ' | null): void {
+      if (key === null) {
+        editor.dispatchCommand(KEY_ENTER_COMMAND, null);
+      } else {
+        type(editor, [key]);
+      }
+    }
+
+    function $expectNoRule(): void {
+      expect($getRoot().getChildren().some($isHorizontalRuleNode)).toBe(false);
+    }
+
+    it.each([
+      ['space', ' '],
+      ['Enter', null],
+    ] as const)('a rule longer than 24 characters converts on %s', (_, key) => {
+      using editor = createEditor();
+      type(editor, [...'-'.repeat(30)]);
+      press(editor, key);
+      type(editor, ['after']);
+      expectRuleThenLine(editor, '---');
+    });
+
+    it.each([
+      ['space', ' ', '--- '],
+      ['Enter', null, '---'],
+    ] as const)('undo after %s gives back the typed marker', (_, key, text) => {
+      using editor = createEditor(
+        // History is off by default where there is no window.
+        configExtension(HistoryExtension, {disabled: false}),
+      );
+      type(editor, ['-', '-', '-']);
+      press(editor, key);
+      $expectFirstChild(editor, $isHorizontalRuleNode);
+      editor.dispatchCommand(UNDO_COMMAND, undefined);
+      editor.read(() => {
+        const [paragraph, ...rest] = $getRoot().getChildren();
+        expect(
+          $assertNodeType(paragraph, $isParagraphNode).getTextContent(),
+        ).toBe(text);
+        expect(rest).toEqual([]);
+      });
+    });
+
+    it.each([
+      ['space', ' '],
+      ['Enter', null],
+    ] as const)('--- + %s in a code block stays code', (_, key) => {
+      using editor = createEditor();
+      type(editor, ['```']);
+      editor.dispatchCommand(KEY_ENTER_COMMAND, null);
+      type(editor, ['-', '-', '-']);
+      press(editor, key);
+      editor.read(() => {
+        const code = $assertNodeType($getRoot().getFirstChild(), $isCodeNode);
+        expect(code.getTextContent()).toMatch(/^---/);
+        $expectNoRule();
+      });
+    });
+
+    it.each([
+      ['space', ' '],
+      ['Enter', null],
+    ] as const)('--- + %s in inline code stays text', (_, key) => {
+      using editor = createEditor();
+      editor.update(
+        () => {
+          const text = $createTextNode('---').toggleFormat('code');
+          $getRoot().clear().append($createParagraphNode().append(text));
+          text.selectEnd();
+        },
+        {discrete: true},
+      );
+      press(editor, key);
+      editor.read(() => {
+        expect($getRoot().getTextContent()).toMatch(/^---/);
+        $expectNoRule();
+      });
+    });
+
+    it('--- + Shift+Enter stays text', () => {
+      using editor = createEditor();
+      type(editor, ['-', '-', '-']);
+      editor.dispatchCommand(KEY_ENTER_COMMAND, {
+        preventDefault() {},
+        shiftKey: true,
+      } as KeyboardEvent);
+      editor.read(() => {
+        expect($getRoot().getTextContent()).toMatch(/^---/);
+        $expectNoRule();
+      });
+    });
+
+    it.each([
+      ['space', ' '],
+      ['Enter', null],
+    ] as const)(
+      '--- + %s stays text when the editor has no HorizontalRuleNode',
+      (_, key) => {
+        const errors: Error[] = [];
+        // An editor that imports `thematicBreak` as its own node, without
+        // HorizontalRuleExtension.
+        using editor = buildEditorFromExtensions(
+          defineExtension({
+            dependencies: [
+              MdastRichTextExtension,
+              configExtension(MdastExtension, {
+                importRules: [
+                  {
+                    $import: () => $createParagraphNode(),
+                    type: 'thematicBreak',
+                  },
+                ],
+              }),
+              MdastShortcutsExtension,
+            ],
+            name: '[no horizontal rule]',
+            onError: error => {
+              errors.push(error);
+            },
+          }),
+        );
+        editor.update(
+          () => {
+            const paragraph = $createParagraphNode();
+            $getRoot().clear().append(paragraph);
+            paragraph.select();
+          },
+          {discrete: true},
+        );
+        type(editor, ['-', '-', '-']);
+        press(editor, key);
+        expect(errors).toEqual([]);
+        editor.read(() => {
+          expect($getRoot().getTextContent()).toMatch(/^---/);
+        });
+      },
+    );
   });
 
   describe('does not fire destructively', () => {
@@ -360,6 +808,21 @@ describe('@lexical/mdast streaming shortcuts', () => {
       type(editor, ['2024. was a big year']);
       editor.dispatchCommand(KEY_ENTER_COMMAND, null);
       $expectFirstChild(editor, $isParagraphNode);
+    });
+
+    it.each([
+      ['four spaces', '    indented line'],
+      ['a tab', '\tindented line'],
+    ])('Enter keeps a line indented with %s as text', (_, line) => {
+      using editor = createEditor();
+      // Four columns of indentation parse as indented code, which has no
+      // marker: Enter must not replace the line with an empty code block.
+      type(editor, [line]);
+      editor.dispatchCommand(KEY_ENTER_COMMAND, null);
+      $expectFirstChild(editor, $isParagraphNode);
+      editor.read(() => {
+        expect($getRoot().getTextContent()).toBe(line);
+      });
     });
 
     it('multi-character insertion (paste) does not transform', () => {

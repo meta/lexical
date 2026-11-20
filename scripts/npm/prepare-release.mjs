@@ -11,6 +11,9 @@
 import fs from 'fs-extra';
 import path from 'node:path';
 
+import {insertVersionBlock} from '../changesets/changelog.mjs';
+import {renderUnreleased} from '../changesets/release.mjs';
+import {ROOT} from '../changesets/repo.mjs';
 import {packagesManager} from '../shared/packagesManager.mjs';
 
 /**
@@ -63,6 +66,26 @@ function findMissingExportTargets(pkg) {
 }
 
 /**
+ * Ship the full release history with the core package (see the `files`
+ * field that scripts/updateVersion.mjs writes for `lexical`). A prerelease
+ * (nightly, next, dev) also lists the pending changesets as `## Unreleased`
+ * in that copy; the repository's CHANGELOG.md is left alone.
+ */
+async function copyChangelog() {
+  const core = packagesManager.getPackageByNpmName('lexical');
+  const {version} = core.packageJson;
+  let changelog = fs.readFileSync(path.resolve('CHANGELOG.md'), 'utf8');
+  if (String(version).includes('-')) {
+    const unreleased = await renderUnreleased(ROOT, version);
+    if (unreleased !== '') {
+      changelog = insertVersionBlock(changelog, unreleased);
+      console.log(`[lexical] CHANGELOG.md lists pending changes as Unreleased`);
+    }
+  }
+  fs.writeFileSync(core.resolve('CHANGELOG.md'), changelog);
+}
+
+/**
  * Verify each public package is ready to publish: README, LICENSE, and
  * every file referenced by `exports` must exist. `pnpm publish` rewrites
  * `workspace:*` automatically, so no in-place package.json mutation is
@@ -100,4 +123,5 @@ function prepareForRelease() {
   }
 }
 
+await copyChangelog();
 prepareForRelease();

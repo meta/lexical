@@ -23,16 +23,15 @@ import {
   pasteFromClipboard,
   pressToggleBold,
   test,
-  withExclusiveClipboardAccess,
 } from '../utils/index.mjs';
+
+test.skip(({isPlainText}) => isPlainText, 'Requires rich text');
 
 test.describe('Regression test #5251', () => {
   test.beforeEach(({isCollab, page}) => initialize({isCollab, page}));
   test('Correctly pastes rich content inside an inline element', async ({
-    isPlainText,
     page,
   }) => {
-    test.skip(isPlainText);
     await focusEditor(page);
 
     // Root
@@ -55,7 +54,7 @@ test.describe('Regression test #5251', () => {
     // Copy "Hello bold"
     await moveToLineBeginning(page);
     await selectCharacters(page, 'right', 'Hello bold'.length);
-    await withExclusiveClipboardAccess(async () => {
+    {
       const clipboard = await copyToClipboard(page);
 
       // Drop "bold"
@@ -106,6 +105,6 @@ test.describe('Regression test #5251', () => {
           </p>
         `,
       );
-    });
+    }
   });
 });

@@ -49,6 +49,10 @@ import type {
 
 import {
   $exportNodeJSON,
+  $getState,
+  $setState,
+  arraySetValue,
+  createState,
   $parseSerializedNode,
   $withCompactExport,
   defineExtension,
@@ -277,4 +281,22 @@ export function flowEnumDefaultIsChecked(): string {
   // $FlowExpectedError[incompatible-type] `undefined` is not one of the values
   const wrong = enumValue(['a', 'b'], undefined);
   return [withUndefined('a'), plain('a'), declared('a'), wrong('a')].join(',');
+}
+
+// A set-valued state: `arraySetValue` takes string items only, the value is a
+// read-only array, and `$setState` takes an array or an updater.
+export function flowArraySetValue(node: TextNode): ReadonlyArray<string> {
+  const tagsState = createState('tags', {parse: arraySetValue(stringValue())});
+  const kinds = createState('kinds', {
+    parse: arraySetValue(enumValue(['a', 'b'])),
+  });
+  $setState(node, tagsState, ['b', 'a']);
+  $setState(node, tagsState, prev => [...prev, 'c']);
+  $setState(node, kinds, ['a']);
+  // $FlowExpectedError[incompatible-type] the members are strings
+  arraySetValue(numberValue());
+  const tags: ReadonlyArray<string> = $getState(node, tagsState);
+  // $FlowExpectedError[incompatible-type] the value is read-only
+  const writable: Array<string> = $getState(node, tagsState);
+  return [...tags, ...writable, ...$getState(node, kinds)];
 }

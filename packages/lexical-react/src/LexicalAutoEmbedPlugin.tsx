@@ -26,6 +26,7 @@ import {
   COMMAND_PRIORITY_EDITOR,
   COMMAND_PRIORITY_LOW,
   type CommandListenerPriority,
+  type LexicalNode,
   mergeRegister,
   type MutationListener,
   type NodeKey,
@@ -33,7 +34,14 @@ import {
   PASTE_TAG,
   type TextNode,
 } from 'lexical';
-import {type JSX, useCallback, useEffect, useMemo, useState} from 'react';
+import {
+  type JSX,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 
 export {
   AutoEmbedOption,
@@ -82,7 +90,39 @@ type LexicalAutoEmbedPluginProps<TEmbedConfig extends EmbedConfig> = {
    * Priority for key handling in the menu. The default is `COMMAND_PRIORITY_LOW`
    */
   menuCommandPriority?: CommandListenerPriority;
+  /**
+   * Optional predicate to suppress the menu for specific locations, e.g.
+   * inside nodes that only accept inline content. It receives the matched
+   * AutoLinkNode; if it returns true, the menu is not shown and the pasted
+   * link is left as-is (the Tab/Enter/Esc handling is part of the menu,
+   * so it is skipped too). The predicate can inspect the node's ancestors,
+   * e.g. with `$getNearestNodeOfType` from `@lexical/utils`.
+   */
+  $disableMenuFor?: (node: LexicalNode) => boolean;
 };
+
+type EmbedMatch<TEmbedConfig extends EmbedConfig> = {
+  embedConfig: TEmbedConfig;
+  key: NodeKey;
+  result: Parameters<TEmbedConfig['insertNode']>[1];
+  url: string;
+};
+
+function $getCurrentLink(key: NodeKey, url: string): LinkNode | null {
+  const linkNode = $getNodeByKey(key);
+  return $isLinkNode(linkNode) &&
+    linkNode.isAttached() &&
+    linkNode.getURL() === url
+    ? linkNode
+    : null;
+}
+
+function $isMenuDisabledForNode(
+  linkNode: LexicalNode,
+  $disableMenuFor?: (node: LexicalNode) => boolean,
+): boolean {
+  return $disableMenuFor != null && $disableMenuFor(linkNode);
+}
 
 /**
  * Watches for pasted AutoLink nodes that match any of the provided embed configurations (e.g., YouTube, Twitter URLs).
@@ -118,38 +158,66 @@ export function LexicalAutoEmbedPlugin<TEmbedConfig extends EmbedConfig>({
   getMenuOptions,
   menuRenderFn,
   menuCommandPriority = COMMAND_PRIORITY_LOW,
+  $disableMenuFor,
 }: LexicalAutoEmbedPluginProps<TEmbedConfig>): JSX.Element | null {
   const [editor] = useLexicalComposerContext();
 
-  const [nodeKey, setNodeKey] = useState<NodeKey | null>(null);
-  const [activeEmbedConfig, setActiveEmbedConfig] =
-    useState<TEmbedConfig | null>(null);
+  const [embedMatch, setEmbedMatch] = useState<EmbedMatch<TEmbedConfig> | null>(
+    null,
+  );
+  const nodeKey = embedMatch === null ? null : embedMatch.key;
+  const activeEmbedConfig = embedMatch === null ? null : embedMatch.embedConfig;
+  // Only the most recent paste may open the menu, even when an older
+  // asynchronous parseUrl result resolves after a newer one.
+  const latestCheckRef = useRef(0);
 
   const reset = useCallback(() => {
-    setNodeKey(null);
-    setActiveEmbedConfig(null);
+    setEmbedMatch(null);
   }, []);
 
   const checkIfLinkNodeIsEmbeddable = useCallback(
     async (key: NodeKey) => {
+      const check = ++latestCheckRef.current;
       const url = editor.read('latest', function () {
         const linkNode = $getNodeByKey(key);
         if ($isLinkNode(linkNode)) {
+          if ($isMenuDisabledForNode(linkNode, $disableMenuFor)) {
+            return undefined;
+          }
           return linkNode.getURL();
         }
       });
       if (url === undefined) {
         return;
       }
-      for (const embedConfig of embedConfigs) {
-        const urlMatch = await Promise.resolve(embedConfig.parseUrl(url));
-        if (urlMatch != null) {
-          setActiveEmbedConfig(embedConfig);
-          setNodeKey(key);
+      // When several configs match, the last one wins, so check them from
+      // the end and stop at the first match to call parseUrl no more often
+      // than needed.
+      for (let i = embedConfigs.length - 1; i >= 0; i--) {
+        const embedConfig = embedConfigs[i];
+        const result = await Promise.resolve(embedConfig.parseUrl(url));
+        if (check !== latestCheckRef.current) {
+          return;
+        }
+        if (result != null) {
+          // Edits made while parseUrl was pending may not be committed yet,
+          // and the link may have moved into a disabled location since
+          if (
+            editor.read('pending', () => {
+              const linkNode = $getCurrentLink(key, url);
+              return (
+                linkNode !== null &&
+                !$isMenuDisabledForNode(linkNode, $disableMenuFor)
+              );
+            })
+          ) {
+            setEmbedMatch({embedConfig, key, result, url});
+          }
+          return;
         }
       }
     },
-    [editor, embedConfigs],
+    [$disableMenuFor, editor, embedConfigs],
   );
 
   useEffect(() => {
@@ -211,37 +279,25 @@ export function LexicalAutoEmbedPlugin<TEmbedConfig extends EmbedConfig>({
     );
   }, [editor, embedConfigs, onOpenEmbedModalForConfig]);
 
-  const embedLinkViaActiveEmbedConfig = useCallback(
-    async function () {
-      if (activeEmbedConfig != null && nodeKey != null) {
-        const linkNode = editor.read('latest', () => {
-          const node = $getNodeByKey(nodeKey);
-          if ($isLinkNode(node)) {
-            return node;
-          }
-          return null;
-        });
-
-        if ($isLinkNode(linkNode)) {
-          const result = await Promise.resolve(
-            activeEmbedConfig.parseUrl(linkNode.__url),
-          );
-          if (result != null) {
-            editor.update(() => {
-              if (!$getSelection()) {
-                linkNode.selectEnd();
-              }
-              activeEmbedConfig.insertNode(editor, result);
-              if (linkNode.isAttached()) {
-                linkNode.remove();
-              }
-            });
-          }
-        }
+  const embedLinkViaActiveEmbedConfig = useCallback(() => {
+    if (embedMatch == null) {
+      return;
+    }
+    const {embedConfig, key, result, url} = embedMatch;
+    editor.update(() => {
+      const linkNode = $getCurrentLink(key, url);
+      if (linkNode === null) {
+        return;
       }
-    },
-    [activeEmbedConfig, editor, nodeKey],
-  );
+      if (!$getSelection()) {
+        linkNode.selectEnd();
+      }
+      embedConfig.insertNode(editor, result);
+      if (linkNode.isAttached()) {
+        linkNode.remove();
+      }
+    });
+  }, [editor, embedMatch]);
 
   const options = useMemo(() => {
     return activeEmbedConfig != null && nodeKey != null

@@ -10,6 +10,8 @@ on:
       editor-mode: {required: true, type: string}
       prod: {required: false, type: boolean}
       fail-on-cache-miss: {required: false, type: boolean, default: false}
+      shard-index: {required: false, type: number, default: 1}
+      shard-total: {required: false, type: number, default: 1}
 
 permissions: {}
 
@@ -38,18 +40,19 @@ jobs:
           fail-on-cache-miss: ${{ inputs.fail-on-cache-miss }}
       - name: Run tests
         if: ${{ !startsWith(inputs.editor-mode, 'rich-text-with-collab') }}
-        run: pnpm run test-e2e-${{ inputs.prod && 'prod-' || '' }}${{ inputs.browser }}
+        run: pnpm run test-e2e-${{ inputs.prod && 'prod-' || '' }}${{ inputs.browser }} --shard=${{ inputs.shard-index }}/${{ inputs.shard-total }}
       - name: Run collab tests
         if: ${{ startsWith(inputs.editor-mode, 'rich-text-with-collab') }}
         shell: bash
         run: |
           pnpm exec concurrently -k -s first \
-            "pnpm run collab" \
-            "pnpm run test-e2e-collab-${{ inputs.editor-mode == 'rich-text-with-collab-v2' && 'v2-' || '' }}${{ inputs.prod && 'prod-' || '' }}${{ inputs.browser }}"
+            "pnpm run ${{ inputs.editor-mode == 'rich-text-with-collab-y' && 'collab:y' || 'collab' }}" \
+            "pnpm run test-e2e-collab-${{ inputs.editor-mode == 'rich-text-with-collab-v2' && 'v2-' || inputs.editor-mode == 'rich-text-with-collab-y' && 'y-' || '' }}${{ inputs.prod && 'prod-' || '' }}${{ inputs.browser }} --shard=${{ inputs.shard-index }}/${{ inputs.shard-total }}"
       - name: Upload Artifacts
-        if: failure()
+        if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v7
         with:
-          name: Test Results ${{ inputs.os }}-${{ inputs.browser }}-${{ inputs.editor-mode }}-${{ inputs.prod && 'prod' || 'dev' }}-${{ inputs.node-version }}-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          name: Test Results ${{ inputs.os }}-${{ inputs.browser }}-${{ inputs.editor-mode }}-${{ inputs.prod && 'prod' || 'dev' }}-${{ inputs.node-version }}-shard-${{ inputs.shard-index }}-of-${{ inputs.shard-total }}-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ env.test_results_path }}
+          if-no-files-found: ignore
           retention-days: 7

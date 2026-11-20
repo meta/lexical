@@ -28,6 +28,7 @@ import {objectKlassEquals} from '@lexical/utils';
 import {
   $getSelection,
   $getSlotFrame,
+  $isEventFromEmbeddedInput,
   $isNodeSelection,
   $isRangeSelection,
   $selectAll,
@@ -379,7 +380,7 @@ export function registerPlainText(editor: LexicalEditor): () => void {
         // after Backspace. Returning false here skips event.preventDefault()
         // on keydown; the beforeinput deleteContentBackward handler still runs
         // and performs the deletion, so editing behavior is unchanged.
-        // See https://github.com/facebook/lexical/issues/5841
+        // See https://github.com/meta/lexical/issues/5841
         if (IS_IOS && CAN_USE_BEFORE_INPUT) {
           return false;
         }
@@ -459,7 +460,7 @@ export function registerPlainText(editor: LexicalEditor): () => void {
       event => {
         const selection = $getSelection();
 
-        if (!$isRangeSelection(selection)) {
+        if (!$isRangeSelection(selection) || $isEventFromEmbeddedInput(event)) {
           return false;
         }
 
@@ -473,7 +474,7 @@ export function registerPlainText(editor: LexicalEditor): () => void {
       event => {
         const selection = $getSelection();
 
-        if (!$isRangeSelection(selection)) {
+        if (!$isRangeSelection(selection) || $isEventFromEmbeddedInput(event)) {
           return false;
         }
 
@@ -487,7 +488,7 @@ export function registerPlainText(editor: LexicalEditor): () => void {
       event => {
         const selection = $getSelection();
 
-        if (!$isRangeSelection(selection)) {
+        if (!$isRangeSelection(selection) || $isEventFromEmbeddedInput(event)) {
           return false;
         }
 

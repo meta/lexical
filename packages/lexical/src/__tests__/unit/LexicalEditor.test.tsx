@@ -25,7 +25,6 @@ import {
   TableCellNode,
   TableRowNode,
 } from '@lexical/table';
-import {JSDOM} from 'jsdom';
 import * as lexical from 'lexical';
 import {
   $create,
@@ -497,6 +496,77 @@ describe('LexicalEditor tests', () => {
           expect($getRoot().getTextContent()).toBe('This works!');
         });
       });
+    });
+    it('does not flush an update started by a commit listener until every listener of that commit has run (#7709)', async () => {
+      init(function onError(err) {
+        throw err;
+      });
+      await update(() => {
+        $getRoot()
+          .clear()
+          .append($createParagraphNode().append($createTextNode('first')));
+      });
+
+      const updates: [
+        prevEditorState: EditorState,
+        editorState: EditorState,
+      ][] = [];
+      editor.registerUpdateListener(({prevEditorState, editorState}) => {
+        updates.push([prevEditorState, editorState]);
+      });
+      let appended = false;
+      editor.registerMutationListener(
+        ParagraphNode,
+        () => {
+          if (!appended) {
+            appended = true;
+            editor.update(() => {
+              $getRoot().append(
+                $createParagraphNode().append($createTextNode('third')),
+              );
+            });
+          }
+        },
+        {skipInitialization: true},
+      );
+      const reads: string[] = [];
+      editor.registerMutationListener(
+        ParagraphNode,
+        () => {
+          reads.push(editor.read(() => $getRoot().getTextContent()));
+        },
+        {skipInitialization: true},
+      );
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+      try {
+        editor.update(
+          () => {
+            $getRoot().append(
+              $createParagraphNode().append($createTextNode('second')),
+            );
+          },
+          {discrete: true},
+        );
+        // The read must not commit the update started by the first mutation
+        // listener: the update listeners would have been notified of it before
+        // the commit that is still notifying its own listeners.
+        expect(updates).toHaveLength(1);
+        expect(updates[0][1]).toBe(editor.getEditorState());
+        expect(reads).toEqual(['first\n\nsecond']);
+        expect(warnSpy).toHaveBeenCalledTimes(1);
+        expect(warnSpy.mock.calls[0][0]).toMatch(/editor\.read\(\)/);
+
+        // The pending update commits afterwards, continuing from that state.
+        await Promise.resolve();
+        expect(updates).toHaveLength(2);
+        expect(updates[1][0]).toBe(updates[0][1]);
+        expect(updates[1][1]).toBe(editor.getEditorState());
+        expect(reads).toEqual(['first\n\nsecond', 'first\n\nsecond\n\nthird']);
+        expect(warnSpy).toHaveBeenCalledTimes(1);
+      } finally {
+        warnSpy.mockRestore();
+      }
     });
   });
 
@@ -1012,7 +1082,7 @@ describe('LexicalEditor tests', () => {
   });
 
   it('transforms do not discard unintentional dirtyElements', () => {
-    // See https://github.com/facebook/lexical/issues/7333
+    // See https://github.com/meta/lexical/issues/7333
     // We are assuming that ListNode automatically registers a transform
     // to merge adjacent lists
     init(undefined, [ListItemNode, ListNode]);
@@ -1450,16 +1520,16 @@ describe('LexicalEditor tests', () => {
     // Unbounded: flips the text content again on every commit, forever.
     const unregisterUpdate = editor.registerUpdateListener(() => {
       editor.update(() => {
-        const text = $getNodeByKey<TextNode>(textKey);
-        if (text !== null) {
+        const text = $getNodeByKey(textKey);
+        if ($isTextNode(text)) {
           text.setTextContent(text.getTextContent() === 'a' ? 'b' : 'a');
         }
       });
     });
 
     editor.update(() => {
-      const text = $getNodeByKey<TextNode>(textKey);
-      if (text !== null) {
+      const text = $getNodeByKey(textKey);
+      if ($isTextNode(text)) {
         text.setTextContent('b');
       }
     });
@@ -4225,23 +4295,28 @@ describe('LexicalEditor tests', () => {
       const origEditor = createTestEditor();
       origEditor.setRootElement(container);
 
-      // Register and unregister editor in jsdom document, so that root element
-      // count is non-zero.
-      const jsdom = new JSDOM();
-      const jsdomDocument = jsdom.window.document;
-      const jsdomContainer = jsdomDocument.createElement('div');
-      const jsdomEditor = createTestEditor();
-      jsdomEditor.setRootElement(jsdomContainer);
-      jsdomEditor.setRootElement(null);
+      // An iframe provides a second document/window in the same DOM
+      // implementation, just as moving the root between browser frames does.
+      const iframe = document.createElement('iframe');
+      document.body.appendChild(iframe);
+      try {
+        const iframeDocument = iframe.contentDocument;
+        assert(iframeDocument !== null);
+        const iframeContainer = iframeDocument.createElement('div');
+        const iframeEditor = createTestEditor();
+        // Register and unregister so this document's root count is non-zero.
+        iframeEditor.setRootElement(iframeContainer);
+        iframeEditor.setRootElement(null);
 
-      // Move container from original document to jsdom document
-      jsdomDocument.body.appendChild(container);
+        iframeDocument.body.appendChild(container);
 
-      // Ensure that cleanup still works
-      origEditor.setRootElement(null);
-
-      // Move node back to the original document so afterEach works
-      document.body.appendChild(container);
+        // Ensure that cleanup still works after changing ownerDocument.
+        origEditor.setRootElement(null);
+      } finally {
+        // Move the node back so afterEach works even if the assertion fails.
+        document.body.appendChild(container);
+        iframe.remove();
+      }
     });
   });
 

@@ -6,6 +6,8 @@
  *
  */
 
+// @vitest-environment node
+
 import {buildEditorFromExtensions} from '@lexical/extension';
 import {type EntityMatch, registerLexicalTextEntity} from '@lexical/text';
 import {

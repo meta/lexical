@@ -14,6 +14,7 @@ import {
   selectCharacters,
 } from '../keyboardShortcuts/index.mjs';
 import {
+  assertCaret,
   assertHTML,
   click,
   E2E_PORT,
@@ -55,9 +56,9 @@ async function stubLinkTarget(page) {
 }
 
 /**
- * Records every tab the browser opens from here on. `settle()` waits long
- * enough for a tab the browser opens on its own (a native middle click) to
- * show up, then returns the URLs of everything that opened.
+ * Records every tab the browser opens from here on. For a positive assertion,
+ * wait for the expected tab before starting the window for additional tabs,
+ * including ones opened by native middle-click behavior.
  */
 function recordOpenedTabs(page) {
   const context = page.context();
@@ -65,7 +66,12 @@ function recordOpenedTabs(page) {
   const onPage = newPage => opened.push(newPage);
   context.on('page', onPage);
   return {
-    async settle() {
+    async settle(expectedCount = 0) {
+      if (expectedCount > 0) {
+        await expect
+          .poll(() => opened.length)
+          .toBeGreaterThanOrEqual(expectedCount);
+      }
       await sleep(NO_MORE_TABS_MS);
       context.off('page', onPage);
       const urls = [];
@@ -125,6 +131,7 @@ async function createLink(page) {
  */
 async function collapseSelectionAfterLink(page) {
   await moveToLineEnd(page);
+  await assertCaret(page, 'p > span:last-child', ' world'.length);
 }
 
 async function toggleReadOnly(page) {
@@ -136,9 +143,10 @@ async function toggleReadOnly(page) {
 
 // These drive real mouse buttons and count the tabs the browser opens, which
 // the split-frame collab harness cannot observe, and links need rich text.
-test.beforeEach(({isCollab, isPlainText}) => {
-  test.skip(isPlainText || isCollab);
-});
+test.skip(
+  ({isCollab, isPlainText}) => isPlainText || isCollab,
+  'Requires rich text without collaboration',
+);
 
 test.describe('Clickable links', () => {
   test.beforeEach(({isCollab, page}) => initialize({isCollab, page}));
@@ -153,7 +161,7 @@ test.describe('Clickable links', () => {
       const tabs = recordOpenedTabs(page);
       await clickLink(page, 'left');
 
-      expect(await tabs.settle()).toEqual([LINK_URL]);
+      expect(await tabs.settle(1)).toEqual([LINK_URL]);
     });
 
     test('a middle click opens the link in exactly one tab', async ({page}) => {
@@ -168,7 +176,7 @@ test.describe('Clickable links', () => {
       // Canceling `mouseup` does not stop the browser from opening a
       // middle-clicked link itself, so handling the middle button there
       // opened the URL twice: once natively and once through `window.open`.
-      expect(await tabs.settle()).toEqual([LINK_URL]);
+      expect(await tabs.settle(1)).toEqual([LINK_URL]);
     });
 
     test('a right click does not open the link', async ({page}) => {
