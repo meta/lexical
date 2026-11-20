@@ -1988,6 +1988,22 @@ describe('insertText at the edge of a link, in an inline element inside it (#928
     ).toBe('paragraph["ab ", mark["cd ", link["ef"]], "X"]');
   });
 
+  test('writes after the MarkNode, at the end of an inline element that ends it', () => {
+    expect(
+      insertX(() => {
+        const caret = $createTextNode('xy');
+        return [
+          $createParagraphNode().append(
+            $createTextNode('ab '),
+            $mark($createTextNode('cd '), $inline(caret)),
+            $createTextNode(' ef'),
+          ),
+          caret,
+        ];
+      }, 'end'),
+    ).toBe('paragraph["ab ", mark["cd ", test_inline["xy"]], "X ef"]');
+  });
+
   test.each(['start', 'end'] as const)(
     'writes in an inline element at the %s of a block that takes no text there',
     edge => {
