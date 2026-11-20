@@ -114,16 +114,28 @@ function $updateColgroup(
     setDOMUnmanaged(colGroup);
     dom.insertBefore(colGroup, dom.firstChild);
   }
-  const cols = [];
+  // Update the <col>s already in place rather than replacing them. A table
+  // sized by its content whose <col>s are swapped for new ones keeps its old
+  // width until it is laid out from scratch: in WebKit with
+  // `width: max-content`, and in Chromium and WebKit inside a grid
+  // `max-content` track.
+  const cols = colGroup.children;
   for (let i = 0; i < colCount; i++) {
-    const col = $getDocument().createElement('col');
+    let col = cols[i] as HTMLElement | undefined;
+    if (!col) {
+      col = $getDocument().createElement('col');
+      colGroup.appendChild(col);
+    }
     const width = colWidths[i];
     if (width) {
       col.style.width = `${width}px`;
+    } else {
+      col.removeAttribute('style');
     }
-    cols.push(col);
   }
-  colGroup.replaceChildren(...cols);
+  while (cols.length > colCount && colGroup.lastElementChild) {
+    colGroup.lastElementChild.remove();
+  }
 }
 
 function setRowStriping(
