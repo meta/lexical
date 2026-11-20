@@ -36,7 +36,11 @@ for (const gc of [false, true])
       },
       onWarn: () => {},
     });
-    const b = new YBinding(editor, doc, {schemaVersion: 1, selfCheck: true});
+    const b = new YBinding(editor, doc, {
+      onStatus: null,
+      schemaVersion: 1,
+      selfCheck: true,
+    });
     b.start();
     editor.update(
       () =>

@@ -87,7 +87,10 @@ describe.each([false, true])('every binding write is admitted, gc %s', gc => {
         },
         {discrete: true},
       );
-      const binding = new YBinding(editor, doc, {schemaVersion: 1});
+      const binding = new YBinding(editor, doc, {
+        onStatus: null,
+        schemaVersion: 1,
+      });
       binding.start();
       onNextTransaction(
         doc,
@@ -108,7 +111,10 @@ describe.each([false, true])('every binding write is admitted, gc %s', gc => {
       const doc = createYDoc(rawDoc(SEED), {gc});
       const errors: Error[] = [];
       const editor = editorOf(errors);
-      const binding = new YBinding(editor, doc, {schemaVersion: 1});
+      const binding = new YBinding(editor, doc, {
+        onStatus: null,
+        schemaVersion: 1,
+      });
       binding.start();
       binding.initialize();
       const before = textOf(doc.get('lexical-y'));
@@ -146,7 +152,10 @@ describe.each([false, true])('every binding write is admitted, gc %s', gc => {
       const doc = createYDoc(rawDoc(SEED), {gc});
       const errors: Error[] = [];
       const editor = editorOf(errors);
-      const binding = new YBinding(editor, doc, {schemaVersion: 1});
+      const binding = new YBinding(editor, doc, {
+        onStatus: null,
+        schemaVersion: 1,
+      });
       binding.start();
       binding.initialize();
       const root = doc.get('lexical-y');
@@ -187,7 +196,10 @@ describe.each([false, true])('every binding write is admitted, gc %s', gc => {
     const doc = createYDoc(null, {gc});
     const errors: Error[] = [];
     const editor = editorOf(errors);
-    const binding = new YBinding(editor, doc, {schemaVersion: 1});
+    const binding = new YBinding(editor, doc, {
+      onStatus: null,
+      schemaVersion: 1,
+    });
     binding.start();
     doc.transact(() => {
       append(editor, 'seed');
@@ -214,7 +226,10 @@ describe.each([false, true])('every binding write is admitted, gc %s', gc => {
       },
       {discrete: true},
     );
-    const binding = new YBinding(editor, doc, {schemaVersion: 1});
+    const binding = new YBinding(editor, doc, {
+      onStatus: null,
+      schemaVersion: 1,
+    });
     binding.start();
     binding.initialize();
     await flush();

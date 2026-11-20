@@ -156,6 +156,7 @@ function setup(
   editor.update($commented, {discrete: true});
   const binding = new YBinding(editor, doc, {
     captureTimeout: 0,
+    onStatus: null,
     root: nested ? root : undefined,
     schemaVersion: 1,
   });

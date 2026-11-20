@@ -101,6 +101,7 @@ function bind(gc: boolean, onWarn?: (w: Error) => void) {
   );
   const binding = new YBinding(editor, doc, {
     captureTimeout: 0,
+    onStatus: null,
     schemaVersion: 1,
   });
   binding.start();

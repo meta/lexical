@@ -14,6 +14,9 @@ import * as lockfile from 'proper-lockfile';
 import {URLSearchParams} from 'url';
 
 import {selectAll} from '../keyboardShortcuts/index.mjs';
+import {getLocalDateValue} from './dateTime.mjs';
+
+export {getLocalDateValue};
 
 function findAsset(pattern) {
   const prefix = 'packages/lexical-playground/build';
@@ -1283,7 +1286,7 @@ export function getExpectedDateTimeHtml({selected = false, formats = []} = {}) {
     <span
       contenteditable="false"
       style="display: inline-block;"
-      data-lexical-datetime="${date.toString()}"
+      data-lexical-datetime="${getLocalDateValue(date)}"
       data-lexical-decorator="true">
       <div
         class="dateTimePill ${selected ? 'selected' : ''} ${formats

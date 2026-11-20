@@ -15,6 +15,7 @@ import {$setBlocksType} from '@lexical/selection';
 import {
   $createParagraphNode,
   $createTextNode,
+  $deepCopy,
   $getRoot,
   $getSelection,
   INSERT_PARAGRAPH_COMMAND,
@@ -24,7 +25,6 @@ import {afterEach, describe, expect, test} from 'vitest';
 import {
   $block,
   $caretAt,
-  $deepCopy,
   $enter,
   $join,
   $type,

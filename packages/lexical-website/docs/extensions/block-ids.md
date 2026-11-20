@@ -131,7 +131,9 @@ const pipeline = buildEditorFromExtensions({
 });
 
 pipeline.setEditorState(pipeline.parseEditorState(storedJSON));
-const withIds = JSON.stringify(pipeline.getEditorState().toJSON());
+const withIds = JSON.stringify(
+  pipeline.read('latest', () => pipeline.getEditorState().toJSON()),
+);
 ```
 
 Register the same nodes as the editors that wrote the document. Running it

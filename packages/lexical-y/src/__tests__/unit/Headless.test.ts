@@ -74,7 +74,7 @@ import {
 
 // The tests turn the binding's self-check on (it is off by default): a
 // mismatch is a warning, so the tests that expect none catch it.
-const config = {nodes: NODES, schemaVersion: 1, selfCheck: true};
+const config = {nodes: NODES, onWarn: null, schemaVersion: 1, selfCheck: true};
 
 /** Run microtasks collected by a spy; the messages of those that throw. */
 function rethrown(tasks: (() => void)[]): string[] {
@@ -118,6 +118,7 @@ const BidExtension = defineExtension({
 });
 const bidConfig = {
   extensions: [BidExtension],
+  onWarn: null,
   schemaVersion: 1,
   selfCheck: true,
 };
@@ -277,7 +278,11 @@ describe('@lexical/y/headless', () => {
       defineExtension({
         $initialEditorState: null,
         dependencies: [
-          configExtension(YCollabExtension, {doc, schemaVersion: 1}),
+          configExtension(YCollabExtension, {
+            doc,
+            onYStatus: null,
+            schemaVersion: 1,
+          }),
         ],
         name: 'client',
         nodes: NODES,
@@ -509,6 +514,7 @@ describe('@lexical/y/headless', () => {
           AppNodes,
           configExtension(YCollabExtension, {
             doc: createYDoc(),
+            onYStatus: null,
             schemaVersion: 1,
           }),
           BlockIdExtension,
@@ -518,6 +524,7 @@ describe('@lexical/y/headless', () => {
     );
     const handle = createHeadlessYEditor({
       extensions: [AppNodes, BlockIdExtension],
+      onWarn: null,
       schemaVersion: 1,
     });
     try {
@@ -553,28 +560,54 @@ describe('@lexical/y/headless', () => {
   test('a synchronous loop of calls holds no document it opened', () => {
     setFlagsFromString('--expose-gc');
     const gc = runInNewContext('gc') as () => void;
+    // The heap after collection: the least of a few samples, each after a
+    // full collection, so what one collection left for the next (or swept
+    // late, on a loaded machine) is not counted as held.
     const heap = () => {
-      gc();
-      gc();
-      return process.memoryUsage().heapUsed;
-    };
-    const big = seedYState({nodes: NODES, schemaVersion: 1}, () => {
-      for (let i = 0; i < 1000; i++) {
-        $getRoot().append($p(`paragraph ${i} with some text in it`));
+      let least = Infinity;
+      for (let i = 0; i < 3; i++) {
+        gc();
+        least = Math.min(least, process.memoryUsage().heapUsed);
       }
-    });
+      return least;
+    };
+    const big = seedYState(
+      {nodes: NODES, onWarn: null, schemaVersion: 1},
+      () => {
+        for (let i = 0; i < 1000; i++) {
+          $getRoot().append($p(`paragraph ${i} with some text in it`));
+        }
+      },
+    );
     // A writer keeps client ids and clocks, never a document.
     const writer = createYWriter('agent');
     let written = big;
+    // One round of the calls first, so that the code they compile and the
+    // type feedback they gather are in the baseline, not in the difference.
+    readYState(big, {nodes: NODES, onWarn: null, schemaVersion: 1}, () =>
+      $getRoot().getTextContentSize(),
+    );
+    editYState(
+      big,
+      {nodes: NODES, onWarn: null, schemaVersion: 1},
+      () => $getRoot().append($p('x')),
+      {writer: null},
+    );
+    editYState(
+      big,
+      {nodes: NODES, onWarn: null, schemaVersion: 1},
+      () => $getRoot().append($p('y')),
+      {writer: createYWriter('warm-up')},
+    );
     const start = heap();
     // No await: nothing Lexical scheduled in a microtask has run.
     for (let i = 0; i < 20; i++) {
-      readYState(big, {nodes: NODES, schemaVersion: 1}, () =>
+      readYState(big, {nodes: NODES, onWarn: null, schemaVersion: 1}, () =>
         $getRoot().getTextContentSize(),
       );
       editYState(
         big,
-        {nodes: NODES, schemaVersion: 1},
+        {nodes: NODES, onWarn: null, schemaVersion: 1},
         () => $getRoot().append($p('x')),
         {
           writer: null,
@@ -582,7 +615,7 @@ describe('@lexical/y/headless', () => {
       );
       written = editYState(
         written,
-        {nodes: NODES, schemaVersion: 1},
+        {nodes: NODES, onWarn: null, schemaVersion: 1},
         () => $getRoot().append($p('y')),
         {writer},
       ).state;
@@ -591,7 +624,7 @@ describe('@lexical/y/headless', () => {
     // binding) until the loop yielded: over 100 MB here.
     expect(heap() - start).toBeLessThan(10e6);
     expect(
-      readYState(written, {nodes: NODES, schemaVersion: 1}, () =>
+      readYState(written, {nodes: NODES, onWarn: null, schemaVersion: 1}, () =>
         $getRoot().getChildrenSize(),
       ),
     ).toBe(1020);
@@ -686,7 +719,12 @@ describe('@lexical/y/headless', () => {
         };
       },
     });
-    const tracked = {extensions: [Tracked], schemaVersion: 1, selfCheck: true};
+    const tracked = {
+      extensions: [Tracked],
+      onWarn: null,
+      schemaVersion: 1,
+      selfCheck: true,
+    };
     const destroyed: Y.Doc[] = [];
     const destroy = Y.Doc.prototype.destroy;
     vi.spyOn(Y.Doc.prototype, 'destroy').mockImplementation(function (
@@ -941,10 +979,10 @@ describe('@lexical/y/headless', () => {
     handle.dispose();
     // Idempotent.
     handle.dispose();
-    // The seed's document (with the two scratch documents of its
-    // initialization and the one that compacts its state), the edit's (and
-    // its compaction), the read's and the handle's.
-    expect(atDestroy.length).toBe(8);
+    // The seed's document (with the scratch document of its initialization
+    // and the one that compacts its state), the edit's (and its compaction),
+    // the read's and the handle's.
+    expect(atDestroy.length).toBe(7);
     // A document createYDoc made keeps its copy repair for its lifetime
     // (Ident.installCopyRepair): one listener of its own, not the binding's.
     const lifetime = docListeners(createYDoc()).filter(
@@ -1256,6 +1294,7 @@ describe('@lexical/y/headless', () => {
       }),
     );
     const binding = new YBinding(editor, blocked, {
+      onStatus: null,
       schemaVersion: 1,
       selfCheck: true,
     });
@@ -1299,6 +1338,7 @@ describe('@lexical/y/headless', () => {
     const state = seedYState(
       {
         extensions: [{dependencies: [], name: 'app', nodes: NODES}],
+        onWarn: null,
         schemaVersion: 1,
       },
       () => {

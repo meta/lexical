@@ -90,6 +90,8 @@ export type YMigrationReceipt = {
   readonly changed: boolean,
   readonly bytesBefore: number,
   readonly bytesAfter: number,
+  // The pending material split out of the input, returned or discarded.
+  readonly pendingBytes: number,
   readonly ms: number,
   ...
 };
@@ -109,21 +111,40 @@ export type YMigrateOptions = {
   ...
 };
 
+// What a migration does with the input's pending material, never in the
+// migrated state: 'return' it (to store it), or 'discard' it (a copy
+// nothing stores).
+export type YPendingMaterial = 'return' | 'discard';
 export type YMigrateStateOptions = {
   readonly roots?: ReadonlyArray<string>,
   readonly to?: number,
   readonly clientID?: (input: YMigrationStepInput) => number,
   readonly gc?: boolean,
+  // Required.
+  readonly pending: YPendingMaterial,
   ...
 };
 
-export type YMigrationResult = {
+// A union on `split`: the migrated bytes are reached only after narrowing;
+// split (only with pending: 'return'), the state is `integrated` and the
+// material `pending` beside it.
+type YMigrationResultUnsplit = {
+  readonly split: false,
   readonly state: Uint8Array,
   readonly update: Uint8Array | null,
-  readonly pending: Uint8Array | null,
   readonly receipt: YMigrationReceipt,
   ...
 };
+export type YMigrationResult =
+  | YMigrationResultUnsplit
+  | {
+      readonly split: true,
+      readonly integrated: Uint8Array,
+      readonly pending: Uint8Array,
+      readonly update: Uint8Array,
+      readonly receipt: YMigrationReceipt,
+      ...
+    };
 
 export type YMigrationLoaders = {
   readonly [from: number]: () => Promise<unknown>,
@@ -132,7 +153,12 @@ export type YMigrationLoaders = {
 declare export function migrateYState(
   state: Uint8Array,
   steps: ReadonlyArray<YLayoutMigration>,
-  options?: YMigrateStateOptions,
+  options: {...YMigrateStateOptions, readonly pending: 'discard', ...},
+): YMigrationResultUnsplit;
+declare export function migrateYState(
+  state: Uint8Array,
+  steps: ReadonlyArray<YLayoutMigration>,
+  options: YMigrateStateOptions,
 ): YMigrationResult;
 
 export type YLoadYMigrationStepsOptions = {

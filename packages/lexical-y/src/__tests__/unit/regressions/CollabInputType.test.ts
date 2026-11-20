@@ -23,15 +23,18 @@ import {
   type YCollabInput,
 } from '../../..';
 
-// The keys an input must name: exactly doc, layoutUpgrade and
-// schemaVersion.
+// The keys an input must name: exactly doc, layoutUpgrade, onYStatus,
+// schemaVersion and synced (D135: a status handler and the sync choice are
+// decisions, not defaults).
 type RequiredKeys<T> = {
   [K in keyof T]-?: Record<string, never> extends Pick<T, K> ? never : K;
 }[keyof T];
 const required: Record<RequiredKeys<YCollabInput>, true> = {
   doc: true,
   layoutUpgrade: true,
+  onYStatus: true,
   schemaVersion: true,
+  synced: true,
 };
 // Every option of the resolved config is an option of the input: adding an
 // option to one without the other fails to compile here.
@@ -49,8 +52,9 @@ const everyOption: Record<keyof YCollabConfig, keyof YCollabInput> = {
 };
 
 // N7: YCollabConfig keeps the fields it had before this release, all
-// required; anything added to it is optional (its default resolved inside
-// the extension). A complete object written for the old type compiles.
+// required; anything added to it is optional in the type. A complete object
+// written for the old type compiles, and since D135 the extension refuses
+// it at build without onYStatus (a choice a partial config cannot type).
 const configRequired: Record<RequiredKeys<YCollabConfig>, true> = {
   captureTimeout: true,
   convert: true,
@@ -81,7 +85,11 @@ export function invalidInputs(doc: YCollabInput['doc']): YCollabInput[] {
     // @ts-expect-error doc is required
     {layoutUpgrade: null, schemaVersion: 1},
     // @ts-expect-error layoutUpgrade is required
-    {doc, schemaVersion: 1},
+    {doc, onYStatus: null, schemaVersion: 1, synced: false},
+    // @ts-expect-error onYStatus is required
+    {doc, layoutUpgrade: null, schemaVersion: 1, synced: false},
+    // @ts-expect-error synced is required
+    {doc, layoutUpgrade: null, onYStatus: null, schemaVersion: 1},
   ];
 }
 
@@ -89,14 +97,18 @@ test('a YCollabInput with only its required keys configures the extension; the i
   expect(Object.keys(required).sort()).toEqual([
     'doc',
     'layoutUpgrade',
+    'onYStatus',
     'schemaVersion',
+    'synced',
   ]);
   expect(Object.keys(everyOption)).toHaveLength(10);
   expect(Object.keys(configRequired)).toHaveLength(8);
   const input: YCollabInput = {
     doc: createYDoc(),
     layoutUpgrade: null,
+    onYStatus: null,
     schemaVersion: 1,
+    synced: false,
   };
   const editor = buildEditorFromExtensions(
     defineExtension({
@@ -106,11 +118,24 @@ test('a YCollabInput with only its required keys configures the extension; the i
   );
   expect(editor).toBeDefined();
   editor.dispose();
-  // The old complete config still configures the extension.
+  // The old complete config is refused without onYStatus, naming it.
+  expect(() =>
+    buildEditorFromExtensions(
+      defineExtension({
+        dependencies: [
+          configExtension(YCollabExtension, oldFullConfig(createYDoc())),
+        ],
+        name: 'collab-old-full-config',
+      }),
+    ),
+  ).toThrow(/YCollabExtension needs onYStatus/);
   const old = buildEditorFromExtensions(
     defineExtension({
       dependencies: [
-        configExtension(YCollabExtension, oldFullConfig(createYDoc())),
+        configExtension(YCollabExtension, {
+          ...oldFullConfig(createYDoc()),
+          onYStatus: null,
+        }),
       ],
       name: 'collab-old-full-config',
     }),

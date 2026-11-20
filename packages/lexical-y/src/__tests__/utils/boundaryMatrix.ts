@@ -400,6 +400,16 @@ function mount(): {editor: LexicalEditor; host: HTMLElement} {
  * that keeps the last selection, it commits that selection, the composition
  * where it was.
  */
+/**
+ * Each test is one shape's whole matrix: up to about 300 selections, each
+ * run through the 13 events with the editor set up again for every one, so
+ * some 12,000 discrete updates that reconcile the DOM. Alone that takes up
+ * to about 1 s; on a loaded machine (a CI runner, or the whole suite in
+ * parallel) it passes the default 5 s, so the timeout is the one the other
+ * matrix files use.
+ */
+const MATRIX_TIMEOUT = 60_000;
+
 export function runBoundaryMatrix(platform: string): void {
   test.each(Object.keys(SHAPES))(
     `the binding's view of the next update matches Lexical's, ${platform}: %s`,
@@ -579,5 +589,6 @@ export function runBoundaryMatrix(platform: string): void {
         }
       }
     },
+    MATRIX_TIMEOUT,
   );
 }

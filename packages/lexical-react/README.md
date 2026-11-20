@@ -30,14 +30,18 @@ const theme = {
 
 // When the editor changes, you can get notified via the
 // LexicalOnChangePlugin!
-function onChange(editorState) {
-  editorState.read(() => {
-    // Read the contents of the EditorState here.
-    const root = $getRoot();
-    const selection = $getSelection();
+function onChange(editorState, editor) {
+  editorState.read(
+    () => {
+      // Read the contents of the EditorState here.
+      const root = $getRoot();
+      const selection = $getSelection();
 
-    console.log(root, selection);
-  });
+      console.log(root, selection);
+    },
+    // Passing the editor keeps $getEditor() and extension lookups working.
+    {editor},
+  );
 }
 
 // Lexical React plugins are React components, which makes them

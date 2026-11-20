@@ -35,6 +35,7 @@ import {
 } from '../../offline';
 import {createFakeIndexedDB, type FakeIndexedDB} from '../utils/fakeIndexedDB';
 import {WITH_GC} from '../utils/harness';
+import {markSynced, trackVerdicts} from '../utils/offlineSync';
 
 // `mergeUpdates` with a switch that makes its next call throw.
 const faults = vi.hoisted(() => ({failNextMerge: false}));
@@ -169,24 +170,27 @@ describe('faults between transactions', () => {
       },
     });
     const errors: YOfflineError[] = [];
-    const session = attachYOfflineSession({
-      binding,
-      compactAfter: 1,
-      epoch: 'e1',
-      key: 'doc',
-      onError: error => errors.push(error),
-      stage: 'persist',
-      store: faulty,
-    });
+    const session = trackVerdicts(
+      attachYOfflineSession({
+        binding,
+        compactAfter: 1,
+        epoch: 'e1',
+        key: 'doc',
+        loaded: null,
+        offline: {persist: 'document', stage: 'persist', store: faulty},
+        onError: error => errors.push(error),
+        stopSync: () => {},
+      }),
+    );
     unwrap(await session.flush());
     // A base is stored.
-    session.markSynced();
+    await markSynced(session);
     unwrap(await session.flush());
     // An edit, whose append is in flight when the provider reports a sync;
     // that confirmation fails, after the append's compaction ran.
     type('edit.');
     failConfirm = true;
-    session.markSynced();
+    await markSynced(session);
     await session.flush();
     await ticks();
     expect(errors.map(error => error.code)).toContain('quota');
@@ -201,14 +205,17 @@ describe('faults between transactions', () => {
     const store = await open(fake);
     const {binding, type} = tab();
     const errors: YOfflineError[] = [];
-    const session = attachYOfflineSession({
-      binding,
-      epoch: 'e1',
-      key: 'doc',
-      onError: error => errors.push(error),
-      stage: 'persist',
-      store,
-    });
+    const session = trackVerdicts(
+      attachYOfflineSession({
+        binding,
+        epoch: 'e1',
+        key: 'doc',
+        loaded: null,
+        offline: {persist: 'document', stage: 'persist', store: store},
+        onError: error => errors.push(error),
+        stopSync: () => {},
+      }),
+    );
     // The first update's append is in flight; the next two queue behind it
     // and are merged into one row, which throws once.
     type('a');
@@ -241,15 +248,18 @@ describe('faults between transactions', () => {
         {putCapture: refuse},
       );
       const errors: YOfflineError[] = [];
-      const session = attachYOfflineSession({
-        binding,
-        epoch: 'e1',
-        key: 'doc',
-        onError: error => errors.push(error),
-        stage: 'persist',
-        store: faulty,
-        writeDelay,
-      });
+      const session = trackVerdicts(
+        attachYOfflineSession({
+          binding,
+          epoch: 'e1',
+          key: 'doc',
+          loaded: null,
+          offline: {persist: 'document', stage: 'persist', store: faulty},
+          onError: error => errors.push(error),
+          stopSync: () => {},
+          writeDelay,
+        }),
+      );
       type('typed');
       unwrap(await session.flush());
       const verdict = await session.serverEpoch('e2');
@@ -287,15 +297,18 @@ describe('faults between transactions', () => {
         {putCapture: refuse},
       );
       const errors: YOfflineError[] = [];
-      const session = attachYOfflineSession({
-        binding,
-        epoch: 'e1',
-        key: 'doc',
-        onError: error => errors.push(error),
-        stage: 'persist',
-        store: faulty,
-        writeDelay,
-      });
+      const session = trackVerdicts(
+        attachYOfflineSession({
+          binding,
+          epoch: 'e1',
+          key: 'doc',
+          loaded: null,
+          offline: {persist: 'document', stage: 'persist', store: faulty},
+          onError: error => errors.push(error),
+          stopSync: () => {},
+          writeDelay,
+        }),
+      );
       type('typed');
       unwrap(await session.flush());
       const moving = session.serverEpoch('e2');
@@ -320,15 +333,18 @@ describe('faults between transactions', () => {
       {putCapture: refuse},
     );
     const errors: YOfflineError[] = [];
-    const session = attachYOfflineSession({
-      binding,
-      epoch: 'e1',
-      key: 'doc',
-      onError: error => errors.push(error),
-      stage: 'persist',
-      store: faulty,
-      writeDelay: 8,
-    });
+    const session = trackVerdicts(
+      attachYOfflineSession({
+        binding,
+        epoch: 'e1',
+        key: 'doc',
+        loaded: null,
+        offline: {persist: 'document', stage: 'persist', store: faulty},
+        onError: error => errors.push(error),
+        stopSync: () => {},
+        writeDelay: 8,
+      }),
+    );
     type('typed');
     unwrap(await session.flush());
     const verdict = await session.serverEpoch('e2');
@@ -348,15 +364,18 @@ describe('faults between transactions', () => {
       {moveIntoCapture: refuse},
       {putCapture: refuse},
     );
-    const session = attachYOfflineSession({
-      binding,
-      epoch: 'e1',
-      key: 'doc',
-      onError: () => {},
-      stage: 'persist',
-      store: faulty,
-      writeDelay: 8,
-    });
+    const session = trackVerdicts(
+      attachYOfflineSession({
+        binding,
+        epoch: 'e1',
+        key: 'doc',
+        loaded: null,
+        offline: {persist: 'document', stage: 'persist', store: faulty},
+        onError: () => {},
+        stopSync: () => {},
+        writeDelay: 8,
+      }),
+    );
     type('a');
     void session.flush();
     type('b');
@@ -378,15 +397,18 @@ describe('faults between transactions', () => {
       },
       {},
     );
-    const session = attachYOfflineSession({
-      binding,
-      epoch: 'e1',
-      key: 'doc',
-      onError: () => {},
-      stage: 'persist',
-      store: faulty,
-      writeDelay: 8,
-    });
+    const session = trackVerdicts(
+      attachYOfflineSession({
+        binding,
+        epoch: 'e1',
+        key: 'doc',
+        loaded: null,
+        offline: {persist: 'document', stage: 'persist', store: faulty},
+        onError: () => {},
+        stopSync: () => {},
+        writeDelay: 8,
+      }),
+    );
     type('typed');
     unwrap(await session.flush());
     await expect(session.serverEpoch('e2')).rejects.toThrow(/injected/);
