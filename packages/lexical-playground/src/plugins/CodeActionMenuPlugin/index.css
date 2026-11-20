@@ -43,6 +43,17 @@
   background-size: contain;
 }
 
+/* i.wrap is a mask, so it needs a color to show through it. */
+.code-action-menu-container button.menu-item i.format.wrap {
+  background-color: CanvasText;
+  -webkit-mask-size: contain;
+  mask-size: contain;
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-position: center;
+  mask-position: center;
+}
+
 .code-action-menu-container button.menu-item:hover {
   border: 1px solid rgba(0, 0, 0, 0.3);
   opacity: 0.9;
@@ -51,4 +62,13 @@
 .code-action-menu-container button.menu-item:active {
   background-color: rgba(223, 232, 250);
   border: 1px solid rgba(0, 0, 0, 0.45);
+}
+
+.code-action-menu-container button.menu-item[aria-pressed='true'] {
+  background-color: rgba(223, 232, 250);
+  border: 1px solid rgba(0, 0, 0, 0.3);
+}
+
+.code-action-menu-container button.menu-item[aria-pressed='true'] i.format {
+  opacity: 1;
 }

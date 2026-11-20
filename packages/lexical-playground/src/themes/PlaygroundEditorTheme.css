@@ -217,6 +217,110 @@
   left: -8px;
   margin-left: -8px;
 }
+/*
+ * Per line numbers from CodeLineNumbersExtension. Line 1 is drawn by the code
+ * element's :before and each following line by the :after of the span wrapped
+ * around the <br> that ends the line before it, so a number stays with its line when the
+ * line wraps and empty lines get one too. Each number advances the line by
+ * zero (negative start margin), so it sits in the same 52px the float gutter
+ * above takes up and the text doesn't move. The background draws the gutter
+ * column for the full height of the block. The sticky inset cancels the 52px
+ * start padding: browsers measure sticky offsets from inside the scroll
+ * container's padding, so 0 would push every number over the start of its
+ * line.
+ */
+.PlaygroundEditorTheme__code[data-lexical-code-line-numbers] {
+  counter-reset: lexical-code-line;
+  padding-inline-start: 52px;
+  background-image: linear-gradient(
+    to right,
+    #eee 41px,
+    #ccc 41px,
+    #ccc 42px,
+    transparent 42px
+  );
+  background-repeat: no-repeat;
+  /* This gutter is at the inline start. The logical declaration must come
+     after the physical reset. */
+  scroll-padding-left: 0;
+  scroll-padding-inline-start: 52px;
+  /* The data-gutter float used to add this space under the last line.
+     WebKit also needs it to keep the last line's sticky number in view
+     while the block scrolls sideways. */
+  padding-bottom: 8px;
+}
+.PlaygroundEditorTheme__code[data-lexical-code-line-numbers]:dir(rtl) {
+  background-image: linear-gradient(
+    to left,
+    #eee 41px,
+    #ccc 41px,
+    #ccc 42px,
+    transparent 42px
+  );
+}
+/* Keep these after the data-gutter rules above: they override
+   .PlaygroundEditorTheme__code:dir(rtl):before, which has the same
+   specificity, so the order decides. */
+.PlaygroundEditorTheme__code[data-lexical-code-line-numbers]:before,
+.PlaygroundEditorTheme__code[data-lexical-code-line-numbers]
+  [data-lexical-code-line-break]:after {
+  counter-increment: lexical-code-line;
+  content: counter(lexical-code-line);
+  content: counter(lexical-code-line) / '';
+  display: inline-block;
+  box-sizing: border-box;
+  width: 42px;
+  min-width: 0;
+  min-height: 0;
+  margin: 0;
+  margin-inline-start: -52px;
+  margin-inline-end: 10px;
+  padding: 0 8px;
+  float: none;
+  border: 0;
+  border-inline-end: 1px solid #ccc;
+  position: sticky;
+  top: auto;
+  left: auto;
+  inset-inline-start: -52px;
+  z-index: 3;
+  background-color: #eee;
+  color: #777;
+  text-align: end;
+  white-space: pre;
+  pointer-events: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+/*
+ * Word wrap (CodeNode.setWordWrap). Long lines wrap instead of scrolling,
+ * and no LineBreakNode is added.
+ *
+ * overflow-x stays auto from the base rule: overflow-x: visible would
+ * change the scroll container the numbers are placed against.
+ *
+ * The numbers leave the line box, because an inline-block number in the
+ * flow is a wrap opportunity and can be left alone on a row before a long
+ * token. top stays auto, so each number stays on the first row of its line
+ * (its static position after the <br>). The display must stay inline, like
+ * inline-block, because a block display would move that static position.
+ *
+ * Nothing scrolls sideways, so the numbers don't need to be sticky.
+ * Nothing in flow sits before a line's text, so the caret can't end up
+ * under a number.
+ */
+.PlaygroundEditorTheme__code[data-lexical-code-word-wrap] {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.PlaygroundEditorTheme__code[data-lexical-code-word-wrap][data-lexical-code-line-numbers]:before,
+.PlaygroundEditorTheme__code[data-lexical-code-word-wrap][data-lexical-code-line-numbers]
+  [data-lexical-code-line-break]:after {
+  position: absolute;
+  inset-inline-start: 0;
+  margin-inline-start: 0;
+  margin-inline-end: 0;
+}
 .PlaygroundEditorTheme__tableScrollableWrapper {
   overflow-x: auto;
   margin: 0px 0px 5px 0px;

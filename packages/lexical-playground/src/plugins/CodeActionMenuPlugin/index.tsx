@@ -17,9 +17,11 @@ import {
 import {useLexicalComposerContext} from '@lexical/react/LexicalComposerContext';
 import {
   $getNearestNodeFromDOMNode,
+  $getNodeByKey,
   getComposedEventTarget,
   isHTMLElement,
   mergeRegister,
+  type NodeKey,
   registerEventListener,
 } from 'lexical';
 import * as React from 'react';
@@ -28,6 +30,7 @@ import {createPortal} from 'react-dom';
 
 import {CopyButton} from './components/CopyButton';
 import {PrettierButton} from './components/PrettierButton';
+import {WrapButton} from './components/WrapButton';
 import {canBePrettier} from './formatCodeWithPrettier';
 import {useDebounce} from './utils';
 
@@ -46,6 +49,7 @@ function CodeActionMenuContainer({
   const [editor] = useLexicalComposerContext();
 
   const [lang, setLang] = useState('');
+  const [isWrapped, setWrapped] = useState(false);
   const [isShown, setShown] = useState<boolean>(false);
   const [shouldListenMouseMove, setShouldListenMouseMove] =
     useState<boolean>(false);
@@ -55,9 +59,14 @@ function CodeActionMenuContainer({
   });
   const codeSetRef = useRef<Set<string>>(new Set());
   const codeDOMNodeRef = useRef<HTMLElement | null>(null);
+  const codeKeyRef = useRef<NodeKey | null>(null);
 
   function getCodeDOMNode(): HTMLElement | null {
     return codeDOMNodeRef.current;
+  }
+
+  function getCodeKey(): NodeKey | null {
+    return codeKeyRef.current;
   }
 
   const debouncedOnMouseMove = useDebounce(
@@ -76,6 +85,7 @@ function CodeActionMenuContainer({
 
       let codeNode: CodeNode | null = null;
       let _lang = '';
+      let _wordWrap = false;
 
       editor.update(() => {
         const maybeCodeNode = $getNearestNodeFromDOMNode(codeDOMNode);
@@ -83,6 +93,8 @@ function CodeActionMenuContainer({
         if ($isCodeNode(maybeCodeNode)) {
           codeNode = maybeCodeNode;
           _lang = codeNode.getLanguage() || '';
+          _wordWrap = codeNode.getWordWrap();
+          codeKeyRef.current = codeNode.getKey();
         }
       });
 
@@ -91,6 +103,7 @@ function CodeActionMenuContainer({
           anchorElem.getBoundingClientRect();
         const {y, right} = codeDOMNode.getBoundingClientRect();
         setLang(_lang);
+        setWrapped(_wordWrap);
         setShown(true);
         setPosition({
           right: `${editorElemRight - right + CODE_PADDING}px`,
@@ -129,6 +142,20 @@ function CodeActionMenuContainer({
 
               case 'destroyed':
                 codeSetRef.current.delete(key);
+                if (key === codeKeyRef.current) {
+                  codeKeyRef.current = null;
+                  setShown(false);
+                }
+                break;
+
+              case 'updated':
+                if (key === codeKeyRef.current) {
+                  const node = $getNodeByKey(key);
+                  if ($isCodeNode(node)) {
+                    setLang(node.getLanguage() || '');
+                    setWrapped(node.getWordWrap());
+                  }
+                }
                 break;
 
               default:
@@ -158,6 +185,11 @@ function CodeActionMenuContainer({
         <div className="code-action-menu-container" style={{...position}}>
           <div className="code-highlight-language">{codeFriendlyName}</div>
           <CopyButton editor={editor} getCodeDOMNode={getCodeDOMNode} />
+          <WrapButton
+            editor={editor}
+            getCodeKey={getCodeKey}
+            isWrapped={isWrapped}
+          />
           {canBePrettier(normalizedLang) ? (
             <PrettierButton
               editor={editor}

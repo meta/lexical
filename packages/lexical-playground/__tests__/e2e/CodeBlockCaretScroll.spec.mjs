@@ -81,10 +81,17 @@ async function measure(page) {
         caret.right === 0
       ) {
         // A caret between two elements has no rect of its own. Use the
-        // element after it.
-        const child = selection.focusNode.childNodes[selection.focusOffset];
+        // element after it, or the <br> of a line break wrapper, whose own
+        // rect also covers the number drawn on the next line.
+        let child = selection.focusNode.childNodes[selection.focusOffset];
         if (!child || child.nodeType !== Node.ELEMENT_NODE) {
           return null;
+        }
+        if (child.hasAttribute('data-lexical-code-line-break')) {
+          child = child.firstElementChild;
+          if (child === null) {
+            return null;
+          }
         }
         caret = child.getBoundingClientRect();
       }
@@ -97,9 +104,19 @@ async function measure(page) {
         return null;
       }
       range.setStart(firstText, 0);
+      const {focusNode} = selection;
+      const focusElement =
+        focusNode.nodeType === Node.ELEMENT_NODE
+          ? focusNode
+          : focusNode.parentElement;
       return {
         caretLeft: caret.left,
         caretRight: caret.right,
+        // The caret must never be inside a line break wrapper, where typed
+        // text would land next to the number.
+        focusInWrapper:
+          focusElement !== null &&
+          focusElement.closest('[data-lexical-code-line-break]') !== null,
         // Where the text of a line starts with the block scrolled all the way
         // back: just after the gutter, whatever its width.
         lineStartX: range.getBoundingClientRect().left + code.scrollLeft,
@@ -132,74 +149,101 @@ test.skip(
 );
 
 test.describe('Code block caret scrolling', () => {
-  test('Home, End and Enter keep the caret visible in long lines', async ({
-    page,
-    isCollab,
-    browserName,
-  }) => {
-    await initialize({isCollab, page});
-    await createCodeBlock(page, [LONG_LINE, INDENTED_LINE]);
-    // The data-gutter float numbers the lines.
-    await expect(locate(page, CODE)).toHaveAttribute('data-gutter', '1\n2');
+  for (const [name, settings] of [
+    ['data-gutter float with Prism', {}],
+    [
+      'per line numbers with Shiki',
+      {isCodeLineNumbers: true, isCodeShiki: true},
+    ],
+  ]) {
+    test(`Home, End and Enter keep the caret visible in long lines (${name})`, async ({
+      page,
+      isCollab,
+      browserName,
+    }) => {
+      await initialize({isCollab, page, ...settings});
+      await createCodeBlock(page, [LONG_LINE, INDENTED_LINE]);
+      if (settings.isCodeLineNumbers) {
+        // Line 1 is numbered by the code element, and line 2 by the
+        // wrapper of the line break before it.
+        await expect(locate(page, CODE)).toHaveAttribute(
+          'data-lexical-code-line-numbers',
+          'true',
+        );
+        await expect(
+          locate(page, `${CODE} > [data-lexical-code-line-break]`),
+        ).toHaveCount(1);
+      } else {
+        // The data-gutter float numbers the lines.
+        await expect(locate(page, CODE)).toHaveAttribute('data-gutter', '1\n2');
+        await expect(locate(page, CODE)).not.toHaveAttribute(
+          'data-lexical-code-line-numbers',
+        );
+      }
 
-    // The caret is at the end of the indented line, and the block is
-    // scrolled to show it. Smart Home stops after the indentation, and the
-    // block scrolls all the way back.
-    await pollGeometry(
-      page,
-      m => m.scrollLeft > 0 && m.caretRight <= m.scrollportRight,
-    );
-    await moveToLineBeginning(page);
-    await pollGeometry(
-      page,
-      m => m.scrollLeft === 0 && m.caretLeft > m.lineStartX + 1,
-    );
+      // The caret is at the end of the indented line, and the block is
+      // scrolled to show it. Smart Home stops after the indentation, and the
+      // block scrolls all the way back.
+      await pollGeometry(
+        page,
+        m => m.scrollLeft > 0 && m.caretRight <= m.scrollportRight,
+      );
+      await moveToLineBeginning(page);
+      await pollGeometry(
+        page,
+        m => m.scrollLeft === 0 && m.caretLeft > m.lineStartX + 1,
+      );
 
-    await moveToLineEnd(page);
-    await pollGeometry(
-      page,
-      m =>
-        m.scrollLeft > 0 &&
-        m.caretLeft >= m.lineStartX - 1 &&
-        m.caretRight <= m.scrollportRight,
-    );
+      await moveToLineEnd(page);
+      await pollGeometry(
+        page,
+        m =>
+          m.scrollLeft > 0 &&
+          m.caretLeft >= m.lineStartX - 1 &&
+          m.caretRight <= m.scrollportRight,
+      );
 
-    // The new line copies the 12 spaces of indentation.
-    await page.keyboard.type('abc');
-    await page.keyboard.press('Enter');
-    await pollGeometry(
-      page,
-      m => m.scrollLeft === 0 && m.caretLeft > m.lineStartX + 1,
-    );
+      // The new line copies the 12 spaces of indentation.
+      await page.keyboard.type('abc');
+      await page.keyboard.press('Enter');
+      await pollGeometry(
+        page,
+        m =>
+          m.scrollLeft === 0 &&
+          m.caretLeft > m.lineStartX + 1 &&
+          !m.focusInWrapper,
+      );
 
-    for (let i = 0; i < 12; i++) {
-      await page.keyboard.press('Backspace');
-    }
-    await expect
-      .poll(() => getCodeLines(page))
-      .toEqual([LONG_LINE, INDENTED_LINE + 'abc', '']);
-    await page.keyboard.press('ArrowUp');
-    await page.keyboard.press('ArrowUp');
+      for (let i = 0; i < 12; i++) {
+        await page.keyboard.press('Backspace');
+      }
+      await expect
+        .poll(() => getCodeLines(page))
+        .toEqual([LONG_LINE, INDENTED_LINE + 'abc', '']);
+      await page.keyboard.press('ArrowUp');
+      await page.keyboard.press('ArrowUp');
 
-    // The end of the longest line, with the block scrolled as far as it goes.
-    // Firefox leaves the theme's inline end padding out of the scroll range
-    // while a sticky box is in the block, like the data-gutter float. On the
-    // Windows CI runners it drew the caret here 0.25px past the right edge:
-    // at x 1143.25, with scrollLeft 3699 and the scrollport ending at 1143.
-    // So only this step allows 0.5px past the edge, and only in Firefox.
-    const endSlack = browserName === 'firefox' ? 0.5 : 0;
-    await moveToLineEnd(page);
-    await pollGeometry(
-      page,
-      m =>
-        m.scrollLeft > 0 &&
-        m.caretLeft >= m.lineStartX - 1 &&
-        m.caretRight <= m.scrollportRight + endSlack,
-    );
-    await moveToLineBeginning(page);
-    await pollGeometry(
-      page,
-      m => m.scrollLeft === 0 && Math.abs(m.caretLeft - m.lineStartX) <= 1,
-    );
-  });
+      // The end of the longest line, with the block scrolled as far as it
+      // goes. Firefox leaves the theme's inline end padding out of the scroll
+      // range while a sticky box is in the block, like the data-gutter float.
+      // On the Windows CI runners it drew the caret here 0.25px past the
+      // right edge: at x 1143.25, with scrollLeft 3699 and the scrollport
+      // ending at 1143. So only this step allows 0.5px past the edge, and
+      // only in Firefox.
+      const endSlack = browserName === 'firefox' ? 0.5 : 0;
+      await moveToLineEnd(page);
+      await pollGeometry(
+        page,
+        m =>
+          m.scrollLeft > 0 &&
+          m.caretLeft >= m.lineStartX - 1 &&
+          m.caretRight <= m.scrollportRight + endSlack,
+      );
+      await moveToLineBeginning(page);
+      await pollGeometry(
+        page,
+        m => m.scrollLeft === 0 && Math.abs(m.caretLeft - m.lineStartX) <= 1,
+      );
+    });
+  }
 });

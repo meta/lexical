@@ -106,6 +106,44 @@ describe('CodeImportExtension', () => {
     });
   });
 
+  test('<pre data-lexical-code-word-wrap="true"> turns on word wrap', () => {
+    using editor = buildEditor();
+    importInto(editor, '<pre data-lexical-code-word-wrap="true">x</pre>');
+    editor.read(() => {
+      const node = $rootCode();
+      expect(node.getWordWrap()).toBe(true);
+      expect(node.exportJSON()).toMatchObject({wordWrap: true});
+    });
+  });
+
+  test('multi line <code data-lexical-code-word-wrap> turns on word wrap', () => {
+    using editor = buildEditor();
+    importInto(editor, '<code data-lexical-code-word-wrap>a<br>b</code>');
+    editor.read(() => {
+      const node = $rootCode();
+      expect(node.getWordWrap()).toBe(true);
+      expect(node.getTextContent()).toBe('a\nb');
+    });
+  });
+
+  test('<pre> without the attribute leaves word wrap off', () => {
+    using editor = buildEditor();
+    importInto(editor, '<pre>x</pre>');
+    editor.read(() => {
+      const node = $rootCode();
+      expect(node.getWordWrap()).toBe(false);
+      expect(node.exportJSON(true)).not.toHaveProperty('wordWrap');
+    });
+  });
+
+  test('<pre data-lexical-code-word-wrap="false"> leaves word wrap off', () => {
+    using editor = buildEditor();
+    importInto(editor, '<pre data-lexical-code-word-wrap="false">x</pre>');
+    editor.read(() => {
+      expect($rootCode().getWordWrap()).toBe(false);
+    });
+  });
+
   test('multi-line <code> imports as CodeNode (not inline)', () => {
     using editor = buildEditor();
     importInto(editor, '<code>line1\nline2</code>');
