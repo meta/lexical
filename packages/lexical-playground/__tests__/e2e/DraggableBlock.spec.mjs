@@ -208,4 +208,52 @@ test.describe('DraggableBlock', () => {
 
     await expect(page.locator('.ContentEditable__root')).toBeFocused();
   });
+
+  test('Drag-selecting text over the block menu does not extend the selection past the pointer (#9389)', async ({
+    page,
+  }) => {
+    await focusEditor(page);
+    await page.keyboard.type('Paragraph 1');
+    await page.keyboard.press('Enter');
+    await page.keyboard.type('Paragraph 2');
+    await page.keyboard.press('Enter');
+    await page.keyboard.type('Paragraph 3');
+
+    const paragraph3 = await selectorBoundingBox(
+      page,
+      'p:has-text("Paragraph 3")',
+    );
+    // Hovering paragraph 3 puts the menu next to it.
+    await page.mouse.move(
+      paragraph3.x + 5,
+      paragraph3.y + paragraph3.height / 2,
+    );
+    const menu = await selectorBoundingBox(page, '.draggable-block-menu');
+
+    // Press at the end of paragraph 3 and drag right-to-left onto the menu.
+    await page.mouse.move(
+      paragraph3.x + paragraph3.width - 1,
+      paragraph3.y + paragraph3.height / 2,
+    );
+    await page.mouse.down();
+    await page.mouse.move(
+      paragraph3.x + 5,
+      paragraph3.y + paragraph3.height / 2,
+      {
+        steps: 5,
+      },
+    );
+    await page.mouse.move(menu.x + menu.width / 2, menu.y + menu.height / 2, {
+      steps: 5,
+    });
+    const focus = await page.evaluate(() => {
+      const selection = window.getSelection();
+      return selection && selection.focusNode
+        ? selection.focusNode.textContent
+        : null;
+    });
+    await page.mouse.up();
+
+    expect(focus).toBe('Paragraph 3');
+  });
 });
