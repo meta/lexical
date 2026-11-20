@@ -66,6 +66,9 @@
   "peerDependenciesMeta": {
     "typescript": {
       "optional": true
+    },
+    "yjs": {
+      "optional": true
     }
   },
   "type": "module"

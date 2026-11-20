@@ -26,9 +26,8 @@ import {
   type TextFormatType,
   type TextNode,
 } from 'lexical';
-import {expect, test, vi} from 'vitest';
+import {expect, test} from 'vitest';
 
-import {Cursor} from '../../../internal/Cursor';
 import {
   $block,
   $selectIn,
@@ -325,40 +324,20 @@ test('restored text takes no comment of the word before it (1861)', async () => 
 });
 
 // A comment over words that deletes and undos around them never touch
-// stays where a document read without any collapse has it: main's
-// collapse dropped c2 from "wk75" (4694).
-test.fails(
-  'a comment stays on text that deletes around it never touched (4694)',
-  async () => {
-    const t = await replay(session(4694));
-    expect(idsOn(t.a, 1, 'wk75')).toEqual(Array(4).fill('[c2,c20]'));
-    t.peers.forEach(p => p.stop());
-  },
-);
+// stays where a document read without any collapse has it: the collapse
+// dropped c2 from "wk75" (4694); a delete now keeps every format item it
+// leaves (D86).
+test('a comment stays on text that deletes around it never touched (4694)', async () => {
+  const t = await replay(session(4694));
+  expect(idsOn(t.a, 1, 'wk75')).toEqual(Array(4).fill('[c2,c20]'));
+  t.peers.forEach(p => p.stop());
+});
 
-// Main's collapse dropped c9 from "wxq4xq56abcd" (3645), where a document
-// read without any collapse keeps it. The drop shows only after the
-// session's last undo, so this also flips without a collapse change where
-// that undo takes more steps: with every undo press changing what the
-// document shows (#9630), the undo also removes c9 without a collapse.
-test.fails(
-  'a comment is where a document without any collapse has it (3645; also flips with #9630)',
-  async () => {
-    const t = await replay(session(3645));
-    const kept = chars(t.a, 0);
-    t.peers.forEach(p => p.stop());
-    const spy = vi
-      .spyOn(
-        Cursor.prototype as unknown as {collapseGap: () => void},
-        'collapseGap',
-      )
-      .mockImplementation(() => {});
-    try {
-      const u = await replay(session(3645));
-      expect(kept).toEqual(chars(u.a, 0));
-      u.peers.forEach(p => p.stop());
-    } finally {
-      spy.mockRestore();
-    }
-  },
-);
+// The collapse dropped c9 from "wxq4xq56abcd" (3645), where a document
+// read without any collapse keeps it; a delete now keeps every format item
+// it leaves (D86).
+test('a comment stays where it was written (3645)', async () => {
+  const t = await replay(session(3645));
+  expect(idsOn(t.a, 0, 'wxq4xq56abcd')).toEqual(Array(12).fill('[c9]'));
+  t.peers.forEach(p => p.stop());
+});

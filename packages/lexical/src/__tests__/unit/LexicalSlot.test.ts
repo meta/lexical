@@ -1118,6 +1118,78 @@ describe('named-slots: core foundation', () => {
     expect(editor.getElementByKey(titleTextKey)).not.toBe(null);
   });
 
+  test('re-reconciling a decorator-host slot leaves an unchanged contentEditable alone', () => {
+    // In Chrome, writing `contenteditable` on a connected element forces a
+    // synchronous style recalculation even when the value is unchanged,
+    // so the reconciler only writes it when the editable state changes.
+    const descriptor = Object.getOwnPropertyDescriptor(
+      HTMLElement.prototype,
+      'contentEditable',
+    )!;
+    const writes: string[] = [];
+    Object.defineProperty(HTMLElement.prototype, 'contentEditable', {
+      ...descriptor,
+      set(this: HTMLElement, value: string) {
+        if (this.hasAttribute('data-lexical-slot')) {
+          writes.push(value);
+        }
+        descriptor.set!.call(this, value);
+      },
+    });
+    try {
+      using editor = createSlotEditor();
+      let hostKey = '';
+      let slotKey = '';
+      let textKey = '';
+
+      editor.update(
+        () => {
+          const host = $createTestDecoratorNode().setIsInline(false);
+          const title = $createTestShadowRootNode();
+          const text = $createTextNode('Before');
+          title.append($createParagraphNode().append(text));
+          $getRoot().append(host);
+          $setSlot(host, 'title', title);
+          hostKey = host.getKey();
+          slotKey = title.getKey();
+          textKey = text.getKey();
+        },
+        {discrete: true},
+      );
+      const slotContainer = editor.getElementByKey(slotKey)!.parentElement!;
+      expect(slotContainer.contentEditable).toBe('true');
+      expect(writes).toEqual(['true']);
+
+      // Reconcile the host and its slot again with no editable change.
+      editor.update(
+        () => {
+          $getNodeByKey(hostKey)!.markDirty();
+          $assertNodeType($getNodeByKey(textKey), $isTextNode).setTextContent(
+            'After',
+          );
+        },
+        {discrete: true},
+      );
+      expect(editor.getElementByKey(slotKey)!.parentElement).toBe(
+        slotContainer,
+      );
+      expect(slotContainer.textContent).toBe('After');
+      expect(writes).toEqual(['true']);
+
+      // An editable toggle still reaches the container.
+      editor.setEditable(false);
+      editor.update(() => {}, {discrete: true});
+      expect(slotContainer.contentEditable).toBe('false');
+      expect(writes).toEqual(['true', 'false']);
+    } finally {
+      Object.defineProperty(
+        HTMLElement.prototype,
+        'contentEditable',
+        descriptor,
+      );
+    }
+  });
+
   test('editing a decorator-host slot re-reconciles it in place', () => {
     using editor = createSlotEditor();
     let slotKey = '';

@@ -7,7 +7,8 @@
  */
 // @vitest-environment node
 
-// After type-and-delete cycles at one place and a collapse, a client types
+// After type-and-delete cycles at one place (which a delete collapsed before
+// D86; it now keeps every format item it leaves), a client types
 // plain "X21" where a space was deleted; the space's deleter undoes. "X21"
 // takes no comment: it never had one. A collapse that kept a run end there
 // (#9617, parked) moved where the insert lands among the deleted items, and
@@ -51,7 +52,7 @@ function $plain(l: number, off: number, text: string) {
   }
 }
 
-test('text typed after a collapse takes no comment when a deleted space next to it comes back', async () => {
+test('text typed after type-and-delete cycles takes no comment when a deleted space next to it comes back', async () => {
   const t = await setup(
     () => {
       words.forEach((ws, l) => {

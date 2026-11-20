@@ -39,9 +39,9 @@ import {prepareMarkState as prepare} from '../utils/sizeOps';
 // comment's opener and end there, which for it bracket deleted content only,
 // so deleting them changes nothing it shows. That second step is simulated
 // with raw Yjs deletes (dropCommentItems): it stands for any concurrent
-// deletion of that end, such as the bounded collapse a delete next to a run
-// of deleted content runs (Cursor#collapseGap, which keeps a bounded number
-// of the format items there), and isolates the condition this guards: the
+// deletion of that end (a delete next to a run of deleted content used to
+// collapse its format items, keeping a bounded number; it keeps them all
+// now, D86), and isolates the condition this guards: the
 // restore's run losing the end it relied on. Merged, the restore must still
 // end where the comment ended, not run on over the rest of the document.
 //
@@ -168,90 +168,84 @@ describe('@lexical/y a restore of a comment its own client opened', () => {
     [1, 2],
     [2, 1],
   ]) {
-    test.fails(
-      `ends where the comment ended when a collaborator's delete drops the comment's end (ids ${ids})`,
-      async () => {
-        const t = await setup(
-          () => $getRoot().append($p('aa Kilo bb cc'), $p('tail line')),
-          {ids, prepare},
-        );
-        t.a.update(() => void $addMarkID('c1', $selectIn([0], 3, 7)));
-        await t.sync();
-        expect(words(t.a)).toBe('aa Kilo[c1] bb cc');
-        t.offline();
-        // A types uncommented "X" inside its own commented word
-        t.a.update(() => {
-          const node = ($block([0]).getAllTextNodes() as TextNode[]).find(n =>
-            n.getTextContent().startsWith('Kilo'),
-          )!;
-          const [, tail] = node.splitText(2);
-          tail.insertBefore($createTextNode('X'));
-        });
-        expect(words(t.a)).toBe('aa Ki[c1] X lo[c1] bb cc');
-        // B deletes the word, then drops the comment's items around it
-        t.b.update(() => void $selectIn([0], 3, 8).removeText());
-        dropCommentItems(t.b, 'c1');
-        expect(words(t.b)).toBe('aa bb cc');
-        await t.sync();
-        await expectConverged(t.peers);
-        // A's "X" is uncommented, and so is everything after it
-        expect(t.a.read(() => $block([0]).getTextContent())).toBe('aa Xbb cc');
-        expect(words(t.a)).toBe('aa Xbb cc');
-        expect(
-          t.a.read(() =>
-            ($block([1]).getAllTextNodes() as TextNode[]).some(
-              n => $getNodeMarkIDs(n).length > 0,
-            ),
+    test(`ends where the comment ended when a collaborator's delete drops the comment's end (ids ${ids})`, async () => {
+      const t = await setup(
+        () => $getRoot().append($p('aa Kilo bb cc'), $p('tail line')),
+        {ids, prepare},
+      );
+      t.a.update(() => void $addMarkID('c1', $selectIn([0], 3, 7)));
+      await t.sync();
+      expect(words(t.a)).toBe('aa Kilo[c1] bb cc');
+      t.offline();
+      // A types uncommented "X" inside its own commented word
+      t.a.update(() => {
+        const node = ($block([0]).getAllTextNodes() as TextNode[]).find(n =>
+          n.getTextContent().startsWith('Kilo'),
+        )!;
+        const [, tail] = node.splitText(2);
+        tail.insertBefore($createTextNode('X'));
+      });
+      expect(words(t.a)).toBe('aa Ki[c1] X lo[c1] bb cc');
+      // B deletes the word, then drops the comment's items around it
+      t.b.update(() => void $selectIn([0], 3, 8).removeText());
+      dropCommentItems(t.b, 'c1');
+      expect(words(t.b)).toBe('aa bb cc');
+      await t.sync();
+      await expectConverged(t.peers);
+      // A's "X" is uncommented, and so is everything after it
+      expect(t.a.read(() => $block([0]).getTextContent())).toBe('aa Xbb cc');
+      expect(words(t.a)).toBe('aa Xbb cc');
+      expect(
+        t.a.read(() =>
+          ($block([1]).getAllTextNodes() as TextNode[]).some(
+            n => $getNodeMarkIDs(n).length > 0,
           ),
-        ).toBe(false);
-      },
-    );
+        ),
+      ).toBe(false);
+    });
     // Fails on main (#9609): the comment's run ends with the end its restore
     // after the uncommented text wrote, and rule 5 writes no null for a run
     // its own client opened.
-    test.fails(
-      `ends where the comment ended when the comment was written with a hole in it (ids ${ids})`,
-      async () => {
-        const t = await setup(
-          () => $getRoot().append($p('aa Kilo bb cc'), $p('tail line')),
-          {ids, prepare},
-        );
-        // One write: the comment, with uncommented "X" inside it, so the
-        // comment's end ends the run its restore after "X" opens
-        t.a.update(() => {
-          $addMarkID('c1', $selectIn([0], 3, 7));
-          const node = ($block([0]).getAllTextNodes() as TextNode[]).find(n =>
-            n.getTextContent().startsWith('Kilo'),
-          )!;
-          const [, tail] = node.splitText(2);
-          tail.insertBefore($createTextNode('X'));
-        });
-        await t.sync();
-        expect(words(t.a)).toBe('aa Ki[c1] X lo[c1] bb cc');
-        t.offline();
-        // A types uncommented "Y" inside "lo"
-        t.a.update(() => {
-          const node = ($block([0]).getAllTextNodes() as TextNode[]).find(
-            n => n.getTextContent() === 'lo',
-          )!;
-          const [, tail] = node.splitText(1);
-          tail.insertBefore($createTextNode('Y'));
-        });
-        expect(words(t.a)).toBe('aa Ki[c1] X l[c1] Y o[c1] bb cc');
-        t.b.update(() => void $selectIn([0], 3, 9).removeText());
-        dropCommentItems(t.b, 'c1');
-        expect(words(t.b)).toBe('aa bb cc');
-        await t.sync();
-        await expectConverged(t.peers);
-        expect(t.a.read(() => $block([0]).getTextContent())).toBe('aa Ybb cc');
-        expect(words(t.a)).toBe('aa Ybb cc');
-      },
-    );
+    test(`ends where the comment ended when the comment was written with a hole in it (ids ${ids})`, async () => {
+      const t = await setup(
+        () => $getRoot().append($p('aa Kilo bb cc'), $p('tail line')),
+        {ids, prepare},
+      );
+      // One write: the comment, with uncommented "X" inside it, so the
+      // comment's end ends the run its restore after "X" opens
+      t.a.update(() => {
+        $addMarkID('c1', $selectIn([0], 3, 7));
+        const node = ($block([0]).getAllTextNodes() as TextNode[]).find(n =>
+          n.getTextContent().startsWith('Kilo'),
+        )!;
+        const [, tail] = node.splitText(2);
+        tail.insertBefore($createTextNode('X'));
+      });
+      await t.sync();
+      expect(words(t.a)).toBe('aa Ki[c1] X lo[c1] bb cc');
+      t.offline();
+      // A types uncommented "Y" inside "lo"
+      t.a.update(() => {
+        const node = ($block([0]).getAllTextNodes() as TextNode[]).find(
+          n => n.getTextContent() === 'lo',
+        )!;
+        const [, tail] = node.splitText(1);
+        tail.insertBefore($createTextNode('Y'));
+      });
+      expect(words(t.a)).toBe('aa Ki[c1] X l[c1] Y o[c1] bb cc');
+      t.b.update(() => void $selectIn([0], 3, 9).removeText());
+      dropCommentItems(t.b, 'c1');
+      expect(words(t.b)).toBe('aa bb cc');
+      await t.sync();
+      await expectConverged(t.peers);
+      expect(t.a.read(() => $block([0]).getTextContent())).toBe('aa Ybb cc');
+      expect(words(t.a)).toBe('aa Ybb cc');
+    });
     // S9-12: one write of A types uncommented text at two places inside A's
     // own comment, so both of its restores end at the comment's end. Rule 5
     // gives that end one null of A's own (not one per restore: the undo
-    // removes them together, and a second one would push the comment's end
-    // out of the last items a collaborator's collapse keeps). A undoes the
+    // removes them together, and a second one pushed the comment's end out
+    // of the last items a collaborator's collapse kept, before D86). A undoes the
     // write while B, which has not seen the undo, deletes the rest of the
     // comment and then the text after it.
     test(`S9-12: ends where the comment ended when its author undoes a write with two inserts inside it while a collaborator deletes past its end (ids ${ids})`, async () => {
@@ -290,9 +284,9 @@ describe('@lexical/y a restore of a comment its own client opened', () => {
     });
     // S9-12b: as S9-12, but A types "X" and "Y" in two writes. Main passes:
     // it writes no null of A's own for A's own run. With #9562 each write put
-    // a null of A's own right after the comment's end, B's collapse kept
-    // those two nulls (a key's last items) and dropped the end, and the
-    // comment ran on once A undid both writes.
+    // a null of A's own right after the comment's end, B's collapse (gone
+    // since D86) kept those two nulls (a key's last items) and dropped the
+    // end, and the comment ran on once A undid both writes.
     test(`S9-12b: ends where the comment ended when its author undoes two writes inside it while a collaborator deletes past its end (ids ${ids})`, async () => {
       const t = await setup(
         () => $getRoot().append($p('aa Kilometer bb cc dd'), $p('tail line')),
@@ -321,8 +315,10 @@ describe('@lexical/y a restore of a comment its own client opened', () => {
     test(`a restore in another client's run keeps its end after that client wrote the value again (ids ${ids})`, async () => {
       // B bolds "Kilo", types plain text, bolds "cc", then undoes all three,
       // while A types plain "X" inside "Kilo": A's restore keeps its end of
-      // its own after B's end of "Kilo" (main passes; an earlier version of
-      // #9562 took B's later bold opener for a hole and dropped it).
+      // its own after B's end of "Kilo" (an earlier version of #9562 took
+      // B's later bold opener for a hole and dropped it). Layout 3: A's text
+      // is a no-value run of its own and restates nothing after it, so B's
+      // undos leave no bold (main kept "lo" bold from A's restore).
       const t = await setup(
         () => $getRoot().append($p('aa Kilo bb cc dd'), $p('tail line')),
         {ids, prepare},
@@ -341,28 +337,8 @@ describe('@lexical/y a restore of a comment its own client opened', () => {
       await t.sync();
       await expectConverged(t.peers);
       expect(t.a.describe()).toBe(
-        'paragraph("aa KiX" "lo"{1} " bb cc dd") / paragraph("tail line")',
+        'paragraph("aa KiXlo bb cc dd") / paragraph("tail line")',
       );
-    });
-    test(`a restore in another client's run keeps its end when that run's items are dropped after its client wrote the value again (ids ${ids})`, async () => {
-      // As above without the undos: B's bold opener and end of "Kilo" are
-      // dropped while A types plain "X" inside it.
-      const t = await setup(
-        () => $getRoot().append($p('aa Kilo bb cc dd'), $p('tail line')),
-        {ids, prepare},
-      );
-      t.b.update($boldIn(3, 7));
-      await t.sync();
-      t.b.update(() => $insertPlainAt(10, ' zz'));
-      await t.sync();
-      t.b.update($boldIn(14, 16));
-      await t.sync();
-      t.offline();
-      t.a.update(() => $insertPlainAt(5, 'X'));
-      dropFirstBoldRun(t.b);
-      await t.sync();
-      await expectConverged(t.peers);
-      expect(boldAfterLo(t.a)).toBe(' bb zz |cc*| dd|tail line');
     });
     test.fails(
       `a restore of a run its own client opened keeps its end after that client wrote the value again (ids ${ids})`,
@@ -390,42 +366,39 @@ describe('@lexical/y a restore of a comment its own client opened', () => {
     // Fails on main (#9609): with 64 comment ids the undo of Z removes the
     // comments from the untouched "et" (rule 5 writes no null for a restore
     // in a run its own client opened; the one comment id case passes).
-    test.fails(
-      `a later write's hole is not a run end with 64 comments on the run (ids ${ids})`,
-      async () => {
-        // Each write puts a null and a restore per comment id.
-        const t = await setup(
-          () => $getRoot().append($p('aa Kilometer bb cc'), $p('tail line')),
-          {ids, prepare},
-        );
-        const marks = Array.from({length: 64}, (_, i) => `m${i}`);
-        t.a.update(() => {
-          const selection = $selectIn([0], 3, 12);
-          for (const id of marks) {
-            $addMarkID(id, selection);
-          }
-        });
-        await t.sync();
-        t.b.update(() => $insertPlainAt(10, 'Y'));
-        await t.sync();
-        t.a.update(() => $insertPlainAt(6, 'X'));
-        await t.sync();
-        t.a.update(() => $insertPlainAt(9, 'Z'));
-        await t.sync();
-        t.b.update(() => $insertPlainAt(8, 'Q'));
-        await t.sync();
-        t.a.undo();
-        await t.sync();
-        await expectConverged(t.peers);
-        expect(
-          t.a.read(() =>
-            ($block([0]).getAllTextNodes() as TextNode[])
-              .map(n => `${n.getTextContent()}:${$getNodeMarkIDs(n).length}`)
-              .join('|'),
-          ),
-        ).toBe('aa :0|Kil:64|X:0|o:64|Q:0|met:64|Y:0|er:64| bb cc:0');
-      },
-    );
+    test(`a later write's hole is not a run end with 64 comments on the run (ids ${ids})`, async () => {
+      // Each write puts a null and a restore per comment id.
+      const t = await setup(
+        () => $getRoot().append($p('aa Kilometer bb cc'), $p('tail line')),
+        {ids, prepare},
+      );
+      const marks = Array.from({length: 64}, (_, i) => `m${i}`);
+      t.a.update(() => {
+        const selection = $selectIn([0], 3, 12);
+        for (const id of marks) {
+          $addMarkID(id, selection);
+        }
+      });
+      await t.sync();
+      t.b.update(() => $insertPlainAt(10, 'Y'));
+      await t.sync();
+      t.a.update(() => $insertPlainAt(6, 'X'));
+      await t.sync();
+      t.a.update(() => $insertPlainAt(9, 'Z'));
+      await t.sync();
+      t.b.update(() => $insertPlainAt(8, 'Q'));
+      await t.sync();
+      t.a.undo();
+      await t.sync();
+      await expectConverged(t.peers);
+      expect(
+        t.a.read(() =>
+          ($block([0]).getAllTextNodes() as TextNode[])
+            .map(n => `${n.getTextContent()}:${$getNodeMarkIDs(n).length}`)
+            .join('|'),
+        ),
+      ).toBe('aa :0|Kil:64|X:0|o:64|Q:0|met:64|Y:0|er:64| bb cc:0');
+    });
     for (const value of ['comment', 'bold'] as const) {
       test(`a later write's hole is not a run end (${value}, ids ${ids})`, async () => {
         // A's second write inside its own run ("Z") opens a hole with a
@@ -568,42 +541,39 @@ describe("@lexical/y a restore inside its own client's comment run, with many co
       // client opened). With #9562 it passed up to 64 ids; past 64 structs
       // rule 5 cannot find where the comment change ended (changeEnd's scan
       // is capped, #9603).
-      test.fails(
-        `ends after the run when a collaborator deletes the word and its comment items (${count} ids, ids ${ids})`,
-        async () => {
-          const marks = Array.from(
-            {length: count},
-            (_, i) => `m${i.toString().padStart(3, '0')}`,
-          );
-          const t = await setup(
-            () => $getRoot().append($p('aa Kilometer bb cc'), $p('tail line')),
-            {ids, prepare},
-          );
-          t.a.update(() => {
-            const selection = $selectIn([0], 3, 12);
-            for (const id of marks) {
-              $addMarkID(id, selection);
-            }
-          });
-          await t.sync();
-          t.offline();
-          t.a.update(() => $insertPlainAt(6, 'X'));
-          t.b.update(() => void $selectIn([0], 3, 13).removeText());
-          dropMarkItems(t.b, marks);
-          await t.sync();
-          await expectConverged(t.peers);
-          expect(t.a.read(() => $getRoot().getTextContent())).toBe(
-            'aa Xbb cc\n\ntail line',
-          );
-          expect(
-            t.a.read(() =>
-              $getRoot()
-                .getAllTextNodes()
-                .flatMap(node => $getNodeMarkIDs(node)),
-            ),
-          ).toEqual([]);
-        },
-      );
+      test(`ends after the run when a collaborator deletes the word and its comment items (${count} ids, ids ${ids})`, async () => {
+        const marks = Array.from(
+          {length: count},
+          (_, i) => `m${i.toString().padStart(3, '0')}`,
+        );
+        const t = await setup(
+          () => $getRoot().append($p('aa Kilometer bb cc'), $p('tail line')),
+          {ids, prepare},
+        );
+        t.a.update(() => {
+          const selection = $selectIn([0], 3, 12);
+          for (const id of marks) {
+            $addMarkID(id, selection);
+          }
+        });
+        await t.sync();
+        t.offline();
+        t.a.update(() => $insertPlainAt(6, 'X'));
+        t.b.update(() => void $selectIn([0], 3, 13).removeText());
+        dropMarkItems(t.b, marks);
+        await t.sync();
+        await expectConverged(t.peers);
+        expect(t.a.read(() => $getRoot().getTextContent())).toBe(
+          'aa Xbb cc\n\ntail line',
+        );
+        expect(
+          t.a.read(() =>
+            $getRoot()
+              .getAllTextNodes()
+              .flatMap(node => $getNodeMarkIDs(node)),
+          ),
+        ).toEqual([]);
+      });
     }
   }
 });

@@ -242,7 +242,7 @@ async function merged(t: Awaited<ReturnType<typeof setup>>) {
 // of the space's bold (redundant with the run before it), the other that
 // run's opener, deleted with its character. The space, which nobody
 // touched, lost bold (with mark ids stored per member, a comment): a delete
-// keeps the items a concurrent writer relies on (see Cursor#collapseGap).
+// keeps the items a concurrent writer relies on (see Cursor#delete).
 describe('U23A-2: two concurrent deletes next to a character nobody touched', () => {
   for (const ids of [
     [1, 2],
@@ -355,17 +355,15 @@ describe('U23A-1: a format removed while a peer types inside it', () => {
       };
       test(`${what} removed while a peer types plain "x" inside it: nothing after the range and no other line gets it (ids ${ids})`, async () => {
         const shown = await run();
-        expect(shown).toMatch(/^"a box"/);
+        // (Layout 3: the whole range is plain, one text node "a boxld c".)
+        expect(shown).toMatch(/^"a box/);
         expect(shown).not.toContain(`" c"[${tag}`);
         expect(shown).not.toContain(`"ld c"[${tag}`);
         expect(shown).toMatch(/ \/ "next line"$/);
       });
-      test.fails(
-        `${what} removed while a peer types plain "x" inside it: the rest of the range stays without it (ids ${ids})`,
-        async () => {
-          expect(await run()).not.toContain(tag);
-        },
-      );
+      test(`${what} removed while a peer types plain "x" inside it: the rest of the range stays without it (ids ${ids})`, async () => {
+        expect(await run()).not.toContain(tag);
+      });
     }
   }
 });
@@ -487,7 +485,7 @@ describe('R23-B: plain text pasted over formatted runs ‖ Enter inside them', (
 // word's closer, so bold spread over the text after it and the following
 // lines; text a peer typed at the end of the deleted word lost the word's
 // format. A delete keeps the format items a concurrent writer relies on
-// (see Cursor#collapseGap), and a format change bounds its range with items
+// (see Cursor#delete), and a format change bounds its range with items
 // of its own (see Cursor#format).
 describe('a delete racing a format change or typing at the deleted run', () => {
   const $node = (i: number) =>
@@ -702,10 +700,11 @@ describe('R24B-F1: a comment resolved ‖ plain text typed before a character it
 });
 
 // F24A-1: every word of another format, comment or NodeState value typed at
-// one place and deleted again left two format items live, so a document's
-// items grew with its editing history. The run of deleted content and
-// format items a delete leaves holds a bounded number per key (see
-// Cursor#collapseGap).
+// one place and deleted again leaves its two format items (its opener and
+// its closer) live: a delete keeps the format items around and inside the
+// content it deletes, which a concurrent writer and an undo of the delete
+// rely on (D86). So the items grow by exactly two per such word, and by none
+// per keystroke of plain text.
 describe('F24A-1: words typed and deleted again at one place', () => {
   const live = (peer: Peer) => {
     let n = 0;
@@ -725,7 +724,7 @@ describe('F24A-1: words typed and deleted again at one place', () => {
     'code',
   ] as const;
   for (const pattern of ['formats', 'comments'] as const) {
-    test(`leave a bounded number of format items (${pattern})`, async () => {
+    test(`leave two format items per deleted formatted word (${pattern})`, async () => {
       const t = await setup(() => {
         $getRoot().append(
           $createParagraphNode().append($createTextNode('start middle end')),
@@ -757,9 +756,8 @@ describe('F24A-1: words typed and deleted again at one place', () => {
         }
       }
       expect(await merged(t)).toBe('"start middle end"');
-      // As many after 60 words as after 20, and at most five per key.
-      expect(counts[2]).toBe(counts[0]);
-      expect(counts[2]).toBeLessThanOrEqual(pattern === 'formats' ? 20 : 5);
+      // Two per word: 40 after 20 words, 80 after 40, 120 after 60.
+      expect(counts).toEqual([40, 80, 120]);
     });
   }
 });
@@ -768,9 +766,8 @@ describe('F24A-1: words typed and deleted again at one place', () => {
 // delete collapsed the format items it left, keeping a few per key, and
 // removed the closer of an italic word that the typist, typing plain text
 // after it, relied on: the typist's word, written without items of its own,
-// became italic on every client. A delete keeps every item it leaves inside
-// the content it deletes and at its edges; a later delete in the same run
-// collapses them (see Cursor#collapseGap).
+// became italic on every client. A delete keeps every item it leaves (see
+// Cursor#delete).
 describe("S6-8: a line's text deleted ‖ a peer types a word inside it", () => {
   const $line = () => $getRoot().getChildAtIndex(1) as ElementNode;
   const $word = () => {
@@ -908,6 +905,8 @@ describe('F30A-1: undo of a format change ‖ the same change made again', () =>
     ],
   ];
   for (const [name, $first, $second, $again, expected] of cases) {
+    // #9683 (with gc on, the italic case took the italic off the space):
+    // fixed by paired runs, layout 3.
     for (const ids of [
       [1, 2, 3],
       [3, 2, 1],
@@ -1517,12 +1516,12 @@ describe('a value one client restates ‖ the undo of the change that gave it', 
       [
         'italic',
         $format('italic', 0, 9),
-        '"t56z t85z" " t57z"[I] " t59z t60z" / "t78z t79z"',
+        '"t56z t85z t57z t59z t60z" / "t78z t79z"',
       ],
       [
         'a comment',
         $comment('c1', 0, 9),
-        '"t56z t85z" " t57z"[c1] " t59z t60z" / "t78z t79z"',
+        '"t56z t85z t57z t59z t60z" / "t78z t79z"',
       ],
     ] as const) {
       test(`S7-24: A adds ${name} on "t56z t57z" and undoes it ‖ B types plain text after "t56z" (ids ${ids})`, async () => {
@@ -1573,10 +1572,11 @@ describe('a value one client restates ‖ the undo of the change that gave it', 
         expect(await merged(t)).toBe(expected);
       });
     }
-    // S7-10: a format's undo ‖ its removal from part of the range (the part
-    // after it keeps the format, up to the end of the range), or from all of
-    // it, and then the removal's undo (which brings the format back on the
-    // range).
+    // A format's undo ‖ its removal from part of the range (layout 3:
+    // the removal is a no-value run of its own and restates nothing after
+    // it, so the undo removes the format everywhere; the part after it kept
+    // the format before), or from all of it, and then the removal's undo
+    // (which brings the format back on the range).
     for (const [format, tag] of [
       ['bold', 'B'],
       ['underline', 'U'],
@@ -1590,9 +1590,7 @@ describe('a value one client restates ‖ the undo of the change that gave it', 
         t.offline();
         t.a.update($format(format, 8, 11));
         t.b.undo();
-        expect(await merged(t)).toBe(
-          `"t5z t6z t7z" " t8z"[${tag}] " t9z" / "tail line"`,
-        );
+        expect(await merged(t)).toBe('"t5z t6z t7z t8z t9z" / "tail line"');
       });
       test(`S7-10: B ${format}s "t6z t7z t8z" and undoes it ‖ A removes it, then A undoes that (ids ${ids})`, async () => {
         const t = await setup(twoLines('t5z t6z t7z t8z t9z', 'tail line'), {
@@ -1693,7 +1691,7 @@ describe('a value one client restates ‖ the undo of the change that gave it', 
       t.a.undo();
       t.b.update($paste(14, $list));
       expect(await merged(t)).toBe(
-        '"t58z t59z t60z" / "t20z t67z" "t23z" / " t61z"[c9] " t62z" / "t78z t79z"',
+        '"t58z t59z t60z" / "t20z t67z" "t23z" / " t61z t62z" / "t78z t79z"',
       );
     });
     // S7-26: a link's undo ‖ a format change over the link's start, which
@@ -1746,7 +1744,9 @@ describe('a value one client restates ‖ the undo of the change that gave it', 
       await merged(t);
       const fresh = await freshReader(t.a);
       for (const p of [t.a, t.b, t.c, fresh]) {
-        expect(p.read($links)).toBe('t3z t4z / ');
+        // Layout 3: C's link over text B's equal link already covered
+        // restates nothing there, so B's undo leaves C's own link only.
+        expect(p.read($links)).toBe('t3z / ');
       }
     });
   }
@@ -1914,7 +1914,8 @@ describe('L1B-1: undo of plain text typed after a word two comments cover ‖ a 
           sel.insertText('t1013z');
           $setSelection(null);
         });
-        expect(await merged(t)).toBe('"t1zt1013z"[c12+c4] " t2" / "t3z"');
+        // (Layout 3: C's text replaced J's plain text, so it stays plain.)
+        expect(await merged(t)).toBe('"t1z"[c12+c4] "t1013z t2" / "t3z"');
       });
     }
   }

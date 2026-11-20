@@ -113,6 +113,7 @@ Experimental micromark/mdast-based Markdown support (every extension in this pac
 - [MdastCommonMarkExtension](/docs/api/modules/lexical_mdast#mdastcommonmarkextension) - Bundle of the six CommonMark extensions
 - [MdastGfmExtension](/docs/api/modules/lexical_mdast#mdastgfmextension) - Bundle of the four GFM extensions
 - [MdastShadowRootQuoteExtension](/docs/api/modules/lexical_mdast#mdastshadowrootquoteextension) - Opt-in: blockquotes as block containers with full-fidelity nested content
+- [MdastQuoteContainerExtension](/docs/api/modules/lexical_mdast#mdastquotecontainerextension) - Opt-in: blockquotes as QuoteContainerNodes, quotes that hold blocks and declare it
 - [MdastHtmlExtension](/docs/api/modules/lexical_mdast#mdasthtmlextension) - Opt-in: raw HTML in Markdown routed through the `@lexical/html` DOM import rules (Markdown inside the tags included), plus generic HTML-encoded export via `$exportViaDOM` / `rawHtmlBlock`
 - [MdastShortcutsExtension](/docs/api/modules/lexical_mdast#mdastshortcutsextension) - Streaming Markdown typing shortcuts, driven by the same grammar as import
 
@@ -134,6 +135,8 @@ Experimental micromark/mdast-based Markdown support (every extension in this pac
 [@lexical/rich-text](/docs/api/modules/lexical_rich-text)
 
 - [RichTextExtension](/docs/api/modules/lexical_rich-text#richtextextension) - Rich Text editor (QuoteNode, HeadingNode), the return key creates a ParagraphNode by default (multiple ParagraphNode per document). Includes configurable `escapeFormatTriggers` to escape text formatting (e.g. code) at text node boundaries, and `shouldHandlePasteAsFiles` to control whether files win over incidental text/HTML clipboard entries on paste
+- [QuoteContainerExtension](/docs/api/modules/lexical_rich-text#quotecontainerextension) - Experimental: QuoteContainerNode, a quote that holds blocks (paragraphs, lists, other quotes), next to QuoteNode
+- [QuoteContainerReplacementExtension](/docs/api/modules/lexical_rich-text#quotecontainerreplacementextension) - Experimental: every quote of the editor is a QuoteContainerNode (a node replacement of QuoteNode)
 
 [@lexical/table](/docs/api/modules/lexical_table)
 

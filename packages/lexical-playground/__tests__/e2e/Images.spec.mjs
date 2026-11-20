@@ -8,8 +8,14 @@
 
 import {expect} from '@playwright/test';
 
-import {moveLeft} from '../keyboardShortcuts/index.mjs';
 import {
+  moveLeft,
+  moveToLineEnd,
+  redo,
+  undo,
+} from '../keyboardShortcuts/index.mjs';
+import {
+  advanceHistoryClock,
   assertHTML,
   assertSelection,
   click,
@@ -17,6 +23,7 @@ import {
   dragMouse,
   evaluate,
   focusEditor,
+  getEditorElement,
   html,
   initialize,
   insertSampleImage,
@@ -854,5 +861,163 @@ test.describe('Images', () => {
       expect(boundingBox.width).toBeGreaterThan(0);
       expect(boundingBox.height).toBeGreaterThan(0);
     });
+  });
+});
+
+test.describe('Image caption history', () => {
+  // The caption shares the parent editor's history. Collab uses the Yjs
+  // undo manager instead.
+  test.skip(({isCollab, isRichText}) => !isRichText || isCollab);
+
+  const PARENT_ROOT = '.editor-shell .ContentEditable__root';
+  const firstParagraph = page =>
+    page.locator(`${PARENT_ROOT} > p:first-of-type`);
+  const captionEditor = page =>
+    getEditorElement(page, '.image-caption-container');
+
+  // The nested tree view grows the caption and pushes it under the sticky
+  // toolbar once the page scrolls back to the first paragraph.
+  test.beforeEach(({page}) =>
+    initialize({page, showNestedEditorTreeView: false}),
+  );
+
+  async function insertImageWithCaption(page, captionText) {
+    await focusEditor(page);
+    await advanceHistoryClock(page);
+    await page.keyboard.type('Hello');
+    await page.keyboard.press('Enter');
+    await insertSampleImage(page);
+    await click(page, '.editor-image img');
+    await click(page, '.image-caption-button');
+    await waitForSelector(page, '.editor-image img.focused', {
+      state: 'detached',
+    });
+    await captionEditor(page).click();
+    await advanceHistoryClock(page);
+    await page.keyboard.type(captionText);
+  }
+
+  async function typeAtEndOfFirstParagraph(page, text) {
+    await firstParagraph(page).locator('span[data-lexical-text]').click();
+    await moveToLineEnd(page);
+    await advanceHistoryClock(page);
+    await page.keyboard.type(text);
+  }
+
+  // https://github.com/meta/lexical/issues/4401
+  test('Undo and redo from the caption reach a parent edit', async ({page}) => {
+    await insertImageWithCaption(page, 'cap');
+    await typeAtEndOfFirstParagraph(page, ' world');
+    await expect(firstParagraph(page)).toHaveText('Hello world');
+
+    await captionEditor(page).click();
+    await undo(page);
+    await expect(firstParagraph(page)).toHaveText('Hello');
+    await expect(captionEditor(page)).toHaveText('cap');
+    await redo(page);
+    await expect(firstParagraph(page)).toHaveText('Hello world');
+    await expect(captionEditor(page)).toHaveText('cap');
+  });
+
+  // The steps reported in https://github.com/meta/lexical/issues/4401
+  test('Undo and redo walk the parent and caption edits in order', async ({
+    page,
+  }) => {
+    await insertImageWithCaption(page, 'cap');
+    await typeAtEndOfFirstParagraph(page, ' world');
+    await captionEditor(page).click();
+    await moveToLineEnd(page);
+    await advanceHistoryClock(page);
+    await page.keyboard.type('tion');
+    await expect(captionEditor(page)).toHaveText('caption');
+
+    await undo(page);
+    await expect(captionEditor(page)).toHaveText('cap');
+    await expect(firstParagraph(page)).toHaveText('Hello world');
+    await undo(page);
+    await expect(firstParagraph(page)).toHaveText('Hello');
+    await expect(captionEditor(page)).toHaveText('cap');
+
+    await redo(page);
+    await expect(firstParagraph(page)).toHaveText('Hello world');
+    await expect(captionEditor(page)).toHaveText('cap');
+    await redo(page);
+    await expect(captionEditor(page)).toHaveText('caption');
+  });
+
+  test('Focus returns to the parent editor when an undo hides the focused caption', async ({
+    browserName,
+    page,
+  }) => {
+    await insertImageWithCaption(page, 'cap');
+    await undo(page);
+    await expect(captionEditor(page)).toHaveText('');
+    // The next entry is the parent's "show caption", which removes the
+    // caption that holds focus.
+    await undo(page);
+    await expect(page.locator('.image-caption-container')).toHaveCount(0);
+    await expect(page.locator(PARENT_ROOT)).toBeFocused();
+    // The image is node-selected again, so typing must not land in the
+    // paragraph. Chromium inserts text with a node selection even after a
+    // plain click on the image, so it is not checked there.
+    if (browserName !== 'chromium') {
+      await page.keyboard.type('X');
+      await expect(firstParagraph(page)).toHaveText('Hello');
+    }
+
+    await redo(page);
+    await expect(page.locator('.image-caption-container')).toHaveCount(1);
+    await redo(page);
+    await expect(captionEditor(page)).toHaveText('cap');
+  });
+
+  test('Hiding an empty caption on blur keeps the redo stack', async ({
+    page,
+  }) => {
+    await insertImageWithCaption(page, 'cap');
+    await undo(page);
+    await expect(captionEditor(page)).toHaveText('');
+    // Clicking the toolbar blurs the empty caption, which hides it.
+    await click(page, 'button[aria-label="Redo"]');
+    await expect(page.locator('.image-caption-container')).toHaveCount(0);
+    await expect(page.locator('button[aria-label="Redo"]')).toBeDisabled();
+
+    await click(page, '.editor-image img');
+    await click(page, '.image-caption-button');
+    await expect(captionEditor(page)).toHaveText('cap');
+  });
+});
+
+test.describe('Image caption in collab', () => {
+  test.skip(({isCollab}) => !isCollab);
+  // Nested editors are not supported in collab v2.
+  test.skip(IS_COLLAB_V2);
+  test.beforeEach(({isCollab, page}) =>
+    initialize({isCollab, page, showNestedEditorTreeView: false}),
+  );
+
+  test('Hiding an empty caption on blur reaches the other client', async ({
+    page,
+  }) => {
+    await focusEditor(page);
+    await page.keyboard.type('Hello');
+    await page.keyboard.press('Enter');
+    await insertSampleImage(page);
+    await click(page, '.editor-image img');
+    await click(page, '.image-caption-button');
+    const leftCaption = page.frame('left').locator('.image-caption-container');
+    const rightCaption = page
+      .frame('right')
+      .locator('.image-caption-container');
+    await expect(leftCaption).toHaveCount(1);
+    await expect(rightCaption).toHaveCount(1);
+
+    // Blur the empty caption, which hides it.
+    await page
+      .frame('left')
+      .locator('.editor-shell .ContentEditable__root > p:first-of-type')
+      .click();
+    await expect(leftCaption).toHaveCount(0);
+    await expect(rightCaption).toHaveCount(0);
   });
 });

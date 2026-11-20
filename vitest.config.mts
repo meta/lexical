@@ -164,6 +164,28 @@ export default defineConfig({
         },
       },
       {
+        extends: true,
+        test: {
+          environment: 'node',
+          include: ['packages/**/__tests__/size/**/*.test.ts'],
+          name: 'unit-size',
+          // Each file runs on a child process's main thread, whose stack (and
+          // so the number of arguments a call can take: 131,072 on Node's
+          // main thread, 4x that in a worker thread) is the one production
+          // code runs on. Documents sized past that limit catch a list of
+          // content spread into a call's arguments.
+          pool: 'forks',
+          // After the unit projects, so these CPU-heavy files never compete
+          // with jsdom suites that use the 5 s default timeout.
+          sequence: {groupOrder: 1},
+          setupFiles: ['./vitest.setup.node.mts'],
+          testTimeout: 300_000,
+          typecheck: {
+            tsconfig: './tsconfig.test.json',
+          },
+        },
+      },
+      {
         define: {
           // https://react.dev/blog/2022/03/08/react-18-upgrade-guide#configuring-your-testing-environment
           IS_REACT_ACT_ENVIRONMENT: true,

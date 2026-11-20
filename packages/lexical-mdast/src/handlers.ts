@@ -40,11 +40,14 @@ import {$createLinkNode, $isAutoLinkNode, $isLinkNode} from '@lexical/link';
 import {
   $createListItemNode,
   $createListNode,
+  $getTaskListItemChecked,
   $isListItemNode,
   $isListNode,
+  $setTaskListItemChecked,
 } from '@lexical/list';
 import {
   $createHeadingNode,
+  $createQuoteContainerNode,
   $createQuoteNode,
   $isHeadingNode,
   $isQuoteNode,
@@ -52,7 +55,7 @@ import {
 import {
   $createLineBreakNode,
   $createParagraphNode,
-  $createTextNode,
+  $generateNodesFromRawText,
   $getEditor,
   $getState,
   $isDecoratorNode,
@@ -192,6 +195,10 @@ export const $importBlockquote: MdastImportHandler<Blockquote> = (
   ctx,
 ) => {
   const quote = $createQuoteNode();
+  if (quote.isShadowRoot()) {
+    // QuoteNode is replaced by QuoteContainerNode, which holds blocks.
+    return $append(quote, $importBlockChildren(node, ctx));
+  }
   const children: LexicalNode[] = [];
   for (const child of node.children) {
     if (child.type === 'paragraph') {
@@ -257,17 +264,33 @@ export const $importShadowRootBlockquote: MdastImportHandler<Blockquote> = (
     $importBlockChildren(node, ctx),
   );
 
-/** Maps an mdast `list` node to the Lexical {@link ListType} it represents. */
+/**
+ * Opt-in replacement for {@link $importBlockquote} that imports the quote as a
+ * `QuoteContainerNode`, a quote that holds blocks, so structured blockquotes
+ * (several paragraphs, nested lists, code, nested quotes) round-trip. See
+ * `MdastQuoteContainerExtension`.
+ *
+ * @experimental
+ */
+export const $importQuoteContainerBlockquote: MdastImportHandler<Blockquote> = (
+  node,
+  ctx,
+) => $append($createQuoteContainerNode(), $importBlockChildren(node, ctx));
+
+/**
+ * Maps an mdast `list` node to the Lexical {@link ListType} it represents.
+ * GFM decides per item whether it is a task, so only an unordered list whose
+ * items are all tasks is a check list. Any other list keeps its kind, and its
+ * task items become task list items (see `$setTaskListItemChecked`).
+ */
 export function $listTypeFromMdast(node: List): ListType {
   if (node.ordered) {
     return 'number';
   }
-  for (const child of node.children) {
-    if (child.type === 'listItem' && child.checked != null) {
-      return 'check';
-    }
-  }
-  return 'bullet';
+  return node.children.length > 0 &&
+    node.children.every(child => child.checked != null)
+    ? 'check'
+    : 'bullet';
 }
 
 export const $importList: MdastImportHandler<List> = (node, ctx) => {
@@ -298,10 +321,19 @@ export const $importList: MdastImportHandler<List> = (node, ctx) => {
       }
     }
   }
-  return $append(
-    list,
-    node.children.flatMap(child => ctx.importNode(child)),
-  );
+  const imported = node.children.map(child => ctx.importNode(child));
+  $append(list, imported.flat());
+  if (listType !== 'check') {
+    // Outside a check list a task item keeps its checkbox as a task list item
+    // marker (`checked` only means something in a check list).
+    node.children.forEach((child, index) => {
+      const item = imported[index][0];
+      if (child.checked != null && $isListItemNode(item)) {
+        $setTaskListItemChecked(item, child.checked);
+      }
+    });
+  }
+  return list;
 };
 
 export const $importListItem: MdastImportHandler<ListItem> = (node, ctx) => {
@@ -346,7 +378,9 @@ export const $importCode: MdastImportHandler<Code> = (node, ctx) => {
     $setState(code, codeMetaState, node.meta);
   }
   if (node.value) {
-    $append(code, [$createTextNode(node.value)]);
+    // The shape the editor writes in a code block: a LineBreakNode per line
+    // feed and a TabNode per tab, between TextNodes.
+    $append(code, $generateNodesFromRawText(node.value));
   }
   return code;
 };
@@ -615,13 +649,20 @@ function $exportListNode(node: ListNode, ctx: MdastExportContext): List {
       continue;
     }
     const item: ListItem = {
-      checked: listType === 'check' ? (child.getChecked() ?? false) : null,
+      // Defined for every item of a check list, and for a task item of a
+      // bullet or number list.
+      checked: $getTaskListItemChecked(child) ?? null,
       children: ctx.exportBlocks(child),
       spread: false,
       type: 'listItem',
     };
     list.children.push(item);
     previousItem = item;
+  }
+  // The GFM task list writer only adds a box after a `.` delimiter, so an
+  // ordered list with task items is written with `.` to keep its boxes.
+  if (list.ordered && list.children.some(item => item.checked != null)) {
+    list.data = {mdastBulletOrdered: '.'};
   }
   return list;
 }

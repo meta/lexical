@@ -82,8 +82,9 @@ export function flowMarkStateConfig(): string {
     ...config,
     isMarkIDShown: (id: string): boolean => id.length > 0,
   };
+  const numberFilter = (id: number) => true;
   // $FlowExpectedError[incompatible-type] the filter takes a string id
-  const wrongFilter: MarkStateConfig = {...config, isMarkIDShown: (id: number) => true};
+  const wrongFilter: MarkStateConfig = {...config, isMarkIDShown: numberFilter};
   // $FlowExpectedError[incompatible-type] the output keys are NodeKeys
   const wrong: Map<string, Array<number>> = new Map<string, Array<NodeKey>>();
   return [

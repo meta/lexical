@@ -54,7 +54,12 @@ function client(schemaVersion: number, selfCheck: boolean) {
       dependencies: [
         RichTextExtension,
         configExtension(TableExtension, {hasHorizontalScroll: false}),
-        configExtension(YCollabExtension, {doc, schemaVersion, selfCheck}),
+        configExtension(YCollabExtension, {
+          doc,
+          onYStatus: null,
+          schemaVersion,
+          selfCheck,
+        }),
       ],
       name: `@lexical/y/test/refused-move-${schemaVersion}`,
       onError: e => {

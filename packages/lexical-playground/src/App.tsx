@@ -369,6 +369,7 @@ function App(): JSX.Element {
       isCollab,
       useCollabV2,
       useCollabY,
+      collabYOffline,
       emptyEditor,
       isRichText,
       isShadowDOM,
@@ -432,7 +433,7 @@ function App(): JSX.Element {
     <LexicalCollaboration>
       {isCollabY ? (
         <Suspense fallback={null}>
-          <CollabY>{shell}</CollabY>
+          <CollabY offline={collabYOffline}>{shell}</CollabY>
         </Suspense>
       ) : (
         <LexicalExtensionComposer extension={app} contentEditable={null}>
@@ -449,11 +450,20 @@ let collabYModule: Promise<typeof import('./collaborationY')> | null = null;
  * Collab Y (`@lexical/y` on Yjs 14). Loaded on demand, so the default
  * playground does not ship a second Yjs.
  */
-function CollabY({children}: {children: ReactNode}) {
-  const {CollabYPlugin, getCollabYSession} = use(
+function CollabY({
+  children,
+  offline: offlineEnabled,
+}: {
+  children: ReactNode;
+  offline: boolean;
+}) {
+  const {CollabYPlugin, getCollabYSession, prepareCollabYOffline} = use(
     (collabYModule ??= import('./collaborationY')),
   );
-  const {editor, provider, readOnlyWarning} = getCollabYSession(
+  // Offline mode reads the document stored on this device before the
+  // editor is built (null with it off).
+  const prepared = use(prepareCollabYOffline(COLLAB_DOC_ID, offlineEnabled));
+  const {editor, offline, provider, readOnlyWarning} = getCollabYSession(
     COLLAB_DOC_ID,
     () =>
       buildExtensionFromSettings({
@@ -462,10 +472,15 @@ function CollabY({children}: {children: ReactNode}) {
         isCollabY: true,
         isRichText: true,
       }),
+    prepared,
   );
   return (
     <LexicalExtensionEditorComposer initialEditor={editor}>
-      <CollabYPlugin provider={provider} readOnlyWarning={readOnlyWarning} />
+      <CollabYPlugin
+        offline={offline}
+        provider={provider}
+        readOnlyWarning={readOnlyWarning}
+      />
       {children}
     </LexicalExtensionEditorComposer>
   );

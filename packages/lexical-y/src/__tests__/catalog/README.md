@@ -33,6 +33,14 @@ apps allow rather than the cases someone thought of:
 - `ops.ts`: edits from the core packages (text, formats, marks, paragraphs,
   table rows and columns, list type and start) that multi-peer tests and soak
   generators draw from.
+- `coveredValues.ts`: values stored under a covered name (layout 3). Arrays
+  of a shape layout 3 does not write (not `[d]`, `[client, clock]` or `[]`)
+  are reserved: they read as clearers and are kept as stored; they stand for
+  a later layout's ends and a raw writer's arrays. Objects shaped like arrays
+  (keyed by array indices, typed arrays) are values, as every value that is
+  not an array is: `NumericFieldWrapperNode`, a wrapper whose class declares
+  a field named `0`, stores one. Add a shape here when a reader or writer
+  starts to treat it apart.
 
 ## Rules
 

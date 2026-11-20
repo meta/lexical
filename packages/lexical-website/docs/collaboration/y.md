@@ -11,12 +11,84 @@ sidebar_position: 2
 document layout carries a version, so a client that meets a newer layout
 opens the document read only instead of misreading it.
 
+`@experimental` is not an exception to API compatibility. Once released,
+the public API and its types change only additively: no export is removed or
+renamed, and no published migration step or revision is removed or changes
+what it writes. Stored layouts are the exception while the package is
+experimental: a release may stop reading an older one, and rooms stored in
+it then need a server-side migration (see
+[Layout upgrades](#layout-upgrades)).
+
 :::
 
 `@lexical/y` is a collaboration binding for Lexical on Yjs 14 (the `@y/y`
 package). It is separate from `@lexical/yjs`, the Yjs 13 binding that the
 [React guide](./react.md) uses: the two use different Yjs libraries and
 different document layouts, and a document uses one or the other.
+
+## Start here
+
+1. `const doc = createYDoc()`: the shared document, for your provider.
+2. `yCollab({doc, schemaVersion, synced, onStatus})` in the editor's
+   `dependencies` (`createYBinding(editor, {...})` for an editor built
+   without extensions).
+3. Connect your provider, sending `collab.handshake(generation)` before any
+   sync message.
+4. `collab.markSynced()` after its first sync.
+5. `collab.freeze()` when the server says the room moved on (a stale
+   generation): store what it returns before any reload.
+   [`@lexical/y/offline`](#offline-local-persistence-and-edits-that-did-not-sync)
+   does this for you, with local persistence and a replay.
+
+```ts
+import {
+  buildEditorFromExtensions,
+  getExtensionDependencyFromEditor,
+} from '@lexical/extension';
+import {RichTextExtension} from '@lexical/rich-text';
+import {
+  createYDoc,
+  Y_DEFAULTS,
+  yCollab,
+  YCollabExtension,
+  type YStatus,
+} from '@lexical/y';
+import {defineExtension} from 'lexical';
+
+// Bump it when you add, remove or change a node class or its fields.
+const SCHEMA_VERSION = 1;
+const showStatus = (status: YStatus) => {
+  // Tell the user when the document is read only, and why (status.cause).
+};
+
+const doc = createYDoc();
+const editor = buildEditorFromExtensions(
+  defineExtension({
+    dependencies: [
+      RichTextExtension,
+      yCollab({
+        doc,
+        history: Y_DEFAULTS.history, // the default
+        onStatus: status => showStatus(status),
+        root: Y_DEFAULTS.root, // the default
+        schemaVersion: SCHEMA_VERSION,
+        synced: false, // markSynced() after the provider's first sync
+      }),
+    ],
+    name: 'app',
+  }),
+);
+const {collab} = getExtensionDependencyFromEditor(
+  editor,
+  YCollabExtension,
+).output;
+// Connect `doc` to a Yjs 14 provider, sending collab.handshake(generation)
+// (null for a client with no local state) first; then, after its first sync:
+collab.markSynced();
+```
+
+The sections below describe the binding in full, with the earlier setup
+(`createYCollabConfig`, `binding.initialize()`), which keeps working.
 
 ## When to use it
 
@@ -57,7 +129,11 @@ enforced by that peer dependency: `@y/y` exposes no version at run time, so
 Yjs it writes through: `createYDoc`, `YBinding` (and so `YCollabExtension`)
 and the headless helpers check, once per app, that the `@y/y` they loaded
 provides the exports, fields and events the binding uses, and throw a
-`YUnsupportedYjsError` before anything is written when it does not:
+`YUnsupportedYjsError` before anything is written when it does not (each
+entry, `@lexical/y/migrate` and `@lexical/y/server` included, throws its
+own copy of the class, so match it by its `code`,
+`'@lexical/y/unsupported-yjs'`, rather than with `instanceof` across
+entries):
 
 - `data.reason: 'changed-internals'`: the app runs a `@y/y` without
   something the binding uses (pnpm only warns about an unmet peer
@@ -121,9 +197,9 @@ import {
 } from '@lexical/extension';
 import {ListExtension} from '@lexical/list';
 import {RichTextExtension} from '@lexical/rich-text';
-import {createYDoc, YCollabExtension} from '@lexical/y';
+import {createYCollabConfig, createYDoc, YCollabExtension} from '@lexical/y';
 import {WebsocketProvider} from '@y/websocket';
-import {configExtension, defineExtension} from 'lexical';
+import {defineExtension} from 'lexical';
 
 const doc = createYDoc();
 
@@ -132,8 +208,20 @@ const editor = buildEditorFromExtensions(
     dependencies: [
       RichTextExtension,
       ListExtension,
-      // schemaVersion is required: see "Versioning your schema".
-      configExtension(YCollabExtension, {doc, schemaVersion: 1}),
+      // schemaVersion, layoutUpgrade, synced and onYStatus are required:
+      // see "Versioning your schema" and "Layout upgrades". layoutUpgrade
+      // null: no server migrates this provider's stored documents, so one
+      // below the floor opens read only. An app whose server migrates
+      // passes createYServerLayoutUpgrade() and sends its handshake.
+      createYCollabConfig({
+        doc,
+        layoutUpgrade: null,
+        // Show the user a read-only document and its cause.
+        onYStatus: status => showStatus(status),
+        schemaVersion: 1,
+        // binding.initialize() after the provider's first sync.
+        synced: false,
+      }),
     ],
     name: 'my-app/editor',
   }),
@@ -226,23 +314,43 @@ content with random values" in [Limits](#limits)).
   an update that changes content commits at once, as with `discrete: true`,
   so that a remote change the provider applies in the same task finds no
   local update waiting to be written; so does one made while the binding
-  has updates of its own waiting. A remote change a provider applies
+  has updates of its own waiting. An update a mutation listener makes while
+  Lexical notifies a commit's listeners commits after them instead; a
+  remote change applied in the same task meanwhile is read after it is
+  written. A remote change a provider applies
   synchronously in the same task as updates made before any commit is
   integrated before them, and they are written after it, on the document as
   it was before that change, which they were made on: their edits land
   where they were made, and the change is read after them (providers that
-  apply changes from network or channel events never do this).
+  apply changes from network or channel events never do this). A remote
+  change applied inside an update (in `editor.update()`, a command, a
+  transform or a listener) is read after that update has committed and been
+  written, in a commit of its own tagged `COLLABORATION_TAG`; where the
+  update commits nothing or throws, a microtask after `editor.update()`
+  returns.
 - To seed or convert a document on a server, use `seedYState` (see
   [Server-side editing](./y-server.md)).
+
+Configure the extension with `createYCollabConfig(input)`, whose input
+(`YCollabInput`) requires `doc`, `schemaVersion`, `layoutUpgrade`, `synced`
+and `onYStatus`; every other option is optional, so options a later release
+adds never break it. (`YCollabConfig`, what
+`configExtension(YCollabExtension, ...)` takes, keeps its fields; any field
+a later release adds to it is optional too. A config's fields cannot be
+required by its type, so the extension throws at build when `onYStatus` is
+left out, and the `@lexical/y-collab-status` rule of
+`@lexical/eslint-plugin`, in its recommended config, reports
+`configExtension(YCollabExtension, {doc, ...})` without it.)
 
 | Option | Default | |
 | -- | -- | -- |
 | `doc` | (required) | The Yjs document, from `createYDoc`. |
-| `schemaVersion` | (required) | The version of your app's document schema, an integer from 1: see [Versioning your schema](#versioning-your-schema). The extension throws without one. |
+| `layoutUpgrade` | (required) | How documents below `MIN_LAYOUT` are upgraded: `createYServerLayoutUpgrade()` (the document's server migrates them on load) or `null` (they stay read only). See [Layout upgrades](#layout-upgrades). |
+| `schemaVersion` | (required) | The version of your editor's nodes: registered node classes, their fields and NodeState. Bump it when you add, remove or change one, not on every release. An integer from 1: see [Versioning your schema](#versioning-your-schema). The extension throws without one. |
+| `synced` | (required) | `true`: initialize as soon as the binding starts (the document already holds what the server has: headless, tests, loaded from storage). `false`: call `binding.initialize()` after the provider's first sync; until then the editor is not editable. Never `true` to make a pending editor editable: the editor's initial content would be written into a document that has not synced, and duplicate on merge. (`configExtension(YCollabExtension, ...)` keeps `false` as its default.) |
+| `onYStatus` | (required) | Called with the binding's `YStatus` when it changes, the cause of a read-only status included: show it to the user. Read only with `unstorable-change`, the editor holds an edit the document does not, until the app takes it (`collab.freeze()`). `null` only where the app reads the extension's `yStatus` output signal instead (the same value). |
 | `root` | `doc.get('lexical-y')` | The shared root to bind. |
-| `synced` | `false` | Initialize as soon as the binding starts. |
 | `captureTimeout` | `500` | Undo capture timeout in ms; `null` turns collaborative undo off. |
-| `clientIDRange` | `'uint53'` | `'uint32'` for servers on yrs before 0.28, see [Servers](#servers). |
 | `selfCheck` | `false` | Reads every local write (and every container a remote change rebuilt) back from Yjs and compares it with the editor; a mismatch is a `'@lexical/y/self-check'` [warning](#warnings). A debugging aid: turn it on in tests and development builds. |
 | `selfCheckSample` | `1` | The fraction of changes the self-check samples: local writes, and remote changes (where a sampled check that finds the editor differing from the shared content also reads those containers again). |
 | `convert` | `false` | Initialize even when a `@lexical/yjs` root has content. |
@@ -319,7 +427,9 @@ it shows. Every client reads these the same
 way, and the next edit there stores them.
 
 Without the extension API, `new YBinding(editor, doc, options)` does the
-same (`options.schemaVersion` is required there too): call `binding.start()` to connect it once the editor has its initial
+same (`options.schemaVersion` is required there too, and so is
+`options.onStatus`: a function that shows the user the status, or `null`
+where code of your own reads `binding.status`): call `binding.start()` to connect it once the editor has its initial
 state (an update made after it, on a document that has content, is an
 edit), `binding.initialize()` after the first sync, and `binding.undo()` /
 `binding.redo()` for undo. An undo puts back the selection from before the
@@ -331,7 +441,13 @@ right after that update commits, in an update of its own.
 to and from Yjs relative positions for an awareness-based cursor UI; the
 binding does not render remote cursors itself.
 `getCursor()` returns plain JSON, so it can go in the awareness state the
-provider shares:
+provider shares. While a remote change is not read yet (one applied inside an
+update, or one an app's own document observers see before the binding has
+read it), `getCursor()` takes the positions, and `$resolveCursor()` resolves
+them, in a Yjs transaction that changes nothing and emits no `update` (the
+document's transaction observers, `afterAllTransactions` included, see it);
+called again from those observers, or from those of any transaction being
+cleaned up, they open no other:
 
 ```ts
 // Share this client's selection.
@@ -373,26 +489,49 @@ provider.awareness.destroy();
 
 The binding reports to the editor's `onWarn` (set it on your root
 extension, see [Errors and warnings](/docs/extensions/defining-extensions#errors-and-warnings)).
-Each warning is a `LexicalWarning` with a stable `code` and typed `data`;
-`isYWarning(error)` narrows it to the `YWarning` union, where `code` decides
-the type of `data`, and `data.reason` says which case it is. The `message` is
+Each warning is a `LexicalWarning` with a stable `code` and typed `data`.
+`isYWarning(error, code)` narrows it to `YWarning<code>`, whose `data` is
+that code's, and `data.reason` says which case it is; `isYWarning(error)`
+alone narrows it to the open `YWarning` (any code, `data` unknown).
+Comparing the code afterwards does not narrow `data`, because the code is
+open and TypeScript narrows `data` by `code` only in a closed union: write
+`isYWarning(error, SELF_CHECK_WARNING)`, not
+`isYWarning(error) && error.code === SELF_CHECK_WARNING`. A
+`switch (error.code)` does not narrow `data` either: check each code you
+handle with `isYWarning(error, CODE)`, then fall back. Every
+code's `data` may also be `{reason: 'other', detailCode, details?}`: a
+condition a later version reports under an existing code. Handle it, and
+keep a fallback for codes you do not know (`YWarningCode` is open: the
+package exports no closed list of codes, so a switch over them always
+needs a fallback). The `message` is
 for developers (what happened and what to do): render your own text from
 `code` and `data`.
 
 | Constant | Reported when | `data` (`reason`: other fields) |
 | -- | -- | -- |
 | `UNSUPPORTED_SCHEMA_WARNING` | A client of a newer version of your app (a higher `schemaVersion`) wrote to the document, on open or mid-session; see [Versioning your schema](#versioning-your-schema). Read only. | `'newer'`: `found`; `'malformed'`: `key`, `found`. All: `supported` (your `schemaVersion`) |
-| `UNSUPPORTED_LAYOUT_WARNING` | The layout is one this version cannot read. Read only. | `'newer'`: `found`; `'malformed'`: `key`, `found`; `'missing'`, `'removed'`; `'legacy-roots'`: `roots`. All: `supported` |
+| `UNSUPPORTED_LAYOUT_WARNING` | The layout is one this version cannot read, or one below `MIN_LAYOUT` (`'older'`, once per read-only period: an expected state for an app whose server migrates, so handle it in `onWarn`), or the root requires a feature this version does not support (`'requires'`, see the wire format). Read only. | `'newer'`: `found`; `'older'`: `found`, `min`, `upgrade`; `'requires'`: `features`; `'malformed'`: `key`, `found`; `'missing'`, `'removed'`; `'legacy-roots'`: `roots`. All: `supported` |
 | `UNKNOWN_NODE_TYPES_WARNING` | The document has node types the editor cannot build: types it does not register, however they are stored (a link class it lacks too), or content its classes throw on; or the document could not be read at all (`'unreadable'` with empty `types`, the cause in `error`). Read only. | `'unregistered'`, `'malformed-slot'`: `types`; `'unreadable'`: `types`, `error` |
-| `STORAGE_MISMATCH_WARNING` | A node type is stored in a way its class cannot be (one warning per type). Read only. | `'declaration-changed'`: `type`, `stored`, `declared`; `'malformed'`: `type`, `key`, `found` |
+| `STORAGE_MISMATCH_WARNING` | A node type is stored in a way its class cannot be (one warning per type), including a stored line that a node replacement builds as a class that cannot be stored as a line: the binding could not write edits to it. Read only. | `'declaration-changed'`: `type`, `stored`, `declared`, and `replacement` (the replacement's type) when a node replacement causes it; `'malformed'`: `type`, `key`, `found` |
 | `UNSUPPORTED_SLOTS_WARNING` | Named slots where the document cannot store them. Not written; read only. | `'stored-host'`, `'root'`: `types` |
-| `UNSUPPORTED_CONFIG_WARNING` | `BlockIdExtension` with `repairTransforms: true`, or a document with Yjs's format cleanup on (not from `createYDoc`), see [Set up an editor](#set-up-an-editor). Nothing is written; read only. | `'repair-transforms'`: `options`; `'cleanup-formatting'` |
+| `UNSUPPORTED_CONFIG_WARNING` | `BlockIdExtension` with `repairTransforms: true`, or a document with Yjs's format cleanup on (not from `createYDoc`), see [Set up an editor](#set-up-an-editor); or a document below `MIN_LAYOUT` with no `layoutUpgrade` declared (`'missing-layout-upgrade'`, with the `'older'` layout warning, see [Layout upgrades](#layout-upgrades)). Nothing is written; read only. | `'repair-transforms'`: `options`; `'cleanup-formatting'`; `'missing-layout-upgrade'` |
 | `NESTED_FALLBACK_WARNING` | A class that declares a line, format or group is stored as a node of its own (see [How content is stored](#how-content-is-stored)). Once per binding, class and reason. | `'merge-override'`: `type`, `method`; `'undeclared-properties'`: `type`, `properties`; `'inline-slots'`, `'inline-incomplete-schema'`, `'type-name'`, `'merge-incomplete-schema'`, `'merge-slots'`, `'group-children'`, `'group-state-merge'`, `'group-incomplete-schema'`: `type` |
 | `UNSYNCED_VALUE_WARNING` | A property or NodeState value is not plain JSON, so it is not synchronized. Once per binding and property. | `'not-json'`: `property` |
-| `UNSUPPORTED_EDIT_WARNING` | A local update changed the editor while the binding is read only (reported once each time it goes read only). Not written; what it changed is read again, or, once the document cannot be read, the editor shows again the last state it showed before the update. | `'read-only'` |
+| `UNSUPPORTED_EDIT_WARNING` | A local update changed the editor while the binding is read only (`'read-only'`, reported once each time it goes read only), or, on an active binding, a write refused at write time because the layout or schema record changed inside its transaction (`'refused-at-write'`, each such write, not retried; the binding may stay active, so it is not a read-only state). Not written; what it changed is read again, or, once the document cannot be read, the editor shows again the last state it showed before the update. With `'held-composition'`, the binding stays active: a local change that inserts no character would have deleted or left behind text a collaborator wrote in the line being composed with an IME, which the composition holds back; it is not written and is read again (undone): every non-character change in the refused update, including NodeState, is undone, and the composition goes on. A change that inserts a character is always written. With `'unstorable'`, a written local update left an empty text node Lexical keeps (not mergeable simple text), which the document does not store (each such update): the update is written, and the container holding the empty node is read again. With `'other'` and `detailCode: 'held-line-retokenize'`, the binding stays active: a local update re-typed the line being composed (a transform's tokens for it, such as a code highlighter's) while the composition's hold shows that line as a block its shared counterpart no longer is (a collaborator changed its type, or joined it into the line before it); the re-typing is not written, the rest of the update is, and the line is read again as stored; its transforms then run again on it as the composer's own edit, and what they change in that line, in place, is saved (once per composition; see [Limits](#limits)). | `'read-only'`; `'refused-at-write'`: `record` (`'layout'` or `'schema'`, see below); `'held-composition'`; `'unstorable'`; `'other'`: `detailCode` (`'held-line-retokenize'`) |
 | `SELF_CHECK_WARNING` | The self-check (`selfCheck`) found the editor and the document disagree. | `'local'`, `'remote'`: `problems` |
 | `RECOVERED_READ_WARNING` | A change could not be read; the editor was rebuilt from the document. | `'remote-change'`, `'reread'`: `error` |
+| `RAW_YJS_WRITE_WARNING` | Development builds only: a local transaction that is not the binding's (nor a Y.UndoManager's) changed the Yjs content under the binding's root, which is private and unsupported for direct writes (see [Wire format](#wire-format)), or another client's insertions appeared inside one of the binding's own write transactions, which is unsupported (see [Wire format](#wire-format); remote deletions there, and updates applied inside an app's outer `doc.transact`, are not detected). Once per binding and origin (once per binding for the second); nothing else happens. | `'raw-write'`: `root`, `kind` (`'format'`, `'attribute'`, `'content'`), `key`, `origin` (the origin's constructor name); `'remote-in-write'`: `root`, `kind` `'content'`, `key` null, `origin` (the other client's id) |
 | `RECOVERED_WRITE_WARNING` | A local change could not be written; the document was rewritten. | `'local-change'`: `error` |
+
+`'refused-at-write'`'s `record` names the admission family that refused the
+write: `'layout'` (the layout record, the epoch or a feature requirement) or
+`'schema'` (a schema record). Its two values never grow: the layout is
+checked first, so when both refuse it says `'layout'`, and a later family
+arrives as `reason: 'other'` with a `detailCode`. The warning describes the
+refused write only and promises nothing about the binding's later status:
+read `binding.status` (or `onStatus`) for that. The binding stays active
+when the record was put back, and goes read only, with its own warning,
+when it was not.
 
 A read-only banner of your own, from the fields:
 
@@ -406,19 +545,25 @@ import {
 import {defineExtension} from 'lexical';
 
 function banner(warning: YWarning): string | null {
-  switch (warning.code) {
-    case UNSUPPORTED_SCHEMA_WARNING:
-      return warning.data.reason === 'newer'
-        ? t('doc.reloadForNewerVersion')
-        : t('doc.cannotOpen');
-    case UNSUPPORTED_LAYOUT_WARNING:
-      return warning.data.reason === 'newer'
-        ? t('doc.needsNewerApp')
-        : t('doc.cannotOpen');
-    // ...
-    default:
-      return null;
+  if (isYWarning(warning, UNSUPPORTED_SCHEMA_WARNING)) {
+    return warning.data.reason === 'newer'
+      ? t('doc.reloadForNewerVersion')
+      : t('doc.cannotOpen');
   }
+  if (isYWarning(warning, UNSUPPORTED_LAYOUT_WARNING)) {
+    switch (warning.data.reason) {
+      case 'newer':
+      case 'requires':
+        return t('doc.needsNewerApp');
+      case 'older':
+        return t('doc.beingUpgraded');
+      default:
+        // 'malformed', 'missing', 'removed', 'legacy-roots', 'other'
+        return t('doc.cannotOpen');
+    }
+  }
+  // ...
+  return null;
 }
 
 defineExtension({
@@ -441,16 +586,19 @@ defineExtension({
 - Without a handler, Lexical's default `onWarn` applies: it throws in
   development (each warning shows up as an uncaught error) and calls
   `console.warn` in production.
-- Codes are never renamed or reused; new ones may be added. A `default`
-  that assigns the warning to `never` makes the compiler point at a code
-  your `switch` does not handle.
+- Codes are never renamed or reused; new ones may be added, and a new
+  condition under an existing code arrives as `reason: 'other'` with its
+  `detailCode`. So a handler keeps a fallback for both; a `switch` over a
+  code's `reason` that handles `'other'` stays exhaustive across releases.
 
 ## Versioning your schema
 
 Your app's node types and the fields they store are its document schema.
 `schemaVersion` (required, on `YCollabExtension` and in the
-[headless config](./y-server.md#api)) is its version: start at 1 and
-increase it whenever a node's stored fields or node types change. Ship each
+[headless config](./y-server.md#api)) is its version: the version of your
+editor's nodes (registered node classes, their fields and NodeState). Start
+at 1, and bump it when you add, remove or change one, not on every
+release. Ship each
 release's clients with the version of the schema they were built with.
 
 - **What is recorded.** A client records its version in the document with
@@ -604,11 +752,47 @@ declares a line, a format or a group, the binding warns about such
 properties on its instances and stores it as a node of its own.
 `describeStorage(editor)` lists how each node type is stored. The first write
 of a type records its kind, so a later client whose class declares something
-else keeps the recorded kind or opens read only. The stored names are
+else keeps the recorded kind or opens read only. A node replacement
+(`{replace, with, withKlass}`) builds stored nodes as another class: where a
+read builds a stored line as a class that cannot be stored as a line (a
+container class, such as a quote that holds blocks, replacing a quote stored
+as a line, or a replacement written the classic way, with a hand-written
+`exportJSON`, which is stored as a nested node), the document opens read only (`STORAGE_MISMATCH_WARNING`, with
+`replacement`), since edits to it could not be written. Migrate the stored
+content before such a replacement reaches its clients: reseed it from its
+JSON, which stores the replacement's own type, and bump `schemaVersion` so
+older clients stop writing. The stored names are
 specified in the
 [package README](https://github.com/meta/lexical/tree/main/packages/lexical-y#wire-format-layout-1).
 
 ## Wire format
+
+The Yjs content under the binding's root is private to the binding: the
+root, its record keys (`lexical-y:<n>`, `lexical-y-schema:<n>`,
+`lexical-y-epoch`, `lexical-y-require:<feature>`, any `lexical-y-*`
+attribute) and every node, marker, format and state key below it. It is
+documented so servers and tools can read stored documents; writing it
+directly with Yjs is unsupported. Change a document through the editor,
+`editYState` (on a server) or a migration step. In development builds the
+binding reports a local transaction of another origin that changes the
+content under its root with `RAW_YJS_WRITE_WARNING` (once per origin;
+Y.UndoManager steps and remote updates are not reported). It is a
+diagnostic, not a complete detector: it judges a transaction by its origin
+and locality, and only once the binding has read its document (not while
+it is pending). Applying another client's update inside one of the binding's own
+write transactions (from a `beforeTransaction` handler, for example) is
+unsupported too: Yjs merges it into that transaction, which the binding does
+not read as a remote change, and the write can delete what it inserted and
+write it again as its own. Apply remote updates outside the binding's
+transactions, as providers do from `'update'` handlers and network messages.
+Development builds report another client's insertions inside the binding's
+own write transaction, once per binding (`RAW_YJS_WRITE_WARNING`,
+`'remote-in-write'`); a remote deletion there, and a remote update applied
+inside an app's outer `doc.transact` that the binding's write joins, are not
+detected. A transaction the binding also wrote in (an editor edit or
+`binding.undo()` inside your `doc.transact`, which joins it) is never
+reported, so a raw write of yours in that same transaction is not reported
+either: the check may miss a raw write, never flag the binding's own.
 
 The diagrams below use the stored names. The package README specifies them
 exactly:
@@ -621,8 +805,14 @@ formats are ranges over the characters: `f:<format>` for a text format, and
 `w:<type>` for an inline element stored as a format, such as a link. A node
 of its own is a `b:<type>` child that holds its own sequence (`c: b` when it
 holds blocks), and each of its named slots as an attribute `slot:<name>`
-whose value is the slot's `b:<type>` node. The root also records the layout
-versions the document needs
+whose value is the slot's `b:<type>` node. A root may also declare features
+its content needs (`lexical-y-require:<feature>`): a reader that does not
+support one opens the root read only and keeps it as it is, and the
+migration runner does not migrate it (`'unsupported-feature'`). Releases
+before this one ignore these attributes and would still edit such a root:
+a writer that adds a requirement also raises the layout record, or relies
+on its server's fence to keep those clients out. The root also
+records the layout versions the document needs
 (`lexical-y:1`, a record that only grows) and, per type, the storage kind its
 first write chose (`k:<type>`).
 
@@ -642,6 +832,19 @@ block-beta
 
 _A heading, a paragraph with a link, a bold word and a NodeState value, and
 a custom container (`callout`) that holds a paragraph, in layout 1._
+
+**Layout 4** (what this release writes) stores format runs as pairs. A
+write's run of a text format, a link, a text field, a text node's type, a
+comment id or a NodeState value on text is an opener (the value, or `[]` for "no value") and an end that
+names its opener by id, so a reader knows which write each end belongs to.
+Concurrent formats of one key nest instead of cutting each other short:
+when one collaborator's run ends, the run another collaborator opened
+around it shows again. Layout 3 introduced the pairs; layout 4 stores a
+NodeState value on text (`s:<key>`) the same way, so every name the
+binding writes on text has one mechanism. The package README specifies it:
+[layout 3](https://github.com/meta/lexical/tree/main/packages/lexical-y#wire-format-layout-3)
+and
+[layout 4](https://github.com/meta/lexical/tree/main/packages/lexical-y#wire-format-layout-4).
 
 ## What changes when you turn on collaboration
 
@@ -762,15 +965,20 @@ What this means for your app:
   author's normalization gives its node that value too, and writes it.
 - **To keep blocks inside a container, make it hold blocks.** Declare
   `children: 'block'` on a custom container (a callout that holds
-  paragraphs; stray text in it is then wrapped in a paragraph), or use a
-  shadow-root quote, `$createQuoteNode({shadowRoot: true})`, which holds
-  paragraphs and is left alone.
+  paragraphs; stray text in it is then wrapped in a paragraph). For a quote,
+  use `QuoteContainerNode` (`@lexical/rich-text`, experimental), which
+  declares it and is stored as a container, as a table cell is. A
+  shadow-root quote, `$createQuoteNode({shadowRoot: true})`, also holds
+  paragraphs and is left alone, but its class declares inline content, so it
+  is stored as one line with its paragraphs as nodes inside it.
 
 ## Edits made by code (agents, tools)
 
 Code that edits a document on someone's behalf (an agent, an import, a
-formatter) merges with collaborators best when its edits look like a
-person's:
+formatter) edits it through Lexical: an editor bound to the document, or
+`editYState` on a server, never by writing Yjs under the binding's root
+(see [Wire format](#wire-format)). Its edits merge with collaborators best
+when they look like a person's:
 
 - **Edit text in place** (insert and delete characters in a text node)
   rather than replacing blocks or whole documents. A replaced block is a
@@ -875,51 +1083,116 @@ person's:
   refresh of derived list fields (numbering), also on open. So the tag
   tells apart users' own edits, which a listener may act on, from
   everything else. (Lexical's update that runs a newly registered transform
-  over the document keeps Lexical's tags; it writes nothing.)
-- **Apply an edit to the state it was computed from, then merge.** An edit
-  planned from an older read (a model's answer arrives seconds later) can
-  land in the wrong place if it is applied to the current state. Load that
-  read's update into a document (`createYDoc(readState)`), bind a headless
-  editor to it with `YBinding`, apply the edit there, and apply the update
-  it produced
-  (`Y.encodeStateAsUpdate(copy, readStateVector)`) to the live document:
-  Yjs merges it with what changed since. The copy's writes go into the live
-  document, so give its `YBinding` the same `clientIDRange` as the other
-  clients (see [Servers](#servers)).
+  over the document keeps Lexical's tags; it writes nothing.) An edit an
+  app's code makes in the update of a remote change's read, after the read
+  (a `TextNode#selectionTransform`, an update queued behind the read), is
+  written as that client's change, out of the undo history, once per client
+  that reads the change; it runs under `COLLABORATION_TAG` too, so code can
+  skip it. It is written as made: the read's update runs no node transforms
+  (code appended to a code block there is not highlighted). A
+  `SELECTION_CHANGE_COMMAND` a read causes arrives after the read
+  has committed, in an untagged update of its own, whose edits are the
+  user's.
+- **Check what an edit names, then apply it to the current state.** An
+  edit planned from an older read (a model's answer arrives seconds later)
+  can be wrong once the document has changed, and merging it from that read
+  (editing a copy of the read and merging the copy's update into the
+  document) converges to text nobody meant: where a collaborator changed
+  the same words, both changes end up glued together (`slowswift`); two
+  agents making the same edit write it twice (`4.2.2%`); the new text of a
+  block a collaborator moved lands where the block was, while the moved
+  block keeps its old text; deleting a block a collaborator is typing in
+  glues their sentence to the next line. So before you apply an edit, check
+  what it names, on the current state:
+  - a replacement of words checks only those words, in the block where the
+    edit read them (found by its id on the current state): they are still
+    there, exactly once;
+  - a rewrite or a delete of a block checks the whole block: it still
+    exists where it was, unchanged since the read in everything it holds
+    (its type, text, formats, style, NodeState and children; compare the
+    two blocks serialized whole, not their text). That covers what the
+    checking code's schema declares: check with a schema that still
+    declares every field stored versions may hold, or a change to a field
+    it dropped goes unnoticed;
+  - a format or a comment the edit applies to words it names checks those
+    words like a replacement, and is applied to them as found on the
+    current state, never by offsets from the read;
+  - an insert checks that the block it is anchored to still exists.
 
-On a server, `editYState` from `@lexical/y/headless` does the second step:
-run it on the state the edit was computed from, with the agent's writer, and
-merge the `update` it returns into the live document (see
+  Check every edit of a batch before applying any. When every check passes,
+  apply the edits to the current state in order, finding each block there by
+  id, not in the read, and checking each edit again on the state the ones
+  before it leave: when an earlier edit changes a later one's target (its
+  words changed or now appear twice, its block deleted or rewritten, a block
+  named twice), refuse the whole batch, a conservative rule (an agent sends
+  dependent changes as one edit). When one fails, apply none of them, and
+  return to the agent every failure: which edit, the reason (the words
+  changed or appear more than once, the block changed, the block is gone,
+  each also after an earlier edit of the batch), the block's content in the
+  current state (not in the discarded edit), and a new read to plan from,
+  so that it plans again. Store the
+  result only if nothing was stored since the state you checked (a
+  compare-and-set); when something was, drop the state and the update
+  computed on the older state and run the whole check and edit again on the
+  newer one (a few times at most, then refuse back to the agent with a read
+  of the state that won): never store or send an update computed on a state
+  whose check no longer holds. A check covers only
+  what the edit names: a count or a reference elsewhere that a collaborator
+  changed meanwhile (a list item deleted while the agent changes "3 open" to
+  "4 open") is the agent's to catch, from what changed since its read.
+- **Merge from the read only where there is nothing to check.** An append
+  (to the end of a document, or a new document), a suggestion a person
+  accepts, and an edit addressed by position that cannot be found again on
+  the current state (not a format or comment on named words: those are
+  checked) can be made on the read and merged: load that read's
+  update into a document (`createYDoc(readState)`), bind a headless editor
+  to it with `YBinding`, apply the edit there, and apply the update it
+  produced (`Y.encodeStateAsUpdate(copy, readStateVector)`) to the live
+  document: Yjs merges it with what changed since.
+
+On a server, `readYState` and `editYState` from `@lexical/y/headless` do
+both: check the edit with `readYState` on the latest stored state, then run
+`editYState` on that same state with the agent's writer, store the state it
+returns with a compare-and-set (starting over on a lost race), and send the
+`update`; for an edit merged from its read, run `editYState` on the read and
+merge its `update` into the latest state (see
 [Edits by agents and tools](./y-server.md#edits-by-agents-and-tools)).
 
 ## Servers
 
 A Yjs 14 (`@y/y`) server or relay can host the documents when it meets
-the requirements below (format cleanup off, updates delivered in order, and
-for yrs, its version and client ids). Clients of
+the requirements below (format cleanup off, updates delivered in causal
+order, and for yrs, its version and client ids). Clients of
 `@lexical/yjs` write to other roots (`root`, `root-v2`), never to
 `DEFAULT_ROOT_NAME` (`'lexical-y'`), so they cannot change a `@lexical/y`
 document's content and the server needs no check to keep them out.
 To seed, edit or read documents on the server, see
 [Server-side editing](./y-server.md).
 
-A server or relay that loads a document into a Yjs `Doc` and stores its
-state must turn off Yjs's format cleanup on that document before it applies
-updates, as the clients do. `createYDoc` (from `@lexical/y`, or
-`@lexical/y/headless`) makes such a document, with the stored state applied:
+A server or relay that holds a document in a Yjs `Doc` (to apply clients'
+updates to it, store, compact or merge it) creates it with `createYDoc` from
+`@lexical/y/server`: Yjs's format cleanup turned off, the stored state
+applied, and nothing the binding adds to a client's document (it imports no
+Lexical). The package has no relay of its own; that `createYDoc` is what a
+relay needs from it:
 
 ```ts
-import {createYDoc} from '@lexical/y/headless';
+import {createYDoc} from '@lexical/y/server';
 
 const doc = createYDoc(stored);
 ```
 
-A relay that cannot import it sets the flag on a new document itself
-(`doc.cleanupFormatting = false`).
+A relay that cannot import it turns the cleanup off on a new document
+itself (`doc.cleanupFormatting = false`) before it applies anything.
 
 Otherwise, when Yjs applies an update there it deletes format items that
 it finds redundant but the clients keep, and the state the server stores
-reads differently from what the clients show.
+reads differently from what the clients show. The cleanup also costs time
+with paired runs: loading a stored document (one `Y.applyUpdate` of its
+state into a new `Doc`) takes about 150 ms for 20,000 words with the cleanup
+on, against about 19 ms with it off, and about 60 ms against 8 ms for 5,000
+words. With the cleanup off, a document loads about as fast as a layout-1
+one.
 
 **A relay for `@y/websocket` clients.** The published
 `@y/websocket-server` does not fit: its latest version, 0.1.5, depends on
@@ -935,7 +1208,7 @@ document per room, applies what each connection sends to it, and sends the
 updates the document emits to the room's connections, in the order it
 applied them. It uses `@y/y`, `@y/protocols` (the sync and awareness
 messages), `lib0` (their encoding) and `ws`; create each room's document
-with `createYDoc()` from `@lexical/y` (or set
+with `createYDoc()` from `@lexical/y/server` (or set
 `doc.cleanupFormatting = false`, as that script does):
 
 ```bash
@@ -948,25 +1221,60 @@ the first connection syncs, and store `encodeStateAsUpdate(doc)` (from
 `@y/y`) after the updates it applies, one write at a time per room, so that
 an older snapshot never replaces a newer one.
 
-Servers built on **yrs before 0.28** (y-crdt) read client ids as 32-bit
-numbers, while Yjs 14 draws 53-bit ones: an author can receive its own
-content back as another client's on reconnect (duplicating it), or lose
-offline edits. For such a server, pass `clientIDRange: 'uint32'` on every
-client of the document and in the server's `@lexical/y/headless` config. Give the document a 32-bit client id
-before you create the awareness and the provider, because an awareness takes
-the document's client id when it is created:
+Servers built on **yrs** (y-crdt) need **yrs 0.28 or later**. Earlier
+versions read client ids as 32-bit numbers, while Yjs 14 draws 53-bit ones:
+an author can receive its own content back as another client's on reconnect
+(duplicating it), or lose offline edits.
 
-```ts
-doc.clientID = crypto.getRandomValues(new Uint32Array(1))[0] || 1;
-```
+Deliver updates in causal order: each update after every update it depends
+on, from any client. A single relay that every
+client sends to and receives from, and that forwards every update to each
+client in the one order it received them, whichever client sent it, does
+this. A mesh (such as y-webrtc), or
+several relays that forward updates on their own, needs causal buffering:
+hold an update until every update it depends on has been applied, deletions
+included (a state vector alone cannot tell: an update that only deletes
+leaves it unchanged). Out of causal order, a
+client can see a collaborator's format run on to the end of a line until the
+missing update arrives, and an edit it makes in that moment makes the
+spread permanent, on every client
+([#9645](https://github.com/meta/lexical/issues/9645)).
 
-Deliver each client's updates in order. With Yjs 14.0.0-rc.29, a client
+Causal order includes each client's own order. With Yjs 14.0.0-rc.29, a client
 that receives an update past a gap in another client's clocks (a relay that
-reorders and batches updates) can show a character that a document loaded
-from that client's own `encodeStateAsUpdate` keeps pending, until the
-missing updates arrive: a reload from such a stored state, or a server that
-compares re-encoded states, can briefly differ from the live client. This
-is in Yjs, not the binding (which shows what its document holds).
+reorders and batches updates) can show a character, and anything typed after
+it, that a plain `Y.applyUpdate` of that client's own `encodeStateAsUpdate`
+keeps pending until the missing updates arrive. `@lexical/y`'s loaders
+(`createYDoc(stored)`, the `@lexical/y/headless` helpers, `migrateYState`,
+`prepareYRoom`, `sourceView` and `createYQuarantineRecord`) integrate every
+struct whose dependencies are present, as the client did, so load stored
+states through them rather than with `Y.applyUpdate`. A loaded document can
+then also show a struct the encoding client still held pending, when the
+bytes cannot tell the two apart; once the missing updates arrive, it ends
+byte-identical to a plain load. The repair is checked against the raw Yjs
+view, not the editor: the units of every list (characters, embeds, nodes)
+with the format attributes in effect, and the map entries (node attributes,
+NodeState). A repaired load shows every unit a plain load shows, only units
+a plain load or the repair without its rules shows, each with the format
+attributes one of them gives it, and each map entry as one of them has it.
+When nothing is held back and no entry the document shows is overwritten
+(the direct path), that holds as the repair applies, at the same cost as
+without the check; otherwise the load is checked on a copy of the document
+first, which costs about one more repair and a copy (on long dependency
+chains at the apply budget, 1.6 to 2 times the repair), and a candidate that
+passes is applied, down to the plain load itself. A run of format items alone is held back while a format item
+with the same key stays pending (a format's other end), unless content needs
+it, so a format is not opened or closed on its own over text the encoding
+client showed otherwise. A format of text the repair integrates can still be
+unpaired, and that text's neighbors then show the format running on until
+the gap heals, as on any peer that received it alone. The repair is bounded: it makes at most 1,024 suffix applies in one
+load (one can integrate many structs, so only pathological input reaches
+it), and past that budget the rest stays pending, never lost, and
+integrates when its missing updates arrive. The loaders repair stored bytes, not the
+live sync path: sync step 2 is the same batched
+`encodeStateAsUpdate(doc, stateVector)`, which a provider applies with
+`Y.applyUpdate`, so a peer syncing live from such a client still holds that
+text pending until the missing updates arrive.
 
 Also with Yjs 14.0.0-rc.29, a client's document can emit an update that
 cannot be decoded ([yjs/yjs#825](https://github.com/yjs/yjs/issues/825);
@@ -977,20 +1285,604 @@ It reproduces with Yjs alone (a long soak session hit it once). Reload such
 a client from the server's state; a Yjs release that includes the fix
 avoids it.
 
-Use **yrs 0.26 or later**. yrs 0.23.4 through 0.25.0 can drop part of a
+Use **yrs 0.28 or later** (for the 53-bit client ids above). Earlier, yrs
+0.23.4 through 0.25.0 can also drop part of a
 reconnecting client's delete set when a deleted range starts on a block the
 server has already garbage collected: the server keeps content that client
 deleted while its changes did not reach the server (offline, a dropped
 connection, a reload from local storage), and that client then differs from
-everyone else for good, with no warning. 32-bit client ids do not prevent
-it; yrs 0.26.0 fixed it. Before 0.28, the 32-bit client ids above are still
-needed.
+everyone else for good, with no warning (fixed in yrs 0.26.0).
+
+## Offline: local persistence and edits that did not sync
+
+`@lexical/y/offline` (experimental) keeps a document on the device and
+looks after the edits a server never took. It has two layers, and an app can
+use the first alone:
+
+- a **local store** for Yjs 14 documents on IndexedDB, keyed by a document
+  key your app chooses and the **epoch** (generation) the document was made
+  against. No IndexedDB provider exists for Yjs 14 (`y-indexeddb` imports
+  Yjs 13), and none keys by epoch or reports quota and corruption, so the
+  store is part of this package. It adds no dependency;
+- an **offline session** attached to a binding: it stores edits as they are
+  made, lets them sync on a reconnect at the same epoch, and on a moved epoch
+  freezes the document (`binding.freeze()`), stores it with its base, and
+  reports what changed block by block (`describeUnsyncedEdits`). A replay
+  puts the blocks nobody else touched back, and writes every other block
+  into the document next to the one it conflicts with (or hands it to your
+  handler): [`leftovers`](#blocks-that-cannot-be-replayed-leftovers) is a
+  required option, so no edit is left only in a panel an app can forget,
+  and so is [`autoReplay`](#which-blocks-are-replayed-autoreplay), so an
+  app chooses whether an old copy is merged by itself.
+
+One path serves every way a client comes back. A **reconnect** at the same
+epoch syncs the stored document. A room that was **replaced** (reloaded,
+restored) or **upgraded** (migrated to a newer layout by its server) has a
+new epoch, so the client's copy is frozen, captured into the same store, and
+described against the new room; the same happens to a copy a closed tab
+left behind. Nothing stored at another epoch is ever merged.
+
+An epoch is whatever your server names a document's incarnation with: a
+generation from `@lexical/y/server` (`getYGeneration`), or a relay's counter
+that it bumps when it reloads or upgrades a document. It is an opaque string
+here (`String(epoch)` for a number); two are compared, never parsed.
+
+### Start here
+
+1. `const opened = await openYOfflineStore({idb: {indexedDB, IDBKeyRange}})`:
+   once per page. A browser without IndexedDB returns `'unavailable'`.
+2. `const loaded = await loadYOffline({store, key})`, and create the
+   document from `loaded.state` when there is one.
+3. `const session = attachYOfflineSession({binding, key, epoch:
+   loaded.epoch, loaded, offline: {stage, store, persist: 'document'},
+   onError, stopSync})`. `loaded` is required (null for a document not
+   created from a load), and so is `stopSync`, which disconnects the
+   document's provider for good. At `'persist'` and `'replay'` every edit is
+   stored as it is made.
+4. `const verdict = await session.serverEpoch(epoch)` whenever the server
+   names its epoch: before the provider syncs, on every connect and
+   reconnect, and when the server says the room was replaced or upgraded.
+   `'same'`: sync. `'moved'`: the document is frozen and captured, and
+   `stopSync` was called.
+5. `verdict.markSynced()` (a `'same'` verdict's) when the server holds
+   everything the document holds. Only a confirmed epoch carries it: on a
+   document of a replaced room it would make the unsynced edits the base,
+   and the capture would hold none of them.
+6. On the document the page syncs (a fresh one after a `'moved'`):
+   `await recoverYOfflineEdits({..., autoReplay, leftovers})`. At
+   `'replay'` it puts back what did not sync: with `autoReplay:
+   'replayable'` the blocks nobody changed since are reapplied, and with
+   `leftovers: {wrap: wrapLeftoversAsQuote('…')}` every other block is
+   written into the document. Its result is what an Offline edits panel
+   shows: what was reapplied, and where the rest was inserted.
+
+That order binds, then syncs: the page starts from the store and learns the
+epoch from the server afterwards. An app that syncs, then binds (it has the
+server's document and epoch before the editor exists) asks for the slot at
+that epoch instead, and never meets a moved epoch at attach. It still
+confirms the epoch once, for the verdict's `markSynced()`:
+
+```ts
+const loaded = await loadYOffline({epoch: serverEpoch, key, store});
+const doc = createYDoc(serverState);
+if (loaded.ok && loaded.value.state !== null) {
+  // The same epoch: the edits this device stored merge into the room.
+  applyUpdate(doc, loaded.value.state);
+}
+const binding = createYBinding(editor, {doc, synced: true /* ... */});
+const session = attachYOfflineSession({
+  binding,
+  epoch: serverEpoch,
+  key,
+  loaded: loaded.ok ? loaded.value : null,
+  offline: {persist: 'document', stage, store},
+  onError,
+  stopSync: () => provider.destroy(),
+});
+// 'same' at once: its markSynced() is the one to call on every save.
+const verdict = await session.serverEpoch(serverEpoch);
+if (verdict.kind === 'same') {
+  provider.on('saved', verdict.markSynced);
+}
+// A slot at an older epoch was not loaded: it becomes a capture here.
+const recovered = await recoverYOfflineEdits({
+  /* ... */
+  autoReplay: {maxBaseAge: 3 * 24 * 3600 * 1000},
+  epoch: serverEpoch,
+  leftovers: {wrap: wrapLeftoversAsQuote('Offline edits that did not merge')},
+  session,
+});
+```
+
+`serverEpoch` is then for the room being replaced while the page is open.
+When the server says the room was replaced without naming the new epoch,
+call `session.freeze()` on the live session instead: it freezes the
+binding and captures what it holds into the store, as a moved epoch does,
+for `recoverYOfflineEdits` on the new document.
+Never call it with the epoch of a document the page has not bound: a
+different epoch freezes the binding it is given.
+
+Whether the editor is editable before the server answers (offline editing)
+is your app's choice, made when it binds: `synced: true` on a stored
+document makes it editable at once; `synced: false` waits for the
+provider's sync, and the store still keeps what is typed after it.
+
+```ts
+import {createYBinding, createYDoc} from '@lexical/y';
+import {
+  attachYOfflineSession,
+  loadYOffline,
+  openYOfflineStore,
+  recoverYOfflineEdits,
+  wrapLeftoversAsQuote,
+  type YOfflineStage,
+} from '@lexical/y/offline';
+
+// The rollout stage, from your feature flag: 'off', 'persist' or 'replay'.
+const stage: YOfflineStage = 'replay';
+const key = documentId;
+
+const opened = await openYOfflineStore({
+  idb: {indexedDB: globalThis.indexedDB, IDBKeyRange: globalThis.IDBKeyRange},
+});
+const store = opened.ok ? opened.value : null; // null: tell the user, run at 'off'
+const loaded = store === null ? null : await loadYOffline({key, store});
+const stored = loaded !== null && loaded.ok ? loaded.value : null;
+
+// Start from the stored document; editable at once here (your choice).
+const doc = createYDoc(stored?.state);
+const binding = createYBinding(editor, {
+  doc,
+  onStatus: showStatus,
+  schemaVersion: SCHEMA_VERSION,
+  synced: stored != null && stored.state !== null,
+});
+const session = attachYOfflineSession({
+  binding,
+  epoch: stored?.epoch ?? null,
+  key,
+  loaded: stored,
+  // One value: a store exactly where the stage uses one.
+  offline:
+    store === null || stage === 'off'
+      ? {stage: 'off'}
+      : {persist: 'document', stage, store},
+  onError: error => showNotSavedOnThisDevice(error.message),
+  // Called by the session when the epoch moved: the frozen document never
+  // syncs again, whatever the app does with the verdict.
+  stopSync: () => provider.destroy(),
+});
+
+// When the server holds everything (an acknowledgement of every update),
+// the base advances: only a 'same' verdict can say so, so keep its
+// markSynced (the latest one) for the provider's acknowledgements.
+let markSynced: (() => void) | null = null;
+provider.on('saved', () => markSynced?.());
+
+// The server names its epoch (in your handshake, before any sync message,
+// and again in a "replaced" event):
+async function onServerEpoch(epoch: string) {
+  const verdict = await session.serverEpoch(epoch);
+  if (verdict.kind === 'moved') {
+    // This document is frozen and stored as a capture, and its provider
+    // stopped: open a fresh document at `epoch`, and recover there.
+    openFreshDocument(epoch);
+    return;
+  }
+  if (verdict.kind === 'same') {
+    markSynced = verdict.markSynced;
+  }
+  provider.connect(); // 'same' (or 'off': do what the app did before)
+}
+provider.on('sync', () => binding.markSynced());
+
+// On the fresh document, after its first sync:
+const recovered = await recoverYOfflineEdits({
+  binding: freshBinding,
+  config: headlessConfig, // your nodes and schemaVersion, as for editYState
+  epoch,
+  key,
+  // Required: which blocks are written over the document by themselves.
+  // Here, those only the user changed, for a copy at most three days old.
+  autoReplay: {maxBaseAge: 3 * 24 * 3600 * 1000},
+  // Required: where the other blocks go. Here, into the document, after
+  // the block each conflicts with, under this label.
+  leftovers: {wrap: wrapLeftoversAsQuote('Offline edits that did not merge')},
+  session: freshSession, // lets it delete what the server already holds
+  stage,
+  store,
+});
+// What was reapplied and inserted (recovered.value[i].replay), to tell the
+// user; nothing is left only here.
+if (recovered.ok) showOfflineEditsPanel(recovered.value);
+```
+
+### Stages
+
+Every call that acts takes the stage, so one flag rolls the feature out:
+
+| Stage       | The session                                                                                  | `recoverYOfflineEdits`                                                              |
+| ----------- | -------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
+| `'off'`     | Adds no listener, stores nothing; `serverEpoch` answers `{kind: 'off'}`                      | Returns an empty list and touches nothing                                           |
+| `'persist'` | Stores every edit as it is made, and freezes and stores a capture when the epoch moved       | Lists each capture with its report, and writes nothing: the captures stay stored (a handler is called with their blocks) |
+| `'replay'`  | The same                                                                                     | Also writes each capture into the document, once across tabs, as one undo step: its replayable blocks are applied, and every other block goes to `leftovers` |
+
+`offline` is the stage and the store it uses, one value: `{stage: 'off'}`,
+or `{stage: 'persist' | 'replay', store, persist}`, where the required
+`persist` says what is stored:
+
+- `'document'`: the whole document always, so the page can open it with no
+  connection;
+- `'unsynced'`: only while the document holds edits the server lacks:
+  nothing while synced, the base and what came since from the first local
+  edit, deleted by the verdict's `markSynced()`;
+- `'captures-only'`: no edit as it is made (no `update` listener), only a
+  capture when the epoch moves while the tab is open. Unsynced edits live in
+  the tab alone: a reload, a crash or a closed tab with no connection loses
+  them.
+
+`writeDelay` (default `0`): milliseconds to wait for updates to pause before
+storing them (at least every ten delays while they do not). `flush()` stores
+at once; call it on `pagehide`: what a delay holds back is lost with a
+closed tab.
+
+An app that builds its own `YBinding` (not `createYBinding` or
+`YCollabExtension`) passes `{binding, status, freeze}` as the binding
+(`YOfflineBinding`): its `freeze()` stops the binding and returns its local
+edits (`binding.quiesce()` has them), and `status` reads `{kind: 'active'}`
+while the room is editable.
+
+### What is stored
+
+A slot per `(key, epoch)` holds a **base** (the state the server is known to
+hold, written by the verdict's `markSynced()`) and the updates **since**. The document is
+their merge; `hasUnsyncedEdits` is true while anything is stored since the
+base. Rows are written one per update (updates that arrive while a write is
+in flight go in one row), compacted into one after
+`Y_OFFLINE_DEFAULTS.compactAfter` (64), and replaced by a new base at each
+`markSynced()`. A document that never synced is stored under a null epoch and
+moves to the first epoch the server names.
+
+A key is any non-empty string your app chooses; put what separates
+documents in it (`viewer|document|space`). `store.keys()` lists every key
+stored, so an app clears another viewer's documents at sign-in with
+`store.clear(key, {slots: 'all', captures: 'all'})` for each key that is
+not theirs.
+`openYOfflineStore`'s `limits` cap the store by refusing writes, never by
+evicting: `keys` per group (`group: key => key.split('|')[0]` counts per
+viewer) and `bytesPerKey` (rows and captures). A write past one answers
+`'limit'`, with `error.limit` naming which.
+
+A load reads a tab's rows while that tab is still open too, so a page shows
+what another tab of the document holds. Where those are the only unsynced
+edits loaded (`loaded.unsyncedInLiveTabs`), they stay that tab's: it syncs
+them, or captures them when it learns its epoch moved, and this page's
+session captures nothing of them on a moved epoch unless it edits too. So
+a tab left open offline at an earlier epoch is captured once, by itself,
+not again by every page that opens the document meanwhile. After a
+`'moved'`, load the fresh document with the new epoch
+(`loadYOffline({epoch, key, store})`): without it the newest slot is still
+the old epoch's, and the page would bind to it again. Each connection counts a key's
+bytes from its last read of the key plus what it wrote since, so tabs
+writing at once can pass `bytesPerKey` by what the others wrote since.
+
+Two tabs on one key write side by side. Each writing handle holds a Web
+Lock (`openYOfflineStore`'s `locks`, `navigator.locks` by default) and
+writes rows under its own id, the first of them the whole document, so its
+later rows build only on rows it wrote. A handle replaces or removes the
+rows it wrote and the rows it loaded whose writer is gone (a closed tab, an
+earlier page load), never a live tab's. The tabs do not exchange edits
+through the store; a later load holds both. Without Web Locks (`locks:
+null`) every other handle counts as live, so earlier page loads' rows stay
+until the app clears them.
+
+Nothing here throws for a storage failure. Every call returns
+`{ok: true, value}` or `{ok: false, error}`, and `error.code` says what
+happened. The error is a union by `code` (and `where`, for `'corrupt'`):
+narrow on it to reach the fields that code carries.
+
+| Code            | When                                                              | What to do                                                                                             |
+| --------------- | ----------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| `'unavailable'` | No IndexedDB (a private window, Node without a fake), or the open did not answer within `openTimeout` (10 s) | Run at stage `'off'` and tell the user edits live in this tab only                                     |
+| `'blocked'`     | Another tab holds an older version of the database                | Ask the user to close the other tabs, then open the store again                                        |
+| `'quota'`       | The origin's storage is full                                      | Tell the user edits are not saved on this device; editing goes on and the next write stores everything |
+| `'corrupt'`     | `where: 'slot'`: a stored row is not what the store wrote, or does not decode; `where: 'captures'`: stored captures are not readable (`error.unreadable` of them) | A slot: offer `error.salvage.state` (the readable rows), then `store.clear(key, {slots: {epoch: error.epoch}, captures: 'none'})`. Captures: `store.clear(key, {slots: 'none', captures: 'unreadable'})` |
+| `'closed'`      | `store.close()` ran, or another tab deleted the database          | Open a new store                                                                                       |
+| `'limit'`       | The write would pass one of the store's `limits` (`error.limit`)  | Tell the user edits are not saved on this device, or clear documents no longer needed                  |
+| `'newer'`       | A stored row was written by a newer release (`error.epoch` names its slot) | Keep it: this tab runs an older release; reload to update it                                           |
+| `'failed'`      | Any other IndexedDB failure (`error.cause`)                       | Retry, or tell the user                                                                                |
+
+The session passes each failure to `onError` and keeps what it could not
+write queued, so nothing typed is dropped from the page.
+`store.clear(key, {slots, captures})` deletes what it names, both choices
+required: `slots` is `{epoch}` (one slot, `null` naming the never-synced
+one), `'all'` (every slot of the key, other epochs' and other tabs'
+unsynced edits included) or `'none'`; `captures` is `'all'`,
+`'unreadable'` or `'none'`.
+
+### The base, and what counts as unsynced
+
+A capture's report compares three documents: the user's, the **base** their
+edits were made against, and the current one. The session's base is the
+document at the last `markSynced()` of a `'same'` verdict: call it whenever the server is known to
+hold everything the document holds: persisted by the copy a reload or
+replace of the room is seeded from (for a relay in front of a product's
+store, the product's save, not the relay's acknowledgement), with nothing
+newer in the document since. The document at the call becomes the base, so
+an edit made after what was persisted would fold into it, and a later
+capture would not list it. Where your provider reports what is persisted,
+call it when nothing is left above that; with a relay that acknowledges
+nothing, call it on the provider's sync on connect, which leaves a window
+(an edit sent in that sync that never arrived is in the base). A base that is older than it could be costs nothing but precision: an edit that did reach the server is in
+the current document as the user had it, and such blocks are left out of the
+report; a block someone else changed since is not replayable either way.
+Without any `markSynced()` the base is unknown, the report judges against the
+current document, and nothing is replayable.
+
+### The report and the replay
+
+`recoverYOfflineEdits` first turns every slot left at another epoch (a tab
+that closed before it could freeze), or never synced (its base is unknown,
+so none of its blocks is replayable), into a capture, then describes each
+capture (`describeYOfflineCapture`, which is `describeUnsyncedEdits` without
+the blocks the document already holds as the user had them). With
+`BlockIdExtension` blocks are matched by id; without it they are matched by
+position and nothing is replayable; a block the current document holds
+as the user had it is then found by content (as many copies as the user
+had, their unchanged blocks first: the report's `shifted`), so one block
+added or removed offline does not make every later block a change to
+write, and an added copy of a block that is there once is still written.
+
+`replayUnsyncedEdits({binding, report, autoReplay, leftovers, only})` writes a report
+into the bound editor in one editor update, which the binding writes as one
+undo step. Call it outside an editor update. Nothing of the report is
+dropped:
+
+- a **replayable** block (the document still holds it as in the base) is
+  applied, when `autoReplay` allows (below): a changed block replaces the current one, an added block goes
+  after the nearest block before it that the document holds (before the
+  nearest after it when none is left), a deleted block is removed. Each
+  block is checked again against the editor as it is at that moment, so a
+  block someone changed after the report was made is not overwritten;
+- **every other block** the user added or changed goes where `leftovers`
+  says (next section): a block both sides changed, one the user changed that
+  was deleted since, every block of a report without a base or without block
+  ids, a block that changed since the report was made, and a replayable
+  block `autoReplay` did not replay.
+
+`only` limits it to the ids given (a panel's button for one block). The
+result lists what was `applied`, what was not with why (`notApplied`), the
+new ids of the blocks written for the rest (`inserted`, and per place in
+`leftovers`), and the ids given to a handler (`handled`).
+
+With `wrap`, call it once per report: a second call, or a panel's Reapply
+of a block it already wrote, writes the leftovers again (nothing tells the
+copies written from the user's own blocks). `recoverYOfflineEdits` keeps
+that record for you (`capture.resolved`). It throws, with nothing written,
+when the editor update fails or the binding does not store the update (it
+turns read only, as for a wrapper's output the document cannot store, such
+as a slot on a paragraph): a result is never the only place of a block.
+
+### Which blocks are replayed: `autoReplay`
+
+A replayable block is one only the user changed, so writing it over the
+document loses nothing anyone else typed. But the longer a copy was apart
+from the document, the more such a write can undo what happened since
+around it, with nothing to show for it: a block someone restructured around,
+a section that moved on. So `replayUnsyncedEdits` and
+`recoverYOfflineEdits` also take a **required** `autoReplay` (the compiler
+names `YAutoReplayRequiredPassReplayableNoneOrMaxBaseAge`; from JavaScript
+a call without it throws, with the choices in the message):
+
+- `'replayable'`: every replayable block is written by itself.
+- `'none'`: nothing is written over the document; every block the user added
+  or changed goes to `leftovers`, so the user sees all of it (with `wrap`,
+  inserted next to the current block). A block the user deleted stays, and
+  `notApplied` lists it (`'not-auto-replayed'`).
+- `{maxBaseAge}`: `'replayable'` for a copy at most `maxBaseAge`
+  milliseconds old, else `'none'`. The age is that of the copy the edits
+  were made on: `capture.baseAt`, when its base was last known to be on the
+  server (the session's `markSynced()`, stored with the base, so a copy
+  stored again later, or captured from storage, keeps its age). A capture that has no `baseAt` (one of an earlier
+  release, a store of your own) counts as older, and so does a report
+  built by `describeUnsyncedEdits`.
+
+```ts
+autoReplay: {maxBaseAge: 3 * 24 * 3600 * 1000}, // merge copies up to 3 days old
+```
+
+A panel's button for one block passes `autoReplay: 'replayable'`: the user
+asked for that block.
+
+### Blocks that cannot be replayed: `leftovers`
+
+`replayUnsyncedEdits` and `recoverYOfflineEdits` take a **required**
+`leftovers`, in TypeScript and in Flow. It has no default and no "report
+only" value: a call without it does not compile (the compiler names the
+type `YLeftoversRequiredPassWrapOrHandle`), and from JavaScript it throws
+before anything is read or written, with the fix in the message. An edit
+that could not be replayed used to exist only in the result of the call, for
+a panel the app had to build; an app that forgot the panel lost it. Now
+every such block goes to one of two places:
+
+```ts
+import {wrapLeftoversAsQuote} from '@lexical/y/offline';
+
+// 1. Into the document, in the update that replays the rest (one undo step).
+leftovers: {wrap: wrapLeftoversAsQuote('Offline edits that did not merge')}
+// 2. To your code. Nothing is written: you show them, and you delete the capture.
+leftovers: {handle: (blocks, {captureId}) => showInOfflineEditsPanel(captureId, blocks)}
+```
+
+**`{wrap, placement?}`** writes them into the document. `wrap(blocks,
+context)` returns the top-level blocks to write, as serialized nodes, so an
+app can put them in a node of its own (a collapsible "Offline edits that
+did not merge · name · time"):
+
+```ts
+leftovers: {
+  placement: 'after-block', // the default; or 'top'
+  wrap: (blocks, {capturedAt}) => [
+    {
+      type: 'my-collapsible',
+      version: 1,
+      title: `Offline edits that did not merge · ${userName} · ${new Date(capturedAt).toLocaleString()}`,
+      children: blocks.map(block => block.yours),
+    },
+  ],
+}
+```
+
+- **Where.** `'after-block'` (the default) writes each block after the block
+  of the same id, the one it conflicts with. When that block is gone, it
+  goes after the nearest block before it in the user's document that is
+  still there, and at the top when none is. Without `BlockIdExtension`
+  there is no block of the same id: every block goes at the top. A block that is nested now (a
+  list item, a paragraph in a table cell) counts as the top-level block it
+  is in. Blocks that go after the same block are given to one call of
+  `wrap`. `'top'` writes all of them at the top of the document, in one
+  call.
+- **New ids.** Every block written gets a new block id, made with the
+  editor's `generateId`: nothing written has an id of the document or of
+  the capture, so it never collides with the collaborator's block of the
+  same id. Ids in `wrap`'s output are ignored.
+- **Checked.** `wrap`'s output is checked before it is written: every node
+  type must be one the editor has, its JSON must parse, each top-level node
+  must be a block, and it must hold every block it was given, in the order
+  given, each as a node of its own that holds exactly what the block holds
+  (its text and formats, its inline nodes such as a line break, an equation
+  or a mention, its slots): its `yours`, or a node of yours around its
+  children (a paragraph may become a quote, as `wrapLeftoversAsQuote` does;
+  a block rebuilt from its text, or whose text is found only inside a label
+  or split across nodes, does not count); a block without text as it is.
+  Named slots count as children: a decorator whose slot holds the
+  blocks (a collapsible whose body is a slot) holds them. Output that fails is not written, and neither is nothing: the
+  blocks are written as the user had them instead (a block of a node type
+  the editor lacks, as a paragraph of its text), and the result's
+  `leftovers[i].fallback` says why, with the fix.
+- **`wrapLeftoversAsQuote(label)`** is a ready `wrap`: a paragraph with the
+  label in bold, then each block, a paragraph as a quote where the editor
+  has quotes. It uses only the paragraph and text nodes every editor has.
+  `label` may be a function of the context (`capturedAt`, `reason`,
+  `after`).
+- **Resolved.** In `recoverYOfflineEdits`, a capture whose blocks were
+  written is marked (`capture.resolved`, with the ids inserted): nothing of
+  it is left to show, a later call writes nothing again, and it is deleted
+  once the server holds the document.
+
+A block the user **deleted** that someone changed since has nothing to
+write: the current block stays, and `notApplied` lists it. A handler
+receives it too.
+
+**`{handle}`** is for an app that resolves these blocks itself. Nothing of
+them is written. The handler is called with every block the replay did not
+apply (in `recoverYOfflineEdits`, once per capture on every call, with the
+blocks the capture has left; at `'persist'` that is all of them), and the
+capture stays stored until your app deletes it (`store.deleteCapture(key,
+captureId)`). The handler is then the only place these edits go: show them.
+
+A capture with nothing left to show is deleted once the server holds the
+document: pass `session` (the fresh document's offline session), and a later
+call deletes it when that session reports no unsynced edits (after its
+`markSynced()`). Until then, or without `session`, it comes back with no
+blocks: what was written exists only in this page until it syncs, and the
+capture may be its only stored copy. A block the user only moved is in no
+entry, and a move is not replayed; the report's `orderDiffers` says so.
+With `{handle}` such a capture is kept until your app deletes it. With
+`{wrap}` there is no panel to dismiss it from, and a capture kept for ever
+counts against the store's `limits` (which refuse later writes), so it is
+marked resolved: the call that does so still returns it with
+`orderDiffers`, and it is deleted once the server holds the document.
+
+At stage `'persist'` nothing is written into the document, whatever
+`leftovers` is: the captures stay stored, and raising the stage to
+`'replay'` writes them.
+
+The Offline edits panel is now where an app tells the user what happened
+("3 blocks reapplied, 1 inserted under *Offline edits that did not merge*",
+from each entry's `replay`), or, with `{handle}`, its own list.
+
+### Layouts
+
+The store keeps bytes, so it holds a document of any layout. A report reads
+its states with this release, which refuses one below `MIN_LAYOUT`: pass
+`migrate` (`state => migrateYState(state, steps, {pending: 'discard'}).state` with your steps from
+`@lexical/y/migrate`) to `describeYOfflineCapture` or `recoverYOfflineEdits`
+and such a base or capture is read after migrating. Without it, a base below
+the floor is reported as gone (`baseAvailable: false`, nothing replayable)
+and a capture that has no editor JSON returns an error that names `migrate`.
+
+### Limits of the offline layer
+
+- **A replayed block replaces the current one.** Formatting, comments and
+  nested content come from the user's copy of the block; an edit a
+  collaborator makes to that block in the instant between the check and the
+  write is not merged into it (the check runs in the same task as the write,
+  so this needs their update to arrive inside the editor update).
+- **A node that serializes differently in a live editor than in a headless
+  read** (a decorator whose nested editor fills in an empty paragraph
+  locally) is never replayed: the check against the base fails
+  (`'changed-since'`): it goes to `leftovers`, as the user had it.
+- **A tab left open at an earlier epoch while another tab recovers** keeps
+  its stored rows (recovery captures only rows whose tab is gone), and
+  captures what it holds when it learns the epoch moved. Without Web Locks
+  nothing tells a live tab, so recovery captures every row it finds (it
+  removes none of another tab's), and each call captures them again; the
+  repeats show nothing once their blocks are in the document.
+- **A capture a tab claimed and never finished** (the tab closed in the
+  instant between claiming a capture and marking it resolved, or its blocks
+  went to a handler before the app moved to `wrap`), and **one resolved by a
+  write that never reached the server** (the tab that wrote it closed before
+  it synced), is taken again by a call with `wrap` a minute on: a resolved
+  capture is deleted only from a document that holds the write that
+  resolved it, and shows nothing for a minute while that write may still be
+  on its way. The retake is one store transaction (`claimCapture`'s
+  `retake`), so of two tabs one writes it. A claim records where its write
+  will be (`claimedWrite`: the ids its first leftover blocks get) before
+  making it, so a retake on a document that holds any of those blocks
+  resolves the capture instead of writing it again, and one that holds none
+  (the write failed) writes it. Without block ids nothing is recorded, and a
+  retake writes again. What the first claim wrote, if it
+  reaches the document only after a retake wrote it, is then in it twice:
+  seen twice rather than never. A store of your own whose `claimCapture` does not set `claimedAt`
+  has every unresolved claim count as old; one that ignores `retake` never
+  takes a claim again.
+- **The offline entry imports `@lexical/y/headless`**, so a page that uses
+  the session ships the headless editor too. A bundler drops it from a page
+  that imports the store alone.
 
 ## Limits
 
 Every client converges to the same document, but some concurrent edits do
 not merge as a user might expect:
 
+- **What the document does not store.** An empty text node Lexical keeps
+  (a token, segmented, unmergeable or code highlight node, a `TextNode`
+  subclass: Lexical removes only empty mergeable simple text) is not stored: once a
+  local update is written, the editor reads its container back (removing
+  the node) and reports `UNSUPPORTED_EDIT_WARNING` (`'unstorable'`); while
+  the caret or a composition is in it, as during native input, it waits for
+  a later update. A slot set while the binding is read only, on a node that
+  cannot hold stored slots, is not written, and the re-read of what that
+  update changed removes it.
+- **NodeState on the root** is not stored and does not reach other clients:
+  it stays on the editor that set it. An app that keeps document metadata
+  there shares it itself.
+- **A shadow-root quote's paragraphs.** `$createQuoteNode({shadowRoot:
+  true})` declares inline content, so it is stored as one line, its
+  paragraphs as nodes inside that line. Enter in one of them writes the
+  paragraph's tail to a new node, and Backspace at the start of one moves its
+  text into the paragraph before: a collaborator's concurrent typing in the
+  text moved lands in the paragraph before the caret (Enter) or is lost
+  (Backspace), and an edit addressed by block id across a concurrent Enter
+  keeps the old word beside the new one. In the root, a table cell or a
+  `QuoteContainerNode` the same edits insert or delete one marker, and
+  nothing is lost: use `QuoteContainerNode` for a quote that holds blocks.
+- **An emptied `QuoteContainerNode`.** Its transform gives an empty
+  container a paragraph, on local edits only: two collaborators who each
+  remove a different one of its last blocks at once leave it empty (a read
+  of a collaborator's change runs no transforms). It stays editable: a caret
+  placed in it and typing make the paragraph.
 - **Moves.** Moving a block is a delete and a re-insert, so text a
   collaborator types into the moved block at the same time is lost or lands
   at its old position, a collaborator's caret in it stays at that position,
@@ -1062,6 +1954,9 @@ not merge as a user might expect:
   stays outside, and a collaborator's concurrent delete of a character there
   does not apply to the moved text. Store comments as NodeState instead,
   with [`MarkStateExtension`](./comments.md).
+  A `MarkNode` whose text has not arrived yet (or that collaborators emptied)
+  shows nothing; deleting the character right after it deletes the element
+  too, so its text, once it arrives, does not show (DECISIONS.md D117).
 - **Input method composition.** While the editor composes with an input
   method (IME) in a line, what collaborators add to that line (text,
   formats and comments, a split, pasted lines, a change of its type) waits
@@ -1070,7 +1965,57 @@ not merge as a user might expect:
   Enter or a paste made while composing. What removes something from the
   line (a deletion, a join, a `MarkNode` comment, which moves the text into
   it) shows at once: the text node being composed keeps its key, unless its
-  class changes (a code block made a heading).
+  class changes (a code block made a heading). A collaborator who replaces the
+  line with a new block (holding the same text, or its own nodes with their
+  text changed) and adds another block after it in one update gives
+  the new block a new line marker (DECISIONS.md D118): the node being composed
+  is no longer in the document, and the composition ends without it.
+  While a composition is held and a collaborator has changed the type of the
+  block it's in, the highlighter's re-tokenization of that line isn't written.
+  A NodeState value set in the update that ends the composition is written when
+  the tokenizer carries it onto the new tokens; clearing a value or a format on
+  those tokens isn't written in that update. A style set on those tokens in
+  that update isn't written either; a code highlighter colors its tokens
+  through style in the same update, so the two can't be told apart. A
+  set-valued or object NodeState change on those tokens isn't written in that
+  update either, and the stored value stays. So does a value whose name the
+  stored class reads as a set-valued state or one of its members. Where a code
+  highlighter other than @lexical/code-prism's and @lexical/code-shiki's merges
+  characters of several nodes into one token, extending a value within that
+  token, onto characters next to others of it that had the value already, isn't
+  written in that update either. When a held composition
+  ends, the line is read as stored and its transforms run again on it as the
+  composer's own edit; what they change in that line, in place, is saved: a
+  hashtag made again in a line a collaborator made a heading, a block a
+  collaborator made a code block tokenized by the composing editor's
+  highlighter (formats follow the highlighter, NodeState stays), an app
+  transform that bolds text in a heading. This joins the undo
+  step of the composer's update, whatever `captureTimeout` is, unless an edit
+  of the composer's own came in between. Where they would restructure the
+  document (an app transform that converts, splits or moves the line), change
+  or move the line's text (an app transform that upper-cases it, which a
+  collaborator's concurrent edit of those characters would not survive),
+  change another block, remove a decorator or a link, or leave a text format
+  no reader shows, nothing is saved and what is stored stays (a move of a
+  word made as a copy before the original is removed is saved, and a
+  collaborator's concurrent edit of that word stays where the word was). An entity the composing
+  editor had in its held view of a line a collaborator turned into a code
+  block (a hashtag) does not stay; the formats and NodeState set in that
+  update stay on plain text and follow the highlighter on its tokens. When the
+  update that ends the
+  composition also changes the line's text (as Firefox's input and WebKit's
+  `insertFromComposition` do, inserting the composed text in it), the
+  re-tokenization is written, as on `main`. The binding reports the skip with
+  `UNSUPPORTED_EDIT_WARNING` (`reason: 'other'`, `detailCode:
+  'held-line-retokenize'`), once per composition.
+- **A line replaced next to a new line.** A line a collaborator replaces with
+  a new block (holding the same text, or its own nodes with its text changed),
+  or splits by setting its text and adding the rest as a new line, while adding
+  another line after it in the same update, gets a new line marker
+  (DECISIONS.md D118): a concurrent change of that line's alignment or block
+  type by another collaborator, or a Delete at its end (a join with the next
+  line), is dropped (before, it was applied to the added line). No text is
+  lost.
 - **Set-valued NodeState** (`arraySetValue`, which `MarkStateExtension` uses)
   merges per member on text, line breaks and nodes stored as their own Yjs
   node (such as decorators), so two collaborators commenting on the same
@@ -1096,6 +2041,73 @@ not merge as a user might expect:
   undoing it leaves nothing. For comments, keep resolved ids in the text and
   mark the threads resolved in your own store instead (see
   [Resolving comments](./comments.md#resolving-comments)).
+- **Deleted formatted text.** A delete keeps every format item it leaves,
+  as a collaborator's concurrent edit there and an undo of the delete rely
+  on them: each formatted run (a format, a comment, a NodeState value)
+  whose text is deleted leaves its two items (its opener and its closer).
+  Plain typing and deleting add none, and neither does typing
+  inside a formatted run. So a document grows with the formatted text
+  deleted from it, not only with its content: most in a place where
+  formatted text is typed and deleted over and over, where edits also get
+  slower (a comment added and its word deleted 3,000 times at one place:
+  41 ms per edit, against 27 ms when a delete still removed those items).
+- **Deleted format items a client can undo.** While a client can undo a
+  format change, it keeps that change's format items, even after a
+  collaborator deletes them, so its undo still reads them; it lets them go
+  when its undo history is cleared or the binding stops. Until the
+  document reloads, that client's document, and any state it encodes,
+  holds those deleted items: about 25 bytes each (100 rounds of one client
+  bolding a word and another clearing it: 2,603 bytes for the first
+  client's state against 229 for the second). A server or relay that loads
+  such a state with garbage collection on drops them. The containers of
+  such items (a table cell, its row and table) that the client still needs
+  after its undo history is cleared stay kept until the binding stops: a
+  table a collaborator deletes meanwhile stays in that client's state until
+  it reloads (about 100 to 180 bytes for a small table); one deleted after
+  the binding stops is collected, when the undo history was cleared before
+  it stopped (see the next item), unless an undo or redo restored content
+  in it and that kept it (see the item after). When the binding stops it lets them go,
+  also where another undo manager on the document still relies on them,
+  which then finds them unkept, as after a clear of a Yjs `UndoManager`.
+- **An undo manager destroyed without a clear.** When the binding stops
+  (`binding.dispose()`, or the cleanup its start returns: an editor
+  unmounted or mounted again), it destroys its Yjs `UndoManager` without
+  clearing it, as Yjs does when a document is destroyed, and Yjs keeps what
+  that manager's steps protected: a character deleted in a table cell can
+  keep the cell, its row and its table (it does when nothing kept the cell
+  before the delete; a cell the binding already kept for a format of its
+  own is let go when it stops). A table a collaborator deletes afterwards
+  then stays in that client's document, and in any state it encodes, until
+  it reloads: 108 to 175 bytes per table, measured with one character
+  deleted and one word bolded in one cell of a 1x1 to a 4x4 table, and more
+  where more was deleted or more cells were edited. Binding the same
+  document again does not free it. Call `binding.undoManager?.clear()`
+  while the binding is started, before stopping, to prevent it where no
+  other undo manager on the document still needs what it kept (a clear
+  releases that too), except where an undo or redo restored content in the
+  cell and that kept it (see the next item); a table already deleted while the history held such
+  a step stays after the clear too; a reload, or a server or relay that
+  loads the state with garbage collection on, compacts it. Any editor that
+  destroys a Yjs `UndoManager` without clearing it first behaves the same;
+  the binding does not clear at stop because a clear also releases what
+  another undo manager on the document still keeps for its own undo.
+- **An undo or redo inside a container.** An undo or redo that restores
+  content in a table cell can keep the cell, its row and its table after its
+  undo history is cleared and the binding stops: Yjs keeps what an undo step
+  deleted, parents included, and a clear releases only the steps still on
+  the stacks, not the one the undo or redo took off them. It does unless
+  something releases the table afterwards: a clear releases every step
+  still on a stack that deleted in the table, before or after the undo, row
+  and table included, and the binding lets go a cell it kept for a format of
+  its own before that step. A table
+  a collaborator deletes afterwards then stays in that client's document,
+  and in any state it encodes, until it reloads: 139 to 151 bytes for a
+  one-cell table with nine characters, more with more content. A reload,
+  or a server or relay that loads the state with garbage collection on,
+  compacts it. Any editor that uses a Yjs `UndoManager` behaves the same
+  ([#9721](https://github.com/meta/lexical/issues/9721); reported to Yjs as
+  [yjs/yjs#833](https://github.com/yjs/yjs/issues/833), fix proposed in
+  [yjs/yjs#834](https://github.com/yjs/yjs/pull/834)).
 - **Named slots.** A slot holds one node: two collaborators setting the same
   slot at once keep one writer's node, and text typed in a slot that a
   collaborator replaces or removes at the same time is lost (as with delete
@@ -1129,6 +2141,17 @@ not merge as a user might expect:
     commands, its paste and `NodeStructureExtension`, which every
     `@lexical/y` editor runs, give a nested list an item of its own; only
     writers without that normalization store this shape.
+  - A remote change read while the editor's DOM holds a text edit in one of
+    its text nodes (a spellcheck or autocorrect replacement, an input
+    method), made in the same task, is transformed in that editor: Lexical
+    applies that DOM edit as the read commits, and runs node transforms over
+    what the read changed too. A table a collaborator left ragged is then
+    padded in that editor only, and words typed into the padding cells reach
+    no one. Text Firefox pasted natively as new nodes in that task is applied
+    without node transforms (no hashtag or autolink for it), and nothing
+    transforms it later; a paste that also edits an existing text node's text
+    is transformed, with the read, as above. Without such an edit, the read's
+    commit runs no transforms.
 - **Content written without Lexical's normalization** (an update with
   `skipTransforms`, or `setEditorState` with a state the editor did not
   build) is normalized by its author right after, as part of the same edit
@@ -1141,7 +2164,9 @@ not merge as a user might expect:
   they can store shapes the binding handles less well; prefer updates that
   run transforms. A Lexical
   command used on such a shape before the normalization arrives can fail
-  (Shift+Enter in a list item that holds only a block decorator throws).
+  (Shift+Enter in a list item that holds only a block decorator throws). An edit an app's code makes in the update of a remote change's read
+  (see Skip remote changes in listeners that edit) is written as made, and
+  not normalized after: the read's update runs no node transforms.
 - **A line without a marker.** Text typed into the last block of a
   container while a collaborator removes that block is kept, as a line
   without its marker (shown as a paragraph). Other edits in that container
@@ -1150,6 +2175,15 @@ not merge as a user might expect:
 - **List type change ‖ new item.** Changing a list's type while a
   collaborator adds an item to it (Enter in the list) splits the list: the
   new item keeps the old type, in a list of its own between the two halves.
+- **List numbering after refused follow-ups.** After four follow-ups in a
+  row that the binding does not write and reads again (such as
+  `BlockIdExtension`'s naming updates), the author's editor can show a list
+  number from before them (1 where its document reads 2) until that list
+  is refreshed: adding an item to it does, an edit elsewhere or retyping an
+  item's text does not. The binding stops
+  refreshing derived numbers on the fourth such re-read in a row, so that an
+  app listener that answers every refresh cannot loop forever. Other
+  clients, the stored document and a reload show the right number.
 - **Blocks that arrive without an id.** With `BlockIdExtension`, a block
   stored without an id (written by a client without the extension), or with
   an id an earlier block also stores or shows (a copy of the JSON of a block
@@ -1171,9 +2205,14 @@ not merge as a user might expect:
   only without the extension, while other blocks there keep it everywhere;
   see [Block IDs](/docs/collaboration/block-ids)).
 - **Lone surrogates.** Text holding a lone surrogate (malformed UTF-16,
-  which code can produce by splitting a surrogate pair) reaches every other
-  client as U+FFFD, as Yjs encodes text as UTF-8; its author keeps it until
-  it reloads. Yjs 13 does the same.
+  which code can produce by splitting a surrogate pair, or by setting a
+  selection that starts or ends between the two halves of one) is stored
+  with U+FFFD in place of each half that has no pair in its text node, as
+  Yjs encodes text as UTF-8. The author's editor reads the line again after
+  such a write, so it shows U+FFFD there too, like every other client, and
+  undoing the write brings the character back. Yjs 13 (`@lexical/yjs`) also
+  delivers U+FFFD to other clients, but there the author keeps the lone half
+  until it reloads.
 - **Initial content with random values.** Clients that initialize a new
   document at once write it once only when their content is identical. An
   extension that gives new blocks random ids makes it differ, so the content
@@ -1202,35 +2241,33 @@ not merge as a user might expect:
   block they put in its place, shows after the old text (twice, where they
   put the same text back). `replace(node, true)`, which `$setBlocksType`
   uses, keeps the block's children, and undoing it keeps their text once.
-  Undoing a format change does not undo a collaborator's later change of
-  part of its range, nor the value that change restored after itself: color
-  `abc`, let a collaborator recolor `b`, then undo the color, and `c` keeps
-  the old color, up to the end of the range. The same holds for text a
-  collaborator types or pastes inside the range without that format,
-  whether you saw it before you undo or it arrives as you undo: bold
-  `one two`, let a collaborator type plain ` mid` after `one`, then undo
-  the bold, and ` two` stays bold. Undoing a link
+  Undoing a format change removes exactly its own run. It does not undo a
+  collaborator's later change of part of its range: color `abc`, let a
+  collaborator recolor `b`, then undo the color, and `b` stays blue while
+  `a` and `c` lose the color. Text a collaborator types or pastes inside
+  the range without that format stays without it, whether you saw it
+  before you undo or it arrives as you undo: bold `one two`, let a
+  collaborator type plain ` mid` after `one`, then undo the bold, and
+  nothing stays bold. Text a collaborator typed inside the run with its
+  format loses the format with your undo. Undoing a link
   while a collaborator formats text inside it removes the link on every
   client: a format writes no link while the link holds text. A link with no
   text (only an inline decorator or a line break) still stores its text
   format, and stays on its content:
   [#9627](https://github.com/meta/lexical/issues/9627). Where a collaborator overwrote a step of yours
   entirely, the undo manager skips that step as changing nothing, and the
-  same undo also reverts your step before it. When you undo a format change
+  same undo also reverts your step before it. An undo press can show
+  nothing: when its step only restores or removes format items no reader
+  shows (a format on text a collaborator then deleted), the press takes that
+  step alone, and several such steps in a row take several presses before
+  one shows a change, as with Yjs's `UndoManager` in any editor that uses it
+  as it is. When you undo a format change
   while a collaborator removes that format and undoes the removal, the text
-  keeps the format: the collaborator's undo brings it back. A comment or
-  format can run on past its end when writes two collaborators made inside
-  it are undone while another client deletes text across its end: it
-  carries on over the following words, possibly into the next line. No
-  text is lost. A format a collaborator applies
-  starting right where a run of that format ends, or from inside the run
-  past its end, can be lost on their text after the run when a client
-  other than the one that formatted the run, at the same time, removes the
-  format from part of the run or types inside it without the format: with
-  `Kilo` bolded by one client, another unbolds `il` or types plain text
-  inside `Kilo` as the first or a third bolds ` bb` (or `lo bb`), and with
-  some client id orders ` bb` stays plain. No text is lost, and when that
-  client undoes its edit, ` bb` is bold again.
+  keeps the format: the collaborator's undo brings it back. A local change the binding
+  could not write and recovered from (reported as
+  `@lexical/y/recovered-write`) can land as two undo steps: what the failed
+  write stored, and its rewrite, when the rewrite takes longer than the
+  undo manager's `captureTimeout` (a very long line).
 - **Large lists.** A structural edit in a list costs time proportional to
   the list on every client.
 - **Older app versions.** Clients of different `schemaVersion`s never
@@ -1280,10 +2317,64 @@ not merge as a user might expect:
   copy of Yjs and applies updates to your document after the binding
   started. The exact version is the peer dependency's to enforce: install
   the `@y/y` version `@lexical/y` names, once (`npm ls @y/y`).
+- **Text classes whose formats depend on their text.** A reader shows
+  adjacent text that differs only in format bits the node ignores (a bit
+  stored over part of a code highlight) as one node, assuming a text node's
+  shown format and exported fields depend only on its class, fields and
+  NodeState, as `TextNode.splitText` does. A class that keeps a format only
+  for some text (its length or content), only while attached, or only once
+  its editor is editable can then show that format over the whole node, or
+  read differently after its author types into it. No class in Lexical or
+  its playground does.
 - **NodeState key order.** Other clients (and any later reader) get a node's
   NodeState with its keys in sorted order, which every client builds the
   same way, not in the order the author's editor exported them (a Yjs map
   does not keep one). Compare node JSON without relying on key order.
+- **Replaying offline edits.** `@lexical/y/offline` replays a block whole,
+  only where the document still equals the block's base, and never merges
+  inside a block (D126): see
+  [Limits of the offline layer](#limits-of-the-offline-layer).
+- **Migrating a nested root.** The migration runner migrates top-level
+  roots only: a root inside another shared type stays read only below
+  `MIN_LAYOUT`. Export its content and reseed it into a top-level root with
+  a release that reads its layout, or keep a release that reads the stored
+  layout.
+- **Format runs.** Each change only formats what it covers, and concurrent
+  formats of one key nest; from layout 4 on, so do NodeState values on
+  text (two collaborators' overlapping values of one state: on the overlap
+  the run opened later in the text shows, and nothing spreads past either
+  range). A few outcomes are accepted:
+  - Text a collaborator types inside a range that another writer formats
+    at the same time takes the new format, as in Peritext and Automerge;
+    text typed exactly where a run starts or ends is ordered by client id,
+    as at a range's edge before layout 3.
+  - An edit that sets a value another author already set (a link over an
+    equal link) writes nothing of its own, so it follows that author's undo.
+  - Raw Yjs writes under the root are unsupported (see
+    [Wire format](#wire-format) and `RAW_YJS_WRITE_WARNING`): write through
+    an editor or `editYState`. Code that writes formats straight into Yjs
+    anyway writes plain items, not paired runs, and among paired runs they
+    can change the formatting of other text (about 3.0% of randomized
+    sessions with one such writer); text is never affected. Stored format
+    names starting with U+0002 are not read, and an array such code stores
+    as a format's value, other than layout 3's own `[]`, `[d]` and
+    `[client, clock]`, is never shown as a value: those shapes are reserved
+    for ends a later layout may add. In a layout 1 or 2 room, such an array
+    can show as a cleared format while the room is below the floor (read
+    only); the migration stores it as a value, and it reads as one after.
+  - An object such code stores as a format's value reads as that value, as
+    before layout 3, also one keyed by array indices or a typed array (a
+    binary update keeps a typed array's bytes, not its other properties).
+  - Text typed at the very end of a code highlight token while another
+    client re-segments the token can read, in one client id order, as two
+    highlight tokens of the same type on every peer. It renders the same;
+    code that inspects the document sees two nodes, and an installed code
+    highlighter merges them on its next pass.
+  - Text typed right next to a format that an undo removed, when a redo (or
+    the undo of that removal) brings the format back, takes the reverse of
+    the edge most editors give: typed right after the format, it stays
+    outside; typed right before, it joins the format. No text is lost and
+    every peer agrees.
 - **Other races.** A split racing a change of the line's type gives the
   first half the splitter's type. A join (Backspace at the start of a line,
   or undoing a split) while a collaborator inserts or moves a block to the
@@ -1292,34 +2383,32 @@ not merge as a user might expect:
   into a code block that way becomes code), and the line after stays apart:
   after a Backspace it takes the type of the line before (a paragraph after
   a heading becomes a heading), after undoing a split it keeps its own.
-  Bold ‖ bold on adjacent ranges of one line
-  can leave part unformatted, and so can bold ‖ bold on overlapping ranges
-  ([#9626](https://github.com/meta/lexical/issues/9626)). A link behaves
-  like a comment there: a range that crosses a link's edge can lose part
-  of its bold for either client id order, and a bold reaching into a
-  link's first word can lose it there when a collaborator one update
-  behind types inside the old bold range. A format removed from a range while a
-  collaborator types inside it without that format (unbolding a word as
-  they type into it, resolving a comment as they paste into it) comes back
-  on the part of the range after their text: their write restores the
-  format they saw there, which the removal could not see. It stops at the
-  end of the range. Text typed inside or at the edge of text a
+  Two collaborators applying the same format (bold, the same comment id, a
+  link) to adjacent or overlapping ranges at once both keep it: each run
+  ends at its own end, so the runs nest, also across a link's edge. A
+  format removed from a range while a collaborator types inside it without
+  that format (unbolding a word as they type into it, resolving a comment
+  as they paste into it) stays removed. Text typed inside or at the edge of text a
   collaborator deletes at the same time keeps the formats it was typed
   with. Text typed inside a range a collaborator formats at the same time
   takes that format (also when the range comes from an older read, as an
   agent's does), and text typed at the start or the end of the range can
   take it, by the order Yjs gives the two inserts (at the start the same on
-  Yjs 13, and it keeps the format when that range is then deleted). A
+  Yjs 13, and it keeps the format when that range is then deleted). In the
+  same way, a comment on a word a collaborator rewrites at the same moment
+  can land on the new word: with `setTextContent` for one client id order,
+  and with a rewrite of the whole line (its text nodes replaced by a new
+  one, as an agent writes it) for one order when the comment ends at that
+  word and for both when it continues past it; the words of the range the
+  rewrite kept keep the comment
+  ([#9610](https://github.com/meta/lexical/issues/9610)). A
   node whose `isInline()` changes is written again in its new form, so
   text typed inside it at the same time lands next to it, in an inline
   element of its old form. Where text was deleted, the format items it
   leaves are kept, so that a collaborator's concurrent edit inside or at
-  the deleted text keeps its formats, until a later delete at the same
-  place keeps a few per format key of them; text a collaborator types
-  inside the earlier deleted text after that, where its format changed
-  more than once along it, takes the format that text had at its start,
-  and so does that text where an undo brings it back after another
-  collaborator's delete there. Two joins at once into the same line both
+  the deleted text keeps its formats, and an undo of the delete brings the
+  text back with them (see Deleted formatted text in [Limits](#limits)).
+  Two joins at once into the same line both
   write its type, and Yjs keeps one of them by client id: a heading joined
   across a quote to the paragraph after it, while a collaborator joins that
   paragraph into the quote, can become a quote.
@@ -1346,13 +2435,22 @@ reproduces it:
   leave the format on text typed next to the range (see Undo above):
   [#9560](https://github.com/meta/lexical/issues/9560).
 - A comment can spread onto later words when a client types uncommented
-  text inside it offline while a collaborator's deletes there drop the item
-  that ended it: [#9564](https://github.com/meta/lexical/issues/9564).
+  text inside it offline while a collaborator's write removes the item that
+  ended it (a delete no longer does: it keeps every format item it leaves):
+  [#9564](https://github.com/meta/lexical/issues/9564).
 - Turning a paragraph inside a container that is itself inside a
   container (both not shadow roots) into a list removes the outer
   container and makes no list, in every `@lexical/y` editor (it runs
   `NodeStructureExtension`):
   [#9570](https://github.com/meta/lexical/issues/9570).
+- Undoing plain text typed into a format run gives the run's format (or
+  comment, or style) to plain text a collaborator typed right next to it:
+  [#9681](https://github.com/meta/lexical/issues/9681).
+- An app's mutation listener that edits the document with its own
+  `{discrete: true}` update, in an editor with a DOM root, has that edit
+  stored over by the commit that triggered the listener (the editor and the
+  document then differ); without `discrete` it is stored:
+  [#9799](https://github.com/meta/lexical/issues/9799).
 
 For `MarkStateExtension` comments, see the
 [comments limitations](./comments.md#limitations).
@@ -1362,19 +2460,56 @@ For `MarkStateExtension` comments, see the
 The [wire format](https://github.com/meta/lexical/tree/main/packages/lexical-y#wire-format-layout-1)
 in the package README is the contract for what a room stores: the markers,
 attributes and records, and their names. Every room records the layout
-versions it needs (`lexical-y:<n>: true`, a record that only grows;
-`LAYOUT_VERSION` is currently 2), and a client reads the highest. A new
-room records layout 1; the first member of a set-valued NodeState stored
-per member (see the limits above) records layout 2, so rooms that never
-hold one stay readable and editable by layout 1 clients.
+versions it needs (`lexical-y:<n>: true`, a record that only grows), and a
+client reads the highest. A client reads and writes the layouts from
+`MIN_LAYOUT` to `LAYOUT_VERSION` (currently 4 to 4: paired runs for every
+name the binding writes on text). A new room records `SEED_LAYOUT`
+(currently 4) and no older layout. A room that records only an
+older layout opens read only (`'older'`) until it is migrated (see
+[Migrating stored documents](#migrating-stored-documents)).
+
+**Moving to layout 4.** This release reads and writes layout 4 only. A room
+stored at layout 1, 2 or 3 opens read only in it, showing its content, until
+it is migrated with `@lexical/y/migrate/3to4` (after
+`@lexical/y/migrate/2to3` for layout 2, and `@lexical/y/migrate/1to2`
+before that for layout 1): the server that stores a room migrates it on load (see the
+[server guide](./y-server.md#migrating-stored-documents)). The step keeps every character, node and line marker with its Yjs
+id, and the document reads the same before and after. The default step
+lists include it; a server that passes its own list to `migrateYState` or
+`prepareYRoom` adds `@lexical/y/migrate/3to4` after
+`@lexical/y/migrate/2to3`, or the run refuses (no chain of steps to layout
+4). What clients see:
+
+- **Older clients** (`@lexical/y` releases before layout 4) open a layout 4
+  room read only (`UNSUPPORTED_LAYOUT_WARNING`, reason `'newer'`). A
+  server with the generation fence (see the server guide) never serves them
+  the migrated room; a relay without it can, and they then show it read
+  only, possibly with wrong formatting, text intact.
+- **Undo across the migration.** The binding clears its undo history at the
+  migration. Clear an app `UndoManager` there too, with
+  `onYMigrationEpoch(doc, fn, root?)`: one that is not cleared can restore
+  formatting the migration replaced.
+- **Rooms written by code.** Raw Yjs writes under the root are unsupported
+  (development builds report them with `RAW_YJS_WRITE_WARNING`): code that
+  writes formats straight into Yjs (`Y.Node#format`) writes plain items,
+  which a room reads beside its paired runs. Write through an
+  editor or `editYState` instead (see "Format runs" in the limits).
 
 - **Changes that keep the layout:** additions older clients can ignore, such
   as a new optional attribute. Rooms keep working in old and new clients.
 - **Changes that bump `LAYOUT_VERSION`:** anything older clients would
-  misread. A newer `@lexical/y` reads every older layout and adds the new
-  version to a room's record only when it first writes something that needs
-  it, in the same transaction; from then on, older clients open that room
-  read only. Upgrade every client of a room together.
+  misread. A newer `@lexical/y` reads every layout from `MIN_LAYOUT` up.
+  Layout 2 came in lazily (the historical 1 → 2 rule): a client adds it to
+  a room's record only when it first writes something that needs it, in
+  the same transaction, and older clients then open that room read only.
+  Layouts from 3 on are not stamped that way: a room moves to one above
+  `MIN_LAYOUT` only through an explicitly selected target, and the default
+  seed and target do not move to it (see [Layout upgrades](#layout-upgrades)).
+- **Changes that raise `MIN_LAYOUT`:** a release that stops reading older
+  layouts, as layout 3's and layout 4's did (their rooms are migrated,
+  below). While
+  `@lexical/y` is experimental, a later release may do it again: see
+  [Layout upgrades](#layout-upgrades).
 - **Changing your own node types:** bump `schemaVersion` (see
   [Versioning your schema](#versioning-your-schema)), so that clients still
   on the older version open the rooms a newer one edited read only instead
@@ -1395,10 +2530,185 @@ hold one stay readable and editable by layout 1 clients.
   already hold that type (they keep the recorded kind); reseed them to adopt
   it.
 
+### Layout upgrades
+
+A document below `MIN_LAYOUT` (stored by an older release) opens read only
+until it is migrated. Every app declares what happens to such documents
+with the required `layoutUpgrade` option of `createYCollabConfig`:
+
+- `createYServerLayoutUpgrade()`: the document's server migrates it on load
+  ([Migrating stored documents](./y-server.md#migrating-stored-documents)).
+  The handle's `handshake({generation, material})` returns the complete
+  handshake the client sends before syncing (`checkYSession`), so the app
+  never builds it by hand.
+- `null`: such documents stay read only (an app without a migrating
+  server).
+
+The editor behaves the same either way: a document below the floor is read
+only, and `UNSUPPORTED_LAYOUT_WARNING` `'older'` says which was declared
+(`upgrade: 'server'`, so the server should have migrated it, or
+`'read-only'`). A config written without the option (plain JavaScript, or
+`configExtension(YCollabExtension, ...)` directly) falls back to read only
+below the floor and also reports `UNSUPPORTED_CONFIG_WARNING`
+`'missing-layout-upgrade'`.
+
+**Old layouts while `@lexical/y` is experimental.** A new layout is a new
+`LAYOUT_VERSION`, and releases usually keep reading the older ones. While
+the package is experimental, though, a release may stop reading an older
+layout (it raises `MIN_LAYOUT`), as layout 3's release did for layouts 1
+and 2 and layout 4's did for layout 3. Rooms stored in that layout then open read only until their server
+migrates them with the published steps (`@lexical/y/migrate`, see
+[Migrating stored documents](#migrating-stored-documents)). Such a release
+raises `SEED_LAYOUT` with it, so servers also issue new incarnations for
+rooms never seeded (the seed contract, see the
+[server guide](./y-server.md#generations-and-the-handshake)). If your app
+stores rooms, plan for a server-side migration when you take such an
+upgrade; its release notes and changelog say when one is needed. An app
+with `layoutUpgrade: null` keeps such rooms read only unless it migrates
+them itself (see "Who migrates" below).
+
+What does not change:
+
+- A layout above `MIN_LAYOUT` is reached only through an explicitly
+  selected target (`to`): adding a layout moves no room, and neither the
+  default seed (`SEED_LAYOUT`) nor the runner's default target
+  (`MIN_LAYOUT`) moves to it.
+- An app may raise its own floor. Its server migrates its rooms to layout
+  N + 1 and stops admitting clients that cannot read N + 1 (the handshake's
+  `layouts` says what a client reads).
+- Every published step and revision stays available, `1to2`, `2to3` and
+  `3to4` included (`@lexical/y/migrate/<n>to<n+1>`).
+- A step's default revision never changes what it writes (see Migration
+  identity below).
+
+### Migrating stored documents
+
+These APIs are EXPERIMENTAL. A room whose layout is below `MIN_LAYOUT`
+binds read only: the editor shows it and nothing is written until it is
+migrated. The binding reports it once per such read-only period with
+`UNSUPPORTED_LAYOUT_WARNING` and `{reason: 'older', found, min, supported, upgrade}`
+to the editor's `onWarn`, as it reports the other read-only causes (a
+newer, malformed or removed layout record). An app whose server migrates
+documents handles that reason in `onWarn` (ask the server to migrate, or
+show a banner): the editor's default `onWarn` throws in development. `readYState` and `editYState` refuse
+such a state (`'read-only'`): a server migrates a scratch copy first, then
+reads it.
+
+A migration moves a room from one layout to the next in place: text, nodes
+and line markers keep their Yjs ids, so cursors, relative positions and
+derived block ids survive. Each step is its own frozen module that the core
+never imports, `@lexical/y/migrate/<n>to<n+1>` (a default export), and the
+runner is `@lexical/y/migrate`:
+
+- `migrateYState(state, steps, options)`: migrates a stored state (for a
+  server). Pending updates and skipped ranges are never in the migrated
+  state, so `options.pending` is required: `'return'` (to store them) or
+  `'discard'` (a copy nothing stores; the receipt's `pendingBytes` says how
+  much was dropped). The result is a union on `split`: unsplit,
+  `{state, update, receipt}`, the input bytes with `update: null` when no
+  root is below the target (`to`, default `MIN_LAYOUT`); split (only with
+  `'return'`), `{integrated, pending, update, receipt}`, so the migrated
+  bytes are reached only after narrowing, beside the material to store
+  (a `pending` quarantine record).
+- `loadYMigrationSteps(from, to = MIN_LAYOUT, {loaders?})`: loads only the
+  steps a document needs, by default the published ones (each its own
+  chunk), or from your own `loaders` (one `() => import(...)` per layout).
+- `getYLayoutInfo(doc, root?)`: what a root records, as a status:
+  `'ready'` (`layout`, `epoch`), `'missing'` (no record; `empty`),
+  `'invalid'` (a malformed record, epoch or requirement: `key`, `found`) or
+  `'unsupported'` (`'older'`, `'newer'` or `'requires'`, with `layout`,
+  `min`, `supported`, `features`).
+
+A step names the execution contract it is written against (`v: 1`); a
+runner refuses a step of a contract it does not run before calling any of
+it (`'invalid-steps'`).
+
+**Migration identity.** A step's `(id, revision, v)` names fixed output
+bytes for fixed input bytes: two servers, or two releases, that migrate the
+same stored state with it write the same update. The default export of each
+step stays revision 1 forever. A correction that would change what a step
+writes ships as a new, separately named revision, which an app selects
+explicitly; documents already migrated are never revised. Each revision's
+golden fixtures are pinned to it. The runner's default target (`to`) is
+`MIN_LAYOUT`, so it moves only when a release raises the floor (see
+[Layout upgrades](#layout-upgrades)).
+
+Each step runs on a copy of the document, in one transaction under a client
+id hashed from its inputs (two servers that migrate the same bytes write the
+same update), and the runner checks the result before it returns or applies
+anything: every character, node and line marker kept, every attribute and
+untouched format kept, the document reading the same before and after, and
+the encoded result read again. A failed check throws a `YMigrationError`
+(`code: 'post-condition'`) and nothing is returned; when a step threw (in its
+read, check or write), the error's `cause` is the error it threw. The
+transaction records the new layout and an epoch (`lexical-y-epoch`, see the
+wire format).
+
+**Who migrates.** A shared room is migrated by the server that stores it,
+when it loads the room, with every session out: see
+[Migrating stored documents](./y-server.md#migrating-stored-documents) in
+the server guide (`@lexical/y/server`), which also covers clients that held
+edits from before the migration. Never migrate a shared room in a browser.
+A binding-managed client-side migration path is deferred (a later release
+may add one). Manual single-writer migration remains usable: an app whose
+documents only one client writes (local storage, no server) migrates their
+stored bytes with `migrateYState` before it loads and binds them.
+
+**Undo, and what a client of a migrated room does.** A migration is never
+synced into a replica of the old generation. A fenced client (its
+generation is not the room's) hands off its material (see
+`binding.quiesce()` below) and bootstraps a new document from the server;
+see the server guide. When the epoch of a bound document legitimately
+changes (for example a single writer that migrated its own state and
+loaded it again), the binding clears its undo history once that
+transaction has been captured, and an app `UndoManager` should be cleared
+at the same point with `onYMigrationEpoch(doc, fn, root?)`: its stack names
+items the migration replaced. The hook does not make it valid to apply a
+migration's update to an old-generation replica.
+
+**Handing a replica off.** `binding.quiesce()` ends a composition, commits
+what the editor holds into the document, and turns the binding read only
+for good (programmatic edits included); it returns a `YQuiescedState`: the
+document's state and a draft (the editor's state as JSON, with `differs`
+when it shows what the document does not hold). A client whose server
+migrated the room uploads that material before it replaces its document
+(see the server guide).
+
+- Stop the app's providers and persistence first: what they deliver after
+  the handoff is not in the returned state.
+- Call it outside an editor update; inside one it throws and changes
+  nothing.
+- On a binding that is already read only it writes nothing: what the
+  editor held uncommitted is the draft, with `differs`.
+- Calling it again, before or after `dispose()`, writes nothing and returns
+  a copy of the first call's result: the same state and the same draft,
+  `differs` included, so a retried handoff keeps text the first call could
+  not write. Called first after `dispose()`, it writes nothing and returns
+  the document's state and the editor's state as the draft.
+- The draft is the editor state's JSON, what a quarantine record stores: it
+  is parsed from `JSON.stringify`'s text, so every result holds only plain
+  JSON values. A `Date` NodeState value is its ISO string, a number JSON
+  cannot hold (`NaN`, `Infinity`) is `null`, a `Map` or `Set` is `{}`, and
+  an `undefined` array entry is `null`. Before draining, `quiesce()` checks
+  that the state that will become the draft serializes as JSON (the pending
+  update's, or, with none pending, the shown one); a failure at that
+  preflight (a `BigInt` NodeState value, a cycle) throws a `TypeError`
+  without draining or quiescing. If app code produces a non-serializable
+  state during the drain (an update listener's own update), the final
+  serialization may throw after local work has been written and the
+  composition has ended, with nothing cached: fix the state and call
+  `quiesce()` again, and don't assume earlier edit callbacks didn't run.
+- Every result, the first included, is its own copy, and a warning handler
+  that calls `quiesce()` during the first call gets that call's result.
+
 ### Reseeding a room
 
-No converter ships today. To move a room's content into a new layout, or out
-of `@lexical/yjs`, write it into a new room with `seedYState`:
+To move a stored room to a newer layout, migrate it in place with the
+published steps (see
+[The migration moment](./y-server.md#the-migration-moment)): the room keeps
+its name, and clients holding its material go through the generation
+handshake. To move content out of `@lexical/yjs`, or into a new room for
+another reason, write it into a new room with `seedYState`:
 
 ```mermaid
 flowchart LR
@@ -1410,10 +2720,17 @@ flowchart LR
   json["Lexical JSON"] -->|"seedYState"| room["New @lexical/y room"]
 ```
 
-1. **Get the content as Lexical JSON.** If your database holds it, use that.
-   If you store only Yjs, read it with the binding that wrote it:
+1. **Seal the old room, then get its content as Lexical JSON.** First stop
+   the old room from admitting writes and apply what it already received
+   (the barrier in
+   [The migration moment](./y-server.md#the-migration-moment)), and persist
+   that: a write synced to the old room after you read it would otherwise
+   be lost. Then read the sealed state with the binding that wrote it:
    `readYState` for an `@lexical/y` room, or an editor with `@lexical/yjs`
-   for a `@lexical/yjs` room, then `editor.getEditorState().toJSON()`.
+   for a `@lexical/yjs` room, then
+   `editor.read('latest', () => editor.getEditorState().toJSON())`. Use
+   Lexical JSON from your database only if it holds everything the sealed
+   room holds.
 2. **Seed the new room** with the same extensions as the clients:
 
    ```ts
@@ -1435,10 +2752,19 @@ flowchart LR
    });
    ```
 
-3. **Switch clients to the new room.** Store `seed` under a new room name,
-   point upgraded clients at it, and retire the old room. A client that
-   still holds the old room (an open tab, an offline cache) must drop it:
-   merging the old room into the new one would mix the two.
+3. **Switch clients to the new room.** Store `seed` under a new room name
+   with a new incarnation, point upgraded clients at it, and keep the old
+   room's final state. Never merge the old room into the new one: that
+   would mix the two. A client that still holds the old room (an open tab,
+   an offline cache) can hold edits the old room never received, so don't
+   tell it to drop its copy: keep serving the old room's name with a
+   replaced incarnation, so that a session there holding material gets the
+   `stale` verdict and hands its material off to that room's quarantine
+   instead of syncing; a client without the handshake (a `@lexical/yjs`
+   one) is captured there instead (see
+   [Quarantine, capture and the handoff](./y-server.md#quarantine-capture-and-the-handoff)).
+   Keep those records listable for the quarantine window. Only a client
+   with nothing unsent may drop its old copy.
 
 ### Moving from `@lexical/yjs`
 
@@ -1455,4 +2781,7 @@ make stay in the old root.
 ## API reference
 
 [`@lexical/y`](/docs/api/modules/lexical_y) ·
-[`@lexical/y/headless`](/docs/api/modules/lexical_y/headless)
+[`@lexical/y/headless`](/docs/api/modules/lexical_y/headless) ·
+[`@lexical/y/migrate`](/docs/api/modules/lexical_y/migrate) ·
+[`@lexical/y/offline`](/docs/api/modules/lexical_y/offline) ·
+[`@lexical/y/server`](/docs/api/modules/lexical_y/server)

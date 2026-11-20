@@ -84,7 +84,10 @@ Editor states are serializable to JSON, and the editor instance provides a usefu
 to deserialize stringified editor states.
 
 ```js
-const stringifiedEditorState = JSON.stringify(editor.getEditorState());
+// Export inside a read, so a node's exportJSON can use $getEditor()
+const stringifiedEditorState = JSON.stringify(
+  editor.read('latest', () => editor.getEditorState().toJSON()),
+);
 
 const newEditorState = editor.parseEditorState(stringifiedEditorState);
 editor.setEditorState(newEditorState);

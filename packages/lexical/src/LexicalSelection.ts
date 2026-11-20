@@ -69,6 +69,7 @@ import {
 } from './LexicalEvents';
 import {getIsProcessingMutations} from './LexicalMutations';
 import {insertRangeAfter, type LexicalNode, type NodeKey} from './LexicalNode';
+import {$carryNodeState} from './LexicalNodeState';
 import {$normalizeSelection} from './LexicalNormalization';
 import {
   $getSelectionSlotFrame,
@@ -86,6 +87,7 @@ import {
 } from './LexicalUpdates';
 import {SKIP_SELECTION_FOCUS_TAG} from './LexicalUpdateTags';
 import {
+  $appendAll,
   $findMatchingParent,
   $getCompositionKey,
   $getDOMSlot,
@@ -454,6 +456,9 @@ function $insertText(
         const replacement = $createTextNode(anchorNode.getTextContent());
         replacement.setFormat(format);
         replacement.setStyle(style);
+        replacement.setDetail(anchorNode.getDetail());
+        // The characters keep their NodeState (comment ids, for example)
+        $carryNodeState(anchorNode, replacement);
         const isCurrentSelection = $getSelection() === selection;
         anchorNode.replace(replacement);
         // replace() installs a clone of the active selection, so this
@@ -516,19 +521,11 @@ function $insertText(
     return;
   }
 
-  const atStartOfInline =
-    anchorParent.isInline() && offset === 0 && !anchorNode.__prev;
-  const atEndOfInline =
-    anchorParent.isInline() && offset === anchorSize && !anchorNode.__next;
-  const formatDiffers =
-    anchorNode.getFormat() !== format || anchorNode.getStyle() !== style;
-
-  if (atStartOfInline || atEndOfInline || formatDiffers) {
-    if (
-      anchorNode.getTextContent() === '' &&
-      !atStartOfInline &&
-      !atEndOfInline
-    ) {
+  // A boundary of an inline parent that refuses text was already handled by
+  // needsRedirect above, so the parent accepts text at this point and it is
+  // inserted in place.
+  if (anchorNode.getFormat() !== format || anchorNode.getStyle() !== style) {
+    if (anchorNode.getTextContent() === '') {
       anchorNode.setFormat(format);
       anchorNode.setStyle(style);
     } else {
@@ -564,7 +561,8 @@ function $insertTextAtPoint(
   if (
     atBoundary &&
     parent.isInline() &&
-    !(before ? anchorNode.__prev : anchorNode.__next)
+    !(before ? anchorNode.__prev : anchorNode.__next) &&
+    !(before ? parent.canInsertTextBefore() : parent.canInsertTextAfter())
   ) {
     $getSiblingCaret(parent, before ? 'previous' : 'next').insert(textNode);
   } else {
@@ -1356,7 +1354,7 @@ export class RangeSelection implements BaseSelection {
         firstNode.constructor.name,
         firstNode.getType(),
       );
-      firstBlock.append(...firstToInsert.getChildren());
+      $appendAll(firstBlock, firstToInsert.getChildren());
       firstToInsert = blocks[1];
     }
     if (firstToInsert) {
@@ -1389,7 +1387,7 @@ export class RangeSelection implements BaseSelection {
         (insertedParagraph.canMergeWhenEmpty() ||
           INTERNAL_$isBlock(lastToInsert))
       ) {
-        lastInsertedBlock.append(...insertedParagraph.getChildren());
+        $appendAll(lastInsertedBlock, insertedParagraph.getChildren());
         insertedParagraph.remove();
       } else if (insertedParagraph.isEmpty()) {
         // The split-off paragraph could not be merged into the last inserted
@@ -1467,7 +1465,7 @@ export class RangeSelection implements BaseSelection {
       : [];
     const newBlock = block.insertNewAfter(this, false) as ElementNode | null;
     if (newBlock) {
-      newBlock.append(...nodesToInsert);
+      $appendAll(newBlock, nodesToInsert);
       newBlock.selectStart();
       return newBlock;
     }
@@ -4382,7 +4380,9 @@ function $extractInlineFromBlocks(nodes: LexicalNode[]): LexicalNode[] {
     }
     if (($isElementNode(node) || $isDecoratorNode(node)) && !node.isInline()) {
       if ($isElementNode(node)) {
-        inlineNodes.push(...$extractInlineFromBlocks(node.getChildren()));
+        for (const inline of $extractInlineFromBlocks(node.getChildren())) {
+          inlineNodes.push(inline);
+        }
       }
       continue;
     }
@@ -4495,7 +4495,10 @@ function $splitNodeAtPoint(
     );
     const newElement = node.insertNewAfter(insertPoint) as ElementNode | null;
     if (newElement) {
-      newElement.append(firstToAppend, ...firstToAppend.getNextSiblings());
+      $appendAll(newElement, [
+        firstToAppend,
+        ...firstToAppend.getNextSiblings(),
+      ]);
     } else if (stopAtUnsplittableNode) {
       return [node, offset];
     }

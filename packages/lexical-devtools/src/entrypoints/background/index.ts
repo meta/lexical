@@ -15,11 +15,17 @@ import {
 } from '../../store.ts';
 import ActionIconWatchdog from './ActionIconWatchdog.ts';
 import {getTabIDService} from './getTabIDService';
+import {createTabStateService} from './TabStateService.ts';
 
 export default defineBackground(() => {
   initPegasusTransport();
   // Way for content script & injected scripts to get their tab ID
   registerRPCService('getTabID', getTabIDService);
+
+  // What a page may report about itself. Editor state arrives here and is
+  // routed to the panel inspecting the reporting tab; the background keeps
+  // counts, not content.
+  registerRPCService('TabStateService', createTabStateService(extensionStore));
 
   // Store initialization so other extension surfaces can use it
   // as all changes go through background SW

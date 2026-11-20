@@ -11,6 +11,7 @@ import invariant from '@lexical/internal/invariant';
 import {
   $addUpdateTag,
   $createRangeSelection,
+  $getNodeByKey,
   $getSelection,
   $isBlockContainer,
   $isElementNode,
@@ -42,7 +43,13 @@ import {
   type Transformer,
   TRANSFORMERS,
 } from './MarkdownTransformers';
-import {indexBy, PUNCTUATION_OR_SPACE, transformersByType} from './utils';
+import {
+  characterAt,
+  characterBefore,
+  indexBy,
+  isPunctuationOrSpace,
+  transformersByType,
+} from './utils';
 
 function runElementTransformers(
   parentNode: ElementNode,
@@ -248,12 +255,12 @@ function $runTextFormatTransformers(
     }
 
     // Some tags can not be used within words, hence should have newline/space/punctuation after it
-    const afterCloseTagChar = textContent[closeTagEndIndex + 1];
+    const afterCloseTagChar = characterAt(textContent, closeTagEndIndex + 1);
 
     if (
       matcher.intraword === false &&
       afterCloseTagChar &&
-      !PUNCTUATION_OR_SPACE.test(afterCloseTagChar)
+      !isPunctuationOrSpace(afterCloseTagChar)
     ) {
       continue;
     }
@@ -313,12 +320,15 @@ function $runTextFormatTransformers(
     }
 
     // Some tags can not be used within words, hence should have newline/space/punctuation before it
-    const beforeOpenTagChar = prevOpenNodeText[openTagStartIndex - 1];
+    const beforeOpenTagChar = characterBefore(
+      prevOpenNodeText,
+      openTagStartIndex,
+    );
 
     if (
       matcher.intraword === false &&
       beforeOpenTagChar &&
-      !PUNCTUATION_OR_SPACE.test(beforeOpenTagChar)
+      !isPunctuationOrSpace(beforeOpenTagChar)
     ) {
       continue;
     }
@@ -598,8 +608,8 @@ export function registerMarkdownShortcuts(
         // fire its transform.
         const isCompositionEnd = tags.has(COMPOSITION_END_TAG);
 
-        const selection = editorState.read($getSelection);
-        const prevSelection = prevEditorState.read($getSelection);
+        const selection = editor.read(editorState, $getSelection);
+        const prevSelection = editor.read(prevEditorState, $getSelection);
 
         // We expect selection to be a collapsed range and not match previous one (as we want
         // to trigger transforms only as user types)
@@ -624,8 +634,8 @@ export function registerMarkdownShortcuts(
         if (
           !isCompositionEnd &&
           anchorOffset !== 1 &&
-          editorState.read(() => $getOffsetInParent(selection.anchor)) >
-            prevEditorState.read(() =>
+          editor.read(editorState, () => $getOffsetInParent(selection.anchor)) >
+            editor.read(prevEditorState, () =>
               $getOffsetInParent(prevSelection.anchor),
             ) +
               1
@@ -634,26 +644,30 @@ export function registerMarkdownShortcuts(
         }
 
         if (isCompositionEnd) {
-          const closeChar = editorState.read(() => anchorNode.getTextContent())[
-            anchorOffset - 1
-          ];
+          const closeChar = editor.read(editorState, () =>
+            anchorNode.getTextContent(),
+          )[anchorOffset - 1];
           if (!compositionEndTriggerChars.has(closeChar)) {
             return;
           }
         }
 
         editor.update(() => {
-          if (!canContainTransformableMarkdown(anchorNode)) {
+          // Read the node again by its key: an update queued before this one
+          // (a collaboration binding reading the document again, say) may
+          // have replaced it, and then there is nothing to transform.
+          const node = $getNodeByKey(anchorKey);
+          if (node === null || !canContainTransformableMarkdown(node)) {
             return;
           }
 
-          const parentNode = anchorNode.getParent();
+          const parentNode = node.getParent();
 
           if (parentNode === null || $isCodeNode(parentNode)) {
             return;
           }
 
-          if ($transform(parentNode, anchorNode, selection.anchor.offset)) {
+          if ($transform(parentNode, node, anchorOffset)) {
             $addUpdateTag(HISTORY_PUSH_TAG);
           }
         });
