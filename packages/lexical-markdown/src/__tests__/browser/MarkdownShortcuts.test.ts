@@ -215,6 +215,21 @@ function normalizeHTML(html: string) {
   return template.innerHTML;
 }
 
+async function expectUndoRedo(
+  root: HTMLElement,
+  text: string,
+  selector: string,
+) {
+  const converted = root.innerHTML;
+  await userEvent.keyboard('{ControlOrMeta>}z{/ControlOrMeta}');
+  await expect.poll(() => root.textContent).toBe(text);
+  expect(root.querySelector(selector)).toBeNull();
+  await userEvent.keyboard(
+    IS_APPLE ? '{Meta>}{Shift>}z{/Shift}{/Meta}' : '{Control>}y{/Control}',
+  );
+  await expect.poll(() => root.innerHTML).toBe(converted);
+}
+
 describe('native Markdown block shortcuts', () => {
   test.each(cases)('types, undoes and redoes $text', async ({text, html}) => {
     const root = setup();
@@ -245,6 +260,7 @@ describe('native multi-character Markdown input', () => {
     const root = setup();
     document.execCommand('insertText', false, text);
     await expect.poll(() => root.querySelector(selector) !== null).toBe(true);
+    await expectUndoRedo(root, text, selector);
   });
 
   test('converts a shortcut completed by a multi-character input', async () => {
@@ -254,6 +270,7 @@ describe('native multi-character Markdown input', () => {
     await expect
       .poll(() => root.querySelector('strong')?.textContent)
       .toBe('bold');
+    await expectUndoRedo(root, '**bold**', 'strong');
   });
 
   test('converts replacement text that completes a shortcut', async () => {
@@ -270,6 +287,38 @@ describe('native multi-character Markdown input', () => {
     await expect
       .poll(() => root.querySelector('strong')?.textContent)
       .toBe('bold');
+    await expectUndoRedo(root, '**bold**', 'strong');
+  });
+
+  test('a scripted update in the same pending commit inherits native input handling', async () => {
+    const root = setup();
+    const editor = getNearestEditorFromDOMNode(root)!;
+    document.execCommand('insertText', false, 'prefix');
+    editor.update(() => {
+      const selection = $getSelection();
+      if ($isRangeSelection(selection)) {
+        selection.insertText(' **bold**');
+      }
+    });
+    await expect
+      .poll(() => root.querySelector('strong')?.textContent)
+      .toBe('bold');
+    expect(root.textContent).toBe('prefix bold');
+  });
+
+  test('a programmatic update after native input commits keeps Markdown literal', async () => {
+    const root = setup();
+    const editor = getNearestEditorFromDOMNode(root)!;
+    document.execCommand('insertText', false, 'prefix');
+    await expect.poll(() => root.textContent).toBe('prefix');
+    editor.update(() => {
+      const selection = $getSelection();
+      if ($isRangeSelection(selection)) {
+        selection.insertText(' **bold**');
+      }
+    });
+    await expect.poll(() => root.textContent).toBe('prefix **bold**');
+    expect(root.querySelector('strong')).toBeNull();
   });
 
   test('leaves pasted Markdown literal', async () => {
