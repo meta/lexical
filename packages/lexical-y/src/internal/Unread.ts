@@ -43,7 +43,7 @@ import {
  * its view.
  *
  * The helpers that read or write the document as a binding's editor shows it
- * (see Seen) take that view as a parameter (View), and a fold the view and
+ * (see Shown and Seen) take that view as a parameter (View), and a fold the view and
  * the hold it reads in (Ident.FoldIn): the binding hands its own to its
  * readers, writers and walks (`YBinding#seer`, read at each step, see
  * Reader#liveView), the Reader the hold of the line being composed
@@ -84,7 +84,7 @@ export interface Unread {
 
 /**
  * What one binding's work sees of the shared document, passed to the
- * helpers that read or write it (see Seen): today the changes the binding
+ * helpers that read or write it (see Shown and Seen): today the changes the binding
  * has not read yet and the hold's kept items, as Unread. Null: Yjs as it
  * is.
  */
@@ -92,7 +92,7 @@ export type View = Unread;
 
 /**
  * The part of `view` that applies to the items of `type`, as the helpers
- * that read or write them use it (see Seen): `view` itself where `type` is
+ * that read or write them use it (see Shown and Seen): `view` itself where `type` is
  * under its root, else null (Yjs as it is: another binding's root, or
  * none); none either for a hold's view that keeps nothing (see lapsed).
  */

@@ -23,6 +23,7 @@ import {
   sourceView,
   type YRecordSource,
 } from '../../../server';
+import {flat} from '../../utils/migrateResults';
 import {stamp} from '../../utils/migrateSteps';
 import {rightOriginSplit, textOf} from '../../utils/splitFixtures';
 
@@ -37,7 +38,13 @@ const SOURCE: YRecordSource = {
 describe.each([false, true])('pending records, gc %s', gc => {
   test('the split bytes alone render nothing; the pending record renders the cut items in place', () => {
     const {stored, missing, docs} = rightOriginSplit(gc);
-    const result = migrateYState(stored, [stamp(2)], {gc, to: 3});
+    const result = flat(
+      migrateYState(stored, [stamp(2)], {
+        gc,
+        pending: 'return',
+        to: 3,
+      }),
+    );
     expect(result.pending).not.toBeNull();
     const alone = sourceView({
       deltas: [],

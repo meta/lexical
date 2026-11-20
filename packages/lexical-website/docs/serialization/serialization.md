@@ -58,6 +58,15 @@ Or, to get a string, use `JSON.stringify` directly:
 const jsonString = JSON.stringify(editor.getEditorState());
 ```
 
+Called on its own like this, the export runs with no active editor, so a node
+whose `exportJSON()` calls `$getEditor()` (for example, to read an extension's
+config) throws. Export inside a read of the state with the editor instead:
+
+```js
+const editorState = editor.getEditorState();
+const json = editorState.read(() => editorState.toJSON(), {editor});
+```
+
 ### JSON -> Lexical
 
 To restore a document, parse the JSON (or its string form) with

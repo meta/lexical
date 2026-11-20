@@ -924,7 +924,9 @@ function $rebuild(
     }
     $append(target, piece.content);
     piece.holder = target;
-    preceding.push(...piece.content);
+    for (const node of piece.content) {
+      preceding.push(node);
+    }
     placed.push(target);
     holders.push(target);
   }
@@ -1137,7 +1139,9 @@ function $applyInlineRule(
           segment,
         });
       }
-      segment.content.push(...content);
+      for (const node of content) {
+        segment.content.push(node);
+      }
       last = 'line';
       continue;
     }

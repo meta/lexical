@@ -26,9 +26,6 @@ import {
   encodeStateAsUpdate,
   encodeStateVector,
   findIndexSS,
-  getItemCleanStart,
-  type ID,
-  type IdSet,
   Item,
   iterateStructsByIdSet,
   mergeIdSets,
@@ -46,6 +43,7 @@ import {
   $createNodeSelection,
   $createPoint,
   $createRangeSelection,
+  $exportNodeJSON,
   $flushSyncAfterUpdate,
   $getNodeByKey,
   $getRoot,
@@ -53,6 +51,7 @@ import {
   $getSlot,
   $getSlotNames,
   $hasUpdateTag,
+  $isDecoratorNode,
   $isElementNode,
   $isNodeSelection,
   $isRangeSelection,
@@ -72,6 +71,7 @@ import {
   getTransformSetFromKlass,
   HISTORY_MERGE_TAG,
   INTERNAL_$normalizeNodeStructure,
+  INTERNAL_getActiveEditorState,
   isCurrentlyReadOnlyMode,
   isDispatchingCommitListeners,
   type Klass,
@@ -94,7 +94,6 @@ import {
 import {ARGUMENTS_CHUNK, pushAll, spliceAll} from './Arrays';
 import {$unsettledAfterWrite} from './BlockIds';
 import {$caretOnMovingBoundary, $foreseesMove, composedMoved} from './Boundary';
-import {type ClientIDRange, constrainClientID} from './ClientID';
 import {
   BASE_LAYOUT_VERSION,
   DEFAULT_ROOT_NAME,
@@ -103,19 +102,11 @@ import {
   LEGACY_ROOTS,
   MIN_LAYOUT,
   SCHEMA_PREFIX,
-  SET_MEMBERS_LAYOUT_VERSION,
 } from './constants';
-import {
-  changeEnd,
-  equalFormatValue,
-  isFormatCloser,
-  markFormatCloser,
-} from './Cursor';
 import {$canonicalizeGroup, $switchesWrapper} from './Groups';
-import {$heldDecision} from './HoldGuard';
+import {$heldDecision, $readPrev} from './HoldGuard';
 import {
   attrsOf,
-  covered,
   endsOf,
   finishSeedRuns,
   IdentityLayoutOrigin,
@@ -129,8 +120,8 @@ import {
   takePairingChanges,
   withSeeding,
   writeIdentityRecord,
-  writesPairedRuns,
 } from './Ident';
+import {UndoKeeps} from './Keeps';
 import {
   epochRecordIn,
   isGateKey,
@@ -164,7 +155,6 @@ import {
   getGroupSpec,
   identityOf,
   isMergeableText,
-  isSetMemberEntryName,
   LAYOUT_PREFIX,
   LAYOUT_VERSION,
   MARKER,
@@ -177,15 +167,12 @@ import {
   wrapperFieldsOf,
   wrappersFromAttrs,
 } from './Schema';
+import {relabelSeed} from './SeedRelabel';
 import {
   attrsBeforeIn,
   Folder,
   frontierOf,
   HeldDeletionError,
-  isGoneIn,
-  isShownEndIn,
-  prevLiveEnd,
-  shownLengthIn,
   unitLeftEnd,
 } from './Seen';
 import {
@@ -194,6 +181,14 @@ import {
   $followUpDifference,
   checkContainer,
 } from './SelfCheck';
+import {
+  countShown,
+  isGoneIn,
+  isKept,
+  isShownEndIn,
+  prevShownEnd,
+  shownLengthIn,
+} from './Shown';
 import {
   $readSlots,
   $unstorableSlotHosts,
@@ -232,7 +227,7 @@ import {
   type YUnsupportedConfigData,
   type YUnsupportedSchemaData,
 } from './Warnings';
-import {$holdsLines, type WritePlan, Writer} from './Write';
+import {$holdsLines, $holdsText, type WritePlan, Writer} from './Write';
 import {createYDoc, type YDoc} from './YDoc';
 import {assertOwnYjsDoc, assertSupportedYjs} from './YjsContract';
 
@@ -494,6 +489,16 @@ function sameSchemaRecords(a: SchemaRecords, b: SchemaRecords): boolean {
  */
 const undoAdmits = new WeakMap<BindingUndoManager, () => boolean>();
 
+/** Codes of the warnings that can say why the binding is read only. */
+const READ_ONLY_CAUSE_CODES: ReadonlySet<string> = new Set([
+  UNSUPPORTED_LAYOUT_WARNING,
+  UNSUPPORTED_SCHEMA_WARNING,
+  UNKNOWN_NODE_TYPES_WARNING,
+  STORAGE_MISMATCH_WARNING,
+  UNSUPPORTED_CONFIG_WARNING,
+  UNSUPPORTED_SLOTS_WARNING,
+]);
+
 /** A warning that says why the binding is read only. */
 const isReadOnlyCause = (w: LexicalWarning): boolean =>
   w.code === UNSUPPORTED_LAYOUT_WARNING ||
@@ -680,28 +685,6 @@ const MAX_PENDING_COMMITS = 16;
 const MAX_REGISTRATION_RUNS = 100;
 
 /**
- * The bindings that keep an item from garbage collection (D88), per item, and
- * whether it was kept already when the first of them did (by an UndoManager's
- * step): the item is released when the last of them releases it, and only
- * if nothing else kept it before.
- */
-const keepOwners = new WeakMap<
-  Item,
-  {external: boolean; owners: Set<object>}
->();
-
-/**
- * The items bindings kept again after their UndoManager let them go (a clear
- * of a stack releases what its steps kept, parents included), with the
- * binding lifetimes (the owners in keepOwners) that hold each such keep: the
- * lifetimes that kept it again, or relied on it when another had, or held
- * it when the last of those stopped. The keep is released when the last of
- * them stops. And per lifetime, the items it holds so.
- */
-const rekeepHolders = new WeakMap<Item, Set<object>>();
-const rekeptByOwner = new WeakMap<object, Set<Item>>();
-
-/**
  * Fields Lexical derives as it renders a commit (see $writeReadEdits): the
  * root's text, and the text format and style an element takes from the
  * first text in it (LexicalReconciler's reconcileTextFormat), which depend
@@ -809,11 +792,15 @@ export interface YBindingOptions {
   /** Undo capture timeout in ms (default 500); null disables undo. */
   captureTimeout?: number | null;
   /**
-   * Called when `status` changes, once the binding's work is done and Yjs is
-   * idle (like warnings, never inside a Yjs observer or transaction). Several
-   * changes in one such step report the last.
+   * Required: called when `status` changes, once the binding's work is done
+   * and Yjs is idle (like warnings, never inside a Yjs observer or
+   * transaction). Several changes in one such step report the last. Show
+   * the user a read-only document: one read only because the editor made a
+   * change the layout cannot store holds that change in the editor alone,
+   * until the app takes it with `quiesce()`. `null` only where code of the
+   * app's own reads `binding.status` (a headless tool, a test).
    */
-  onStatus?: (status: YBindingStatus) => void;
+  onStatus: ((status: YBindingStatus) => void) | null;
   /**
    * Read every line a local write touched back from Yjs and compare it with
    * the editor; mismatches are reported to the editor's `onWarn` (see
@@ -848,12 +835,6 @@ export interface YBindingOptions {
    * UNSUPPORTED_CONFIG_WARNING `'missing-layout-upgrade'`.
    */
   layoutUpgrade?: YLayoutUpgradeHandle | null;
-  /**
-   * The range of the document's client ids: `'uint53'` (default, Yjs 14's
-   * ids, left as they are) or `'uint32'` (kept in 32 bits, for servers on
-   * yrs before 0.28; see {@link ClientIDRange}).
-   */
-  clientIDRange?: ClientIDRange;
 }
 
 /**
@@ -949,7 +930,7 @@ function gatingSchemaKeys(root: YNode, supported: number): string[] {
  * grows: undo never deletes it (see YBinding#isKeptByUndo).
  *
  * Invariant: called in a `finally` inside every transaction that writes a
- * local edit (as recordSetMembersLayout). Why: Yjs commits and sends what a
+ * local edit. Why: Yjs commits and sends what a
  * transaction wrote even when its callback throws.
  */
 function recordSchema(
@@ -969,24 +950,6 @@ function recordSchema(
   if (wrote) {
     root.setAttr(key, true);
   }
-}
-
-/**
- * Whether live format item `item` changes its key's value: the nearest live
- * item of its key before it gives another value (none gives null).
- */
-function opensRun(item: Item): boolean {
-  const {key, value} = item.content as ContentFormat;
-  for (let it = item.left; it !== null; it = it.left) {
-    if (
-      !it.deleted &&
-      it.content instanceof ContentFormat &&
-      it.content.key === key
-    ) {
-      return !equalFormatValue(it.content.value, value);
-    }
-  }
-  return value !== null;
 }
 
 /**
@@ -1048,62 +1011,6 @@ function newestIn(attrs: RootAttrs): number | null {
     }
   }
   return version;
-}
-
-/**
- * Whether `tr` wrote a member entry of a set-valued NodeState: a text format
- * or a node attribute named `s:<key>\u001f…` set to true (see
- * SET_MEMBERS_LAYOUT_VERSION).
- */
-function wroteSetMember(tr: Transaction): boolean {
-  let found = false;
-  iterateStructsByIdSet(tr, tr.insertSet, s => {
-    if (found || !(s instanceof Item) || s.deleted) {
-      return;
-    }
-    const content = s.content;
-    if (content instanceof ContentFormat) {
-      found = content.value === true && isSetMemberEntryName(content.key);
-    } else if (
-      typeof s.parentSub === 'string' &&
-      isSetMemberEntryName(s.parentSub)
-    ) {
-      found = content.getContent()[0] === true;
-    }
-  });
-  return found;
-}
-
-/**
- * Record layout `version` on `root` (see LAYOUT_PREFIX), unless it is
- * recorded already: in the transaction that wrote the first content that
- * needs it, so that no client receives one without the other. The record
- * only grows: undo never deletes it (see YBinding#isKeptByUndo).
- */
-function recordLayout(root: YNode, version: number): void {
-  const key = LAYOUT_PREFIX + version;
-  if (root.getAttr(key) !== true) {
-    root.setAttr(key, true);
-  }
-}
-
-/**
- * Record layout SET_MEMBERS_LAYOUT_VERSION on `root` when `tr` wrote a member
- * entry of a set-valued NodeState (see wroteSetMember), unless the document
- * records it already (then `tr` is not scanned).
- *
- * Invariant: called in a `finally` inside every transaction that writes
- * content. Why: Yjs commits and sends what a transaction wrote even when its
- * callback throws, so a write that fails part way must carry the version
- * too; the recovery's rewrite is a later transaction, which may never come.
- */
-function recordSetMembersLayout(root: YNode, tr: Transaction): void {
-  if (
-    root.getAttr(LAYOUT_PREFIX + SET_MEMBERS_LAYOUT_VERSION) !== true &&
-    wroteSetMember(tr)
-  ) {
-    recordLayout(root, SET_MEMBERS_LAYOUT_VERSION);
-  }
 }
 
 /**
@@ -1202,6 +1109,526 @@ function registerBoundRoot(doc: Doc, root: YNode, binding: object): () => void {
  */
 export const MAX_RECOVERY_ATTEMPTS = 5;
 
+/** `node` and every node below it, as their keys and JSON. */
+function $subtreeJSON(node: LexicalNode): unknown {
+  const json = $exportNodeJSON(node) as Record<string, unknown>;
+  delete json.children;
+  return {
+    children: $isElementNode(node)
+      ? node.getChildren().map($subtreeJSON)
+      : null,
+    json,
+    key: node.getKey(),
+  };
+}
+
+/**
+ * Whether the node `key` and everything below it are as they were in
+ * `prevEditorState`, the same nodes with the same JSON (marked dirty
+ * without a change; two nodes of equal JSON swapped are a change).
+ */
+function $sameAsBefore(key: NodeKey, prevEditorState: EditorState): boolean {
+  const node = $getNodeByKey(key);
+  if (node === null) {
+    return false;
+  }
+  const now = JSON.stringify($subtreeJSON(node));
+  return (
+    $readPrev(prevEditorState, () => {
+      const prev = $getNodeByKey(key);
+      return prev === null ? null : JSON.stringify($subtreeJSON(prev));
+    }) === now
+  );
+}
+
+/**
+ * Whether the container `key` has the same structure as in
+ * `prevEditorState`: the same nodes below it, in the same order, with the
+ * same fields, down to its lines, whose content is not structure (but the
+ * lines a line holds, a nested group, are).
+ */
+function $sameStructure(
+  key: NodeKey,
+  roles: Roles,
+  prevEditorState: EditorState,
+): boolean {
+  const node = $getNodeByKey(key);
+  if (node === null) {
+    return false;
+  }
+  const lineKeys = new Set<NodeKey>();
+  const collect = (el: ElementNode) => {
+    for (const child of el.getChildren()) {
+      if ($isElementNode(child)) {
+        if (roles.$role(child) === 'line') {
+          lineKeys.add(child.getKey());
+        }
+        collect(child);
+      }
+    }
+  };
+  if ($isElementNode(node)) {
+    collect(node);
+  }
+  const shape = (n: LexicalNode): unknown => {
+    if (!$isElementNode(n)) {
+      return {key: n.getKey(), own: $exportNodeJSON(n)};
+    }
+    if (lineKeys.has(n.getKey())) {
+      return {
+        key: n.getKey(),
+        nested: n
+          .getChildren()
+          .filter(c => $isElementNode(c) && !c.isInline())
+          .map(shape),
+      };
+    }
+    const own = $exportNodeJSON(n) as Record<string, unknown>;
+    delete own.children;
+    return {children: n.getChildren().map(shape), key: n.getKey(), own};
+  };
+  const now = JSON.stringify(shape(node));
+  return (
+    $readPrev(prevEditorState, () => {
+      const prev = $getNodeByKey(key);
+      return prev === null ? null : JSON.stringify(shape(prev));
+    }) === now
+  );
+}
+
+/**
+ * Whether `plan`, the write of the author's normalization of the lines
+ * `lines` names (see YBinding#heldIds), changes nothing but how those
+ * lines' characters are typed, in place: no container's structure (no line
+ * made, removed or moved; see $sameStructure); no other line, inline
+ * container or stored node it changed (one only marked dirty is not
+ * changed); and in each of the lines, the same text in the line and in
+ * each inline element it holds, the same inline elements and decorators
+ * where they were, and no text node of before stored elsewhere now or moved
+ * past another text node of before in its element: what is written there is
+ * attributes of the characters (formats, the node each
+ * is in, NodeState), which keeps each character where it is stored, so a
+ * collaborator's concurrent edit of it stays. A change of the text (an
+ * app's transform that sets capitals) is not written.
+ */
+function $staysInLines(
+  plan: WritePlan,
+  lines: ReadonlySet<NodeKey>,
+  roles: Roles,
+  prevEditorState: EditorState,
+): boolean {
+  // A container the plan rewrites (an intentionally dirty group is
+  // planned so, unchanged): nothing may have moved, been made or removed.
+  for (const key of plan.structural) {
+    if (!$sameStructure(key, roles, prevEditorState)) {
+      return false;
+    }
+  }
+  // A node the update marked dirty without changing it: nothing to write
+  // there.
+  const unchanged = (key: NodeKey): boolean =>
+    $sameAsBefore(key, prevEditorState);
+  const inLines = (key: NodeKey): boolean => {
+    let node: LexicalNode | null = $getNodeByKey(key);
+    while (node !== null) {
+      if ($isElementNode(node) && roles.$role(node) === 'line') {
+        return lines.has(node.getKey());
+      }
+      node = node.getParent();
+    }
+    return false;
+  };
+  for (const keys of [plan.lines, plan.inline, plan.attrs]) {
+    for (const key of keys) {
+      if (!inLines(key) && !unchanged(key)) {
+        return false;
+      }
+    }
+  }
+  const prevMap = prevEditorState._nodeMap;
+  // A line's content: its text, with each inline element (and what it holds)
+  // and each decorator as its key.
+  const contentOf = (el: ElementNode): string => {
+    let out = '';
+    for (const child of el.getChildren()) {
+      if ($isElementNode(child)) {
+        out += '\ufffc' + child.getKey() + '[' + contentOf(child) + ']\ufffc';
+      } else if ($isDecoratorNode(child)) {
+        out += '\ufffc' + child.getKey() + '\ufffc';
+      } else {
+        out += child.getTextContent();
+      }
+    }
+    return out;
+  };
+  // Each text node below `line`, with what it is stored in: the nearest
+  // inline element above it, or the line.
+  const holders = (line: ElementNode): Map<NodeKey, NodeKey> => {
+    const out = new Map<NodeKey, NodeKey>();
+    const walk = (el: ElementNode, holder: NodeKey) => {
+      for (const child of el.getChildren()) {
+        if ($isElementNode(child)) {
+          walk(child, child.isInline() ? child.getKey() : holder);
+        } else if ($isTextNode(child)) {
+          out.set(child.getKey(), holder);
+        }
+      }
+    };
+    walk(line, line.getKey());
+    return out;
+  };
+  for (const key of lines) {
+    const line = $getNodeByKey(key);
+    if (!$isElementNode(line) || !line.isAttached()) {
+      return false;
+    }
+    const was = $readPrev(prevEditorState, () => {
+      const prev = $getNodeByKey(key);
+      return $isElementNode(prev)
+        ? {content: contentOf(prev), holders: holders(prev)}
+        : null;
+    });
+    // The same text in each of its holders, the same inline elements and
+    // decorators where they were, and no text node of before stored
+    // elsewhere now (in another line, or another holder of this one): a
+    // write of attributes only, which keeps every character where it is
+    // stored.
+    if (was === null || was.content !== contentOf(line)) {
+      return false;
+    }
+    const now = holders(line);
+    for (const [nodeKey, holder] of now) {
+      if (prevMap.has(nodeKey) && was.holders.get(nodeKey) !== holder) {
+        return false;
+      }
+    }
+    for (const nodeKey of was.holders.keys()) {
+      if (!now.has(nodeKey)) {
+        const node = $getNodeByKey(nodeKey);
+        if (node !== null && node.isAttached()) {
+          return false;
+        }
+      }
+    }
+  }
+  // No text node of before that the update moved past another node of
+  // before, even within its holder and where the text it takes the place of
+  // is the same (a transform that swaps two equal words): the writer stores
+  // a move as a delete and an insert, which would leave a collaborator's
+  // concurrent edit inside it where the node was.
+  const textEdits = plan.textEdits;
+  if (
+    textEdits !== null &&
+    textEdits !== undefined &&
+    $reordersTextOfBefore(textEdits, lines, prevEditorState)
+  ) {
+    return false;
+  }
+  return true;
+}
+
+/**
+ * Whether the update's text edits leave the text nodes of before in a line
+ * of `lines` in another order within their element than before. The edits
+ * are replayed over each element's children as they were: every attach and
+ * detach with where it happened, a node that takes another's place (a
+ * replace detaches one and attaches the other there; a text entity records
+ * the retype) standing for the node it replaced, and a node made in the
+ * update that a node of before is merged into standing for that node. So a
+ * node taken out and put
+ * back in order (a highlighter that rebuilds a line's tokens, an append of
+ * the children as they were) is not a move, and a move through a node made
+ * and removed in the same update is.
+ */
+function $reordersTextOfBefore(
+  textEdits: TextEditLog,
+  lines: ReadonlySet<NodeKey>,
+  prevEditorState: EditorState,
+): boolean {
+  const prevMap = prevEditorState._nodeMap;
+  // The text nodes of before in the lines, by the element they were in, in
+  // their order there.
+  const before = new Map<NodeKey, NodeKey[]>();
+  $readPrev(prevEditorState, () => {
+    const visit = (el: ElementNode) => {
+      const texts: NodeKey[] = [];
+      for (const child of el.getChildren()) {
+        if ($isElementNode(child)) {
+          visit(child);
+        } else if ($isTextNode(child)) {
+          texts.push(child.getKey());
+        }
+      }
+      if (texts.length > 1) {
+        before.set(el.getKey(), texts);
+      }
+    };
+    for (const key of lines) {
+      const line = $getNodeByKey(key);
+      if ($isElementNode(line)) {
+        visit(line);
+      }
+    }
+  });
+  if (before.size === 0) {
+    return false;
+  }
+  const children = new Map<NodeKey, NodeKey[]>();
+  const childrenOf = (parent: NodeKey): NodeKey[] => {
+    let list = children.get(parent);
+    if (list === undefined) {
+      const el = prevMap.get(parent);
+      list = [];
+      if ($isElementNode(el)) {
+        for (let k = el.__first; k !== null; ) {
+          list.push(k);
+          const next = prevMap.get(k);
+          k = next === undefined ? null : next.__next;
+        }
+      }
+      children.set(parent, list);
+    }
+    return list;
+  };
+  // The node of before each node stands for.
+  const origin = new Map<NodeKey, NodeKey>();
+  const originOf = (key: NodeKey): NodeKey | undefined =>
+    origin.has(key) ? origin.get(key) : prevMap.has(key) ? key : undefined;
+  let detached: [NodeKey, NodeKey] | null = null;
+  // The nodes attached so far.
+  const attached = new Set<NodeKey>();
+  // Two nodes of before merged: the kept one, the merged one, and whether
+  // the merged one was before it.
+  const merges: [NodeKey, NodeKey, boolean][] = [];
+  for (const edit of textEdits) {
+    if (edit[0] === 'detach') {
+      const list = childrenOf(edit[2]);
+      const at = list.indexOf(edit[1]);
+      if (at !== -1) {
+        list.splice(at, 1);
+      }
+      detached = [edit[1], edit[2]];
+      continue;
+    }
+    if (edit[0] === 'attach') {
+      const [, key, parent, prev, next] = edit;
+      const list = childrenOf(parent);
+      const prevAt = prev === null ? -1 : list.indexOf(prev);
+      const nextAt = next === null ? -1 : list.indexOf(next);
+      const at =
+        prev === null
+          ? 0
+          : prevAt !== -1
+            ? prevAt + 1
+            : nextAt !== -1
+              ? nextAt
+              : list.length;
+      list.splice(at, 0, key);
+      if (prevMap.has(key)) {
+        // A node of before attached again stands for itself: a node that
+        // took its place in the meantime no longer does.
+        for (const [other, was] of origin) {
+          if (was === key && other !== key) {
+            origin.delete(other);
+          }
+        }
+      }
+      if (
+        detached !== null &&
+        detached[1] === parent &&
+        !prevMap.has(key) &&
+        !attached.has(key) &&
+        originOf(detached[0]) !== undefined
+      ) {
+        // A replace: this node, attached for the first time, takes the
+        // detached one's place (one attached before is moved, not made).
+        origin.set(key, originOf(detached[0]) as NodeKey);
+      }
+      attached.add(key);
+    } else if (edit[0] === 'merge') {
+      // The kept node holds the merged node's characters too: a node made
+      // in the update that a node of before is merged into stands for it,
+      // and two nodes of before merge in order only where they were
+      // neighbours on that side.
+      const kept = originOf(edit[1]);
+      const merged = originOf(edit[2]);
+      if (merged !== undefined && kept === undefined) {
+        origin.set(edit[1], merged);
+      } else if (merged !== undefined && kept !== undefined) {
+        merges.push([kept, merged, edit[3]]);
+      }
+    } else if (edit[0] === 'retype') {
+      const was = originOf(edit[1]);
+      if (was !== undefined) {
+        origin.set(edit[2], was);
+      }
+    }
+    detached = null;
+  }
+  // Each merge in order: the merged node's run of nodes of before (what was
+  // merged into it before) next to the kept node's run, on its side.
+  const runs = new Map<NodeKey, [number, number]>();
+  for (const [kept, merged, mergedBefore] of merges) {
+    for (const texts of before.values()) {
+      const keptAt = texts.indexOf(kept);
+      const mergedAt = texts.indexOf(merged);
+      if (keptAt === -1 || mergedAt === -1) {
+        continue;
+      }
+      const [keptLo, keptHi] = runs.get(kept) || [keptAt, keptAt];
+      const [mergedLo, mergedHi] = runs.get(merged) || [mergedAt, mergedAt];
+      if (mergedBefore ? mergedHi !== keptLo - 1 : mergedLo !== keptHi + 1) {
+        return true;
+      }
+      runs.set(kept, [Math.min(keptLo, mergedLo), Math.max(keptHi, mergedHi)]);
+    }
+  }
+  for (const [parent, texts] of before) {
+    const list = children.get(parent);
+    if (list === undefined) {
+      continue;
+    }
+    const wanted = new Set(texts);
+    const now: NodeKey[] = [];
+    for (const key of list) {
+      const was = originOf(key);
+      if (was !== undefined && wanted.has(was) && !now.includes(was)) {
+        now.push(was);
+      }
+    }
+    const kept = texts.filter(key => now.includes(key));
+    if (now.join('\u0000') !== kept.join('\u0000')) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Whether an update removed a decorator or an inline element (a link, a
+ * mark) from the document, at any depth of what it removed: one that was,
+ * before it, a child of an element it marked dirty, or below such a child
+ * that it removed, and is no longer attached (one it moved elsewhere is not
+ * removed). One replaced by a new one counts as removed.
+ */
+function $removesNonText(
+  dirtyElements: ReadonlyMap<NodeKey, boolean>,
+  prevEditorState: EditorState,
+): boolean {
+  const prevMap = prevEditorState._nodeMap;
+  const gone = (key: NodeKey): boolean => {
+    const now = $getNodeByKey(key);
+    return now === null || !now.isAttached();
+  };
+  const childrenBefore = (el: ElementNode): LexicalNode[] => {
+    const out: LexicalNode[] = [];
+    for (
+      let child = el.__first === null ? undefined : prevMap.get(el.__first);
+      child !== undefined;
+      child = child.__next === null ? undefined : prevMap.get(child.__next)
+    ) {
+      out.push(child);
+    }
+    return out;
+  };
+  // A node of the state before, removed with everything below it.
+  const losesBelow = (node: LexicalNode): boolean => {
+    if (
+      ($isDecoratorNode(node) || ($isElementNode(node) && node.isInline())) &&
+      gone(node.__key)
+    ) {
+      return true;
+    }
+    return (
+      $isElementNode(node) &&
+      childrenBefore(node).some(child => losesBelow(child))
+    );
+  };
+  for (const key of dirtyElements.keys()) {
+    const prev = prevMap.get(key);
+    if (!$isElementNode(prev)) {
+      continue;
+    }
+    for (const child of childrenBefore(prev)) {
+      if (gone(child.__key) && losesBelow(child)) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+/**
+ * Whether an update gives an element it marked dirty a text format or style
+ * that Lexical serializes (the element has no text of its own, see
+ * ElementNode#shouldSerializeTextStyles) but the writer does not store (text
+ * is below it, in an inline element: derived there, see $holdsText), that it
+ * did not have before: its own, or that of the first text below it, which
+ * Lexical's reconciler gives the element when it renders it again (a client
+ * with a DOM), so that its author would show a value no reader shows: a
+ * paragraph a transform makes around a link of a line made bold. One it had
+ * before the update is not the update's.
+ */
+function $leavesUnstoredTextFields(
+  dirtyElements: ReadonlyMap<NodeKey, boolean>,
+  prevEditorState: EditorState,
+): boolean {
+  for (const key of dirtyElements.keys()) {
+    const node = $getNodeByKey(key);
+    if (
+      !$isElementNode(node) ||
+      $isRootNode(node) ||
+      !node.isAttached() ||
+      node.isInline() ||
+      !node.shouldSerializeTextStyles() ||
+      !$holdsText(node) ||
+      // Marked dirty without a change: what the reconciler gives it now,
+      // it gave it before.
+      $sameAsBefore(key, prevEditorState)
+    ) {
+      continue;
+    }
+    // The first text below it, in document order, through inline elements:
+    // what the reconciler takes the element's text fields from.
+    const firstText = (el: ElementNode): TextNode | null => {
+      for (const child of el.getChildren()) {
+        if ($isTextNode(child)) {
+          return child;
+        }
+        if ($isElementNode(child)) {
+          const text = firstText(child);
+          if (text !== null) {
+            return text;
+          }
+        }
+      }
+      return null;
+    };
+    // Its own text fields, and those of the first text below it.
+    const fields = (el: ElementNode): [string, string | null] => {
+      const first = firstText(el);
+      return [
+        el.getTextFormat() + '|' + el.getTextStyle(),
+        first === null ? null : first.getFormat() + '|' + first.getStyle(),
+      ];
+    };
+    const [own, derived] = fields(node);
+    const before = $readPrev(prevEditorState, () => {
+      const prev = $getNodeByKey(key);
+      return $isElementNode(prev) ? fields(prev) : null;
+    });
+    if (
+      (own !== '0|' && (before === null || own !== before[0])) ||
+      (derived !== null &&
+        derived !== '0|' &&
+        (before === null || derived !== before[1]))
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
 /**
  * @experimental A Yjs 14 binding for one editor and one shared root.
  *
@@ -1221,6 +1648,8 @@ export class YBinding {
   private _status: YBindingStatus = 'pending';
   private readonly _pins = new Map<string, Pin>();
   private _undoManager: UndoManager | null = null;
+  /** Whether the binding is writing a commit in a read (see readToWrite). */
+  private inWrite = false;
   private state: State;
   private readonly options: YBindingOptions;
   private disposers: (() => void)[] = [];
@@ -1248,31 +1677,34 @@ export class YBinding {
    */
   private readonly untransformedText = new Set<NodeKey>();
   /**
-   * What the update that ended a composition would have written of the
-   * characters of a line a transform re-typed that was not written (see
-   * Writer#skippedLine, Writer#heldResult), by their stored ids, for the
+   * The characters of a line a transform re-typed that was not written (see
+   * Writer#skippedLine, Writer#heldIds), by their stored ids, for the
    * author's normalization once the hold ends (see $normalize): the line is
    * read as stored, and Lexical's transforms run again on the lines that
-   * hold those characters. Of what they make, only what agrees with this is
-   * written, once, by the author, as part of its edit (a hashtag made again
-   * where a collaborator made the block a heading). Where they make
-   * something else, what is stored stays (a code highlighter makes no tokens
-   * in a line a collaborator made a paragraph; in a line made a code block,
-   * its tokens are not the update's), as it does for characters deleted
-   * since.
+   * hold those characters, as an ordinary local edit, which the writer
+   * writes, once, by the author, as part of its edit, where it stays in
+   * those lines, in place (a hashtag made again where a collaborator made
+   * the block a heading; a code highlighter's tokens taken out of a line a
+   * collaborator made a paragraph, or made in one made a code block; an
+   * app's transform that bolds text in a heading). Where they restructure
+   * the document (an app's transform that converts, splits or moves the
+   * line), change or move its text (see $staysInLines), change another
+   * block, remove a decorator or an inline
+   * element (a code highlighter turns a decorator into its text, and takes a
+   * link's text out of the link), or leave text fields stored nowhere (see
+   * $leavesUnstoredTextFields), nothing is written and what is stored stays,
+   * as before.
    */
-  private heldResult = new Map<string, Attrs>();
+  private readonly heldIds = new Set<string>();
   /**
-   * The author's normalization of those lines, in the update running it
-   * (see $normalize, $writeCommit).
+   * The lines that normalization runs the transforms again on, for the
+   * commit that writes it (see $normalize, $writeCommit), where only what
+   * stays in those lines, in place, is written (see $staysInLines).
    */
-  private releasing: {
-    lines: ReadonlySet<NodeKey>;
-    record: ReadonlyMap<string, Attrs>;
-  } | null = null;
+  private rerunScope: ReadonlySet<NodeKey> | null = null;
   /**
    * The undo step holding the write of the update that ended a composition
-   * whose re-typing was not written (see heldResult): the author's
+   * whose re-typing was not written (see heldIds): the author's
    * normalization of its line joins that step, whatever captureTimeout is,
    * while it is the last step on the undo stack; after an edit of the
    * author's own in between, it is a step of its own (see $writeCommit).
@@ -1432,18 +1864,10 @@ export class YBinding {
   private remoteSeq = 0;
   /** Origin of read-only scans (no changes). */
   private readonly scanOrigin = {binding: this, scan: true};
-  /**
-   * The origin of the nulls an undo or redo writes to end the runs it
-   * brings back (see closeRestoredRuns): read into the editor as a
-   * collaborator's change is, and not part of the undo stack.
-   */
-  private readonly runEndOrigin = {binding: this, runEnd: true};
   /** Stored nodes the running undo/redo restores (see isKeptByUndo). */
   private restoring: Set<string> | null = null;
   /** Stored nodes the running undo/redo deletes (it inserted them). */
   private removing: Set<Item> | null = null;
-  /** The ids of the items the running undo/redo deletes (see isKeptByUndo). */
-  private undoing: IdSet | null = null;
   private wasEditable = true;
   private undoCache = new WeakMap<YNode, Set<number>>();
   private readonly afterTransaction: (tr: Transaction) => void;
@@ -1586,8 +2010,7 @@ export class YBinding {
    * Hidden#keeps).
    */
   private readonly keepsShown = (item: Item): boolean => {
-    const hidden = this.state.hidden;
-    return hidden !== null && hidden.keeps(item);
+    return isKept(item, this.state.hidden);
   };
   /** A write deleted a kept item again (see Hidden#drop). */
   private readonly dropKept = (item: Item): void => {
@@ -1694,6 +2117,8 @@ export class YBinding {
     Klass<LexicalNode>,
     Set<Transform<LexicalNode>>
   >();
+  /** See readOnlyWarning. */
+  private _readOnlyWarning: LexicalWarning | null = null;
   /** Warnings not passed to the editor's onWarn yet (see flushWarnings). */
   private readonly pendingWarnings: LexicalWarning[] = [];
   /** Depth of the binding's own work in progress (see guard). */
@@ -1760,17 +2185,8 @@ export class YBinding {
   }
 
   /**
-   * Whether this binding's writes and undo steps treat `key` as paired runs
-   * (see Ident.covered and writesPairedRuns): then none of the rules that
-   * keep or close plain values for it run.
-   */
-  private pairsKey(key: string): boolean {
-    return covered(key) && writesPairedRuns(this._doc, this._root);
-  }
-
-  /**
    * After each transaction: where a local transaction deleted the live
-   * layout 3 record, write it again in a transaction of its own with an
+   * layout record (IDENTITY_LAYOUT_VERSION), write it again in a transaction of its own with an
    * origin no UndoManager tracks (IdentityLayoutOrigin; a record this
    * client wrote first is protected by Ident.protectRecordAfter). Never on
    * the remote-apply path: the client whose transaction deleted it records
@@ -1791,7 +2207,7 @@ export class YBinding {
     ) {
       // The new transaction runs after this one's cleanup (Yjs queues it).
       const root = this._root;
-      this._doc.transact(own => {
+      this.transact(own => {
         // Development builds: the binding's own write (see noteRawWrite).
         if (__DEV__) {
           markBindingWrite(own);
@@ -1811,6 +2227,11 @@ export class YBinding {
       "@lexical/y: YBinding needs options.schemaVersion (got %s): start at 1 and increase it whenever a node's stored fields or node types change",
       String(options == null ? undefined : options.schemaVersion),
     );
+    invariant(
+      options.onStatus === null || typeof options.onStatus === 'function',
+      '@lexical/y: YBinding needs options.onStatus (got %s): a function that shows the user the status (a read-only document holds edits only the editor has), or null where code of your own reads binding.status',
+      typeof options.onStatus,
+    );
     this._editor = editor;
     this._doc = doc;
     this.options = options;
@@ -1825,7 +2246,6 @@ export class YBinding {
         this.initOrigin,
         this.followUpOrigin,
         this.scanOrigin,
-        this.runEndOrigin,
       ]);
     }
     this.afterTransaction = tr =>
@@ -1859,9 +2279,6 @@ export class YBinding {
     // The copy fix-up and index of paired runs, while this binding runs
     // (see Ident.installIdentity).
     this.disposers.push(installIdentity(this._doc));
-    if (this.options.clientIDRange === 'uint32') {
-      this.disposers.push(constrainClientID(this._doc));
-    }
     // With block ids, a line without a marker gets an id derived from the
     // document (see Reader#$materialize).
     const blockIds = getPeerDependencyFromEditor<typeof BlockIdExtension>(
@@ -1959,7 +2376,7 @@ export class YBinding {
           }
           if (
             hidden !== null &&
-            !payload.editorState.read(() => this.$holds(hidden))
+            !this._editor.read(payload.editorState, () => this.$holds(hidden))
           ) {
             this.pending.add('hidden');
           }
@@ -2013,8 +2430,8 @@ export class YBinding {
       );
       this._undoManager = um;
       // Undo reads the format items of the changes on its stacks, and the
-      // end each of them gave a run it deleted (see isKeptByUndo,
-      // closeRestoredRuns, changeEnd), after a collaborator deleted them:
+      // ends of each run it deleted (see Ident.endsOf), after a
+      // collaborator deleted them:
       // keep those from garbage collection (Item.keep, as UndoManager keeps
       // the items a change deletes) so a collected item's key and value
       // stay readable (#9623). The flag is local; while an item is kept,
@@ -2028,65 +2445,10 @@ export class YBinding {
       // content until the document reloads, as Yjs leaves the items an
       // UndoManager step kept (any UndoManager on the document may still
       // restore it).
-      const kept = new Set<Item>();
       // This listening lifetime: a binding started again after a dispose
       // owns its keeps anew, apart from a release the old one queued.
-      const owner = {};
-      const rekept = new Set<Item>();
-      rekeptByOwner.set(owner, rekept);
-      const hold = (it: Item, by: object) => {
-        let holders = rekeepHolders.get(it);
-        if (holders === undefined) {
-          holders = new Set();
-          rekeepHolders.set(it, holders);
-        }
-        holders.add(by);
-        const theirs = rekeptByOwner.get(by);
-        if (theirs !== undefined) {
-          theirs.add(it);
-        }
-      };
-      // When this lifetime ends: each keep it holds goes to the other
-      // lifetimes that hold it, or that keep the item for a step of theirs,
-      // or is released by the last of them.
-      const releaseRekept = () => {
-        for (const it of rekept) {
-          const holders = rekeepHolders.get(it);
-          if (holders !== undefined) {
-            holders.delete(owner);
-            if (holders.size > 0) {
-              continue;
-            }
-            rekeepHolders.delete(it);
-          }
-          const entry = keepOwners.get(it);
-          if (entry !== undefined && entry.owners.size > 0) {
-            for (const other of entry.owners) {
-              hold(it, other);
-            }
-            continue;
-          }
-          it.keep = false;
-        }
-        rekept.clear();
-      };
-      const keep = (item: Item | null) => {
-        for (let it = item; it !== null; it = (it.parent as YNode)._item) {
-          let entry = keepOwners.get(it);
-          if (entry === undefined) {
-            // `external`: kept already (by an UndoManager's step), which
-            // this leaves to whoever kept it.
-            entry = {external: it.keep, owners: new Set()};
-            keepOwners.set(it, entry);
-          } else if (entry.owners.has(owner)) {
-            // Its parents are this lifetime's already.
-            break;
-          }
-          entry.owners.add(owner);
-          it.keep = true;
-          kept.add(it);
-        }
-      };
+      const keeps = new UndoKeeps();
+      const keep = (item: Item | null) => keeps.keep(item);
       // Released only between transactions: inside one (another
       // UndoManager's stack event, a listener) the transaction's own
       // collection, which runs after its listeners, would still collect an
@@ -2100,39 +2462,14 @@ export class YBinding {
         this._doc._transaction !== null ||
         this._doc._transactionCleanups.length > 0;
       const releaseNow = () => {
-        for (const it of kept) {
-          const entry = keepOwners.get(it);
-          if (entry !== undefined) {
-            entry.owners.delete(owner);
-            if (entry.owners.size > 0) {
-              continue;
-            }
-            keepOwners.delete(it);
-            if (entry.external) {
-              continue;
-            }
-          }
-          // A keep this lifetime set again after a clear goes with it; one
-          // another lifetime holds stays.
-          const holders = rekeepHolders.get(it);
-          if (holders !== undefined) {
-            holders.delete(owner);
-            rekept.delete(it);
-            if (holders.size > 0) {
-              continue;
-            }
-            rekeepHolders.delete(it);
-          }
-          it.keep = false;
-        }
-        kept.clear();
+        keeps.release();
         if (disposed) {
           this._doc.off('destroy', onDestroy);
-          releaseRekept();
+          keeps.releaseRekept();
         }
       };
       const release = (onlyWhenEmpty: boolean) => {
-        if (kept.size === 0 && (!disposed || rekept.size === 0)) {
+        if (!keeps.keepsAny && (!disposed || !keeps.rekeepsAny)) {
           if (disposed) {
             this._doc.off('destroy', onDestroy);
           }
@@ -2168,20 +2505,7 @@ export class YBinding {
       const releaseWhenEmpty = () => release(true);
       um.on('stack-cleared', () => {
         releaseWhenEmpty();
-        // A clear of one stack makes the UndoManager release what that
-        // stack's steps kept, parents included: keep what this binding
-        // still relies on (another UndoManager on the document may rely on
-        // it too: Yjs's keep is one flag). Released when this binding stops
-        // (see releaseRekept), not before.
-        for (const it of kept) {
-          if (!it.keep) {
-            it.keep = true;
-            hold(it, owner);
-          } else if (rekeepHolders.has(it)) {
-            // Kept again by another binding: held by this one too.
-            hold(it, owner);
-          }
-        }
+        keeps.keepAgain();
       });
       this.disposers.push(() => {
         disposed = true;
@@ -2208,14 +2532,9 @@ export class YBinding {
             s.content instanceof ContentFormat &&
             s.content.value !== null
           ) {
-            if (!this.pairsKey(s.content.key)) {
-              const end = changeEnd(this._doc, s);
-              if (end !== null) {
-                ends.push(end);
-              }
-            } else if (!isEndValue(s.content.value)) {
+            if (!isEndValue(s.content.value)) {
               // A paired run's own ends, by id (no end is guessed).
-              ends.push(...endsOf(s));
+              pushAll(ends, endsOf(s));
             }
           }
         });
@@ -2520,7 +2839,9 @@ export class YBinding {
     // so a serializer that reuses its output objects cannot change it.
     const held = editor._pendingEditorState;
     const heldText =
-      held !== null ? draftText(() => held.toJSON(), 'preflight') : null;
+      held !== null
+        ? draftText(() => held.toJSON({editor}), 'preflight')
+        : null;
     // With nothing pending, the draft is what the editor shows (or the
     // state the drain builds from it): before anything changes, it must be
     // JSON too (a state that is not throws here, having changed nothing).
@@ -2529,7 +2850,7 @@ export class YBinding {
     // is not checked: a value the pending update replaces is no reason to
     // refuse.
     if (held === null) {
-      draftText(() => editor.getEditorState().toJSON(), 'preflight');
+      draftText(() => editor.getEditorState().toJSON({editor}), 'preflight');
     }
     const refusalsBefore = this.refusals;
     if (this.started) {
@@ -2561,7 +2882,7 @@ export class YBinding {
         : // App code may have made the state unserializable during the
           // drain (an update listener's update): this throws after local
           // work was written, before anything is kept (see draftText).
-          draftText(() => editor.getEditorState().toJSON(), 'final');
+          draftText(() => editor.getEditorState().toJSON({editor}), 'final');
     // What the editor shows and the document does not hold: local changes
     // the binding refused and has not read back yet, or keeps, or held
     // uncommitted when quiesce() began and could not write.
@@ -2654,8 +2975,8 @@ export class YBinding {
     this.toSettle.clear();
     this.untransformed.clear();
     this.untransformedText.clear();
-    this.heldResult.clear();
-    this.releasing = null;
+    this.heldIds.clear();
+    this.rerunScope = null;
     this.releaseStep = null;
     this.storedHoles.clear();
     this.registrationPasses.length = 0;
@@ -2732,7 +3053,7 @@ export class YBinding {
       // What the cursor leaves out of the selection (a range's typing format
       // and style, a node selection), kept too: a node selection by the
       // items written for its nodes (see $restoreSelectionState).
-      const kept = editorState.read($selectionState);
+      const kept = this._editor.read(editorState, $selectionState);
       const selected = kept !== null && kept.kind === 'node' ? kept.keys : [];
       const seed = this.seedUpdate(editorState, selected);
       // The root is checked again inside the seed's own transaction, after
@@ -2748,11 +3069,11 @@ export class YBinding {
         // read back like any document's content, so the editor shows what
         // is stored (and the state maps it), with its selection kept.
         // Inside an app's outer transaction (which an app UndoManager may
-        // track), its layout 3 record is protected after that transaction,
+        // track), its layout record is protected after that transaction,
         // the seed's bytes unchanged (see Ident.protectRecordAfter). Outside
         // one, the initialization's own origin is never tracked.
         const outer = this._doc._transaction;
-        this._doc.transact(tr => {
+        this.transact(tr => {
           if (
             this.rootPristine() &&
             sameSchemaRecords(this.schemaRecords(), seedSchema)
@@ -2779,7 +3100,7 @@ export class YBinding {
         this.evaluate(seed.cursor, kept);
         return;
       }
-      this._doc.transact(tr => {
+      this.transact(tr => {
         if (
           this.rootPristine() &&
           sameSchemaRecords(this.schemaRecords(), seedSchema)
@@ -2790,7 +3111,7 @@ export class YBinding {
             markBindingWrite(tr);
           }
           seeded = true;
-          // The canonical layout 3 seed (see Ident.withSeeding).
+          // The canonical seed (see Ident.withSeeding).
           withSeeding(this._doc, () =>
             this.$writeInitial(this.state, this._root, tr, editorState),
           );
@@ -2805,7 +3126,7 @@ export class YBinding {
         return;
       }
       if (kept !== null && kept.kind === 'node') {
-        kept.items = editorState.read(() =>
+        kept.items = this._editor.read(editorState, () =>
           this.$selectedAnchors(this.state, selected),
         );
       }
@@ -2815,7 +3136,7 @@ export class YBinding {
       // container, as the nodes the write stored keep their content otherwise
       // (a table cell's text).
       this.evaluate(
-        editorState.read(() => this.$cursorBeforeRead()),
+        this._editor.read(editorState, () => this.$cursorBeforeRead()),
         kept,
         true,
       );
@@ -2827,8 +3148,7 @@ export class YBinding {
   /**
    * Write the layout record, the schema record (see SCHEMA_PREFIX) and the
    * editor's content into an empty root, the records first (see
-   * LAYOUT_PREFIX), and layout 2 when the content holds a
-   * member entry of a set (see recordSetMembersLayout).
+   * LAYOUT_PREFIX).
    */
   private $writeInitial(
     state: State,
@@ -2836,46 +3156,38 @@ export class YBinding {
     tr: Transaction,
     editorState: EditorState,
   ): void {
-    root.setAttr(LAYOUT_PREFIX + BASE_LAYOUT_VERSION, true);
-    // Layout 3 only: a new document records it from the start, and its
-    // content's covered formats are written as canonical paired runs,
-    // interleaved with the content (see Ident.withSeeding).
+    // A new document records its layout from the start, and only that one
+    // (IDENTITY_LAYOUT_VERSION); its content's formats are written as
+    // canonical paired runs, interleaved with the content (see
+    // Ident.withSeeding).
     writeIdentityRecord(root);
     root.setAttr(SCHEMA_PREFIX + this.options.schemaVersion, true);
-    try {
-      // Every element type of the initial content (into `root`, which may
-      // be a scratch document's: this._pins is filled when the real one is
-      // read).
-      this.recordPins(root, editorState, null, new Map());
-      editorState.read(() => {
-        const roles = new Roles(state);
-        const cs = state.newCS(root, 'root', 'b');
-        const writer = new Writer(
-          state,
-          roles,
-          tr,
-          editorState,
-          {
-            attrs: new Set(),
-            inline: new Set(),
-            lines: new Set(),
-            removedText: new Map(),
-            structural: new Set(['root']),
-          },
-          this.seer,
-        );
-        writer.$writeContainer(cs, $getRoot());
-      });
-      // The seed's runs still open at their container's end (see
-      // Ident.finishSeedRuns).
-      finishSeedRuns(tr);
-    } finally {
-      recordSetMembersLayout(root, tr);
-    }
-  }
-
-  private clientIDRange(): ClientIDRange {
-    return this.options.clientIDRange === 'uint32' ? 'uint32' : 'uint53';
+    // Every element type of the initial content (into `root`, which may
+    // be a scratch document's: this._pins is filled when the real one is
+    // read).
+    this.recordPins(root, editorState, null, new Map());
+    this._editor.read(editorState, () => {
+      const roles = new Roles(state);
+      const cs = state.newCS(root, 'root', 'b');
+      const writer = new Writer(
+        state,
+        roles,
+        tr,
+        editorState,
+        {
+          attrs: new Set(),
+          inline: new Set(),
+          lines: new Set(),
+          removedText: new Map(),
+          structural: new Set(['root']),
+        },
+        this.seer,
+      );
+      writer.$writeContainer(cs, $getRoot());
+    });
+    // The seed's runs still open at their container's end (see
+    // Ident.finishSeedRuns).
+    finishSeedRuns(tr);
   }
 
   /**
@@ -2884,13 +3196,17 @@ export class YBinding {
    * configuration (with or without block ids, and which blocks are
    * identified, change the items), hashed into a client id, and written
    * again under that id the same way (the writer gives the same items for
-   * the same input). It is the scratch state's first write, so its segment
+   * the same input), or relabeled to it for a pristine root (see
+   * relabelSeed). It is the scratch state's first write, so its segment
    * keys are that id and a counter from the id's clock on every client.
    *
    * - A pristine top-level root (one that has never held an item or an
    *   attribute) is written into an empty scratch document; the hash covers
    *   the layout version, the root's name and the bytes. So two clients
    *   share an id only when they write the same bytes into the same root.
+   *   Its scratch document holds nothing but the first write, which is
+   *   relabeled to that id in place (see relabelSeed) rather than written
+   *   a second time: the same bytes.
    * - Any other root (inside another shared type, or one that held content,
    *   deleted since) is written into a copy of the document, and the update
    *   is what that write added. Its items name what they were written next
@@ -2942,7 +3258,8 @@ export class YBinding {
     // The document as it is, which the write of any other root goes on.
     const base = pristine ? null : encodeStateAsUpdate(this._doc);
     const baseVector = pristine ? null : encodeStateVector(this._doc);
-    const write = (clientID: number) => {
+    // The scratch document a write goes into, and the write itself.
+    const scratchFor = (clientID: number) => {
       const scratch = createYDoc(base, {gc: false});
       const before = base === null ? null : encodeStateVector(scratch);
       scratch.clientID = clientID;
@@ -2956,40 +3273,49 @@ export class YBinding {
           this.$writeInitial(sstate, sroot, tr, editorState),
         ),
       );
-      // The editor's selection, as positions on the items written (and a
-      // node selection's nodes, as those items): the same ids in the
-      // document once the bytes are applied.
-      const cursor = editorState.read(() => this.$cursorBeforeRead(sstate));
-      const items = editorState.read(() =>
-        this.$selectedAnchors(sstate, selected),
-      );
-      const bytes =
+      const encode = () =>
         before === null
           ? encodeStateAsUpdate(scratch)
           : encodeStateAsUpdate(scratch, before);
+      return {encode, scratch, sstate};
+    };
+    // The editor's selection, as positions on the items written (and a
+    // node selection's nodes, as those items): the same ids in the
+    // document once the bytes are applied.
+    const result = ({
+      encode,
+      scratch,
+      sstate,
+    }: ReturnType<typeof scratchFor>) => {
+      const cursor = this._editor.read(editorState, () =>
+        this.$cursorBeforeRead(sstate),
+      );
+      const items = this._editor.read(editorState, () =>
+        this.$selectedAnchors(sstate, selected),
+      );
+      const bytes = encode();
       scratch.destroy();
       return {bytes, cursor, items};
     };
-    const {bytes} = write(1);
-    const content = byteString(bytes);
-    return write(
-      initClientID(
-        baseVector === null
-          ? BASE_LAYOUT_VERSION +
-              '\u0000' +
-              'r:' +
-              rootName +
-              '\u0000' +
-              content
-          : BASE_LAYOUT_VERSION +
-              '\u0000' +
-              'd:' +
-              byteString(baseVector) +
-              '\u0000' +
-              content,
-        this.clientIDRange(),
-      ),
+    const first = scratchFor(1);
+    const content = first.encode();
+    const clientID = initClientID(
+      baseVector === null
+        ? [BASE_LAYOUT_VERSION + '\u0000' + 'r:' + rootName + '\u0000', content]
+        : [
+            BASE_LAYOUT_VERSION + '\u0000' + 'd:',
+            baseVector,
+            '\u0000',
+            content,
+          ],
     );
+    // A pristine root's first write, relabeled to the derived id (see
+    // relabelSeed): the bytes a second write under that id gives.
+    if (base === null && relabelSeed(first.scratch, 1, clientID)) {
+      return result(first);
+    }
+    first.scratch.destroy();
+    return result(scratchFor(clientID));
   }
 
   /** Older layouts' roots that hold content. */
@@ -3466,7 +3792,9 @@ export class YBinding {
           // (see Writer#$pushLine): the editor differs from the shared
           // content there until it runs. The read below brings it in line,
           // which is no reader bug.
-          if (!editorState.read(() => this.$holdsWrittenLines(cs))) {
+          if (
+            !this._editor.read(editorState, () => this.$holdsWrittenLines(cs))
+          ) {
             pushAll(problems, found);
           }
         }
@@ -3548,7 +3876,7 @@ export class YBinding {
     editorState: EditorState,
     keys: Iterable<NodeKey> | null,
   ): boolean {
-    const types = editorState.read(() =>
+    const types = this._editor.read(editorState, () =>
       $unstorableSlotHosts(new Roles(this.state), keys, editorState._nodeMap),
     );
     if (types.length === 0) {
@@ -3597,6 +3925,19 @@ export class YBinding {
           types,
         },
       );
+      this.setStatus('readonly');
+      return;
+    }
+    const replaced = this.state.replacedStorage;
+    if (replaced.size > 0) {
+      for (const type of [...replaced.keys()].sort()) {
+        const m = replaced.get(type)!;
+        this.warn(
+          STORAGE_MISMATCH_WARNING,
+          `${m.type} is stored as ${m.stored.kind}, and this editor builds its nodes as ${m.replacement} (a node replacement), whose class cannot be stored as ${m.stored.kind} (it is stored as ${m.declared.kind}). Edits to those nodes could not be written, so this editor is read only: migrate the stored content first (reseed it into a new room with seedYState, or upgrade it where the document is stored), or replace ${m.type} with a class that can be stored as ${m.stored.kind}`,
+          m,
+        );
+      }
       this.setStatus('readonly');
       return;
     }
@@ -3790,6 +4131,7 @@ export class YBinding {
       this.schemaGate !== null ||
       this.state.unknownTypes.size > 0 ||
       this.state.unreadable.size > 0 ||
+      this.state.replacedStorage.size > 0 ||
       this.keepsUnstored ||
       this.unreadable ||
       this.quiesced
@@ -3819,6 +4161,7 @@ export class YBinding {
     }
     if (status === 'active') {
       this.warnedEdit = false;
+      this._readOnlyWarning = null;
     }
     if (this._status !== status && this.options.onStatus) {
       // Reported with the warnings, once Yjs is idle (see flushWarnings).
@@ -3864,7 +4207,7 @@ export class YBinding {
     if (replies.length === 0) {
       return;
     }
-    this.replies.push(...replies);
+    pushAll(this.replies, replies);
     for (const update of editor._updates.slice(0, queued)) {
       this.queuedBeforeReplies.add(update);
     }
@@ -3892,7 +4235,7 @@ export class YBinding {
       at--;
     }
     this.queuedBeforeReplies.clear();
-    updates.splice(at, 0, ...this.replies.splice(0));
+    spliceAll(updates, at, 0, this.replies.splice(0));
   }
 
   /**
@@ -3906,7 +4249,75 @@ export class YBinding {
     message: string,
     data: YEmittedWarningData<C> | YOtherWarningData,
   ): void {
-    this.pendingWarnings.push(new LexicalWarning(code, message, data));
+    const warning = new LexicalWarning(code, message, data);
+    // The first since the binding was last active: the binding warns the
+    // cause that explains the others first (a newer schema before what its
+    // content does).
+    if (READ_ONLY_CAUSE_CODES.has(code) && this._readOnlyWarning === null) {
+      this._readOnlyWarning = warning;
+    }
+    this.pendingWarnings.push(warning);
+  }
+
+  /**
+   * @internal The first warning since the binding was last active that can
+   * say why it is read only
+   * (a layout, schema, node type, storage, configuration or slot problem),
+   * null while it is active: what YCollabBinding#status reports as the
+   * cause. Set when the warning is queued, so a status listener sees it
+   * before the warning reaches `onWarn`.
+   */
+  get readOnlyWarning(): LexicalWarning | null {
+    return this._status === 'readonly' ? this._readOnlyWarning : null;
+  }
+
+  /**
+   * Reads `editorState` with the editor active to write it: the write's
+   * transactions are opened through transact.
+   */
+  private readToWrite<T>(editorState: EditorState, fn: () => T): T {
+    const outer = this.inWrite;
+    this.inWrite = true;
+    try {
+      return this._editor.read(editorState, fn);
+    } finally {
+      this.inWrite = outer;
+    }
+  }
+
+  /**
+   * A transaction of the document. Opened directly in the read the binding
+   * writes a commit in (see readToWrite), or a read it opens there, its body
+   * runs in that read, and Yjs's callbacks around it (observers,
+   * `beforeTransaction`, `afterTransaction`, the undo manager's events) run
+   * in a read of the same state without the editor, as they did before #9934
+   * (D137): a command one of them dispatches would otherwise start an update
+   * inside a read-only context. One joined to a transaction under way is
+   * that transaction's, and one queued behind a transaction being cleaned up
+   * runs its end callbacks in that cleanup.
+   */
+  private transact<T>(fn: (tr: Transaction) => T, origin: unknown): T {
+    const doc = this._doc;
+    const state = INTERNAL_getActiveEditorState();
+    if (
+      !this.inWrite ||
+      state === null ||
+      !isCurrentlyReadOnlyMode() ||
+      doc._transaction !== null
+    ) {
+      return doc.transact(fn, origin);
+    }
+    // Not the write's read while its callbacks run.
+    this.inWrite = false;
+    try {
+      return state.read(
+        () =>
+          doc.transact(tr => this._editor.read(state, () => fn(tr)), origin),
+        {editor: null},
+      );
+    } finally {
+      this.inWrite = true;
+    }
   }
 
   /** Run the binding's own work; queued warnings are passed on after it. */
@@ -3964,7 +4375,10 @@ export class YBinding {
       const refusals = this.pendingWarnings.filter(isReadOnlyRefusal);
       if (refusals.length > 0) {
         const rest = this.pendingWarnings.filter(w => !isReadOnlyRefusal(w));
-        this.pendingWarnings.splice(0, Infinity, ...rest, ...refusals);
+        spliceAll(this.pendingWarnings, 0, this.pendingWarnings.length, [
+          ...rest,
+          ...refusals,
+        ]);
       }
     }
     this.flushingWarnings = true;
@@ -4341,7 +4755,6 @@ export class YBinding {
       tr.origin === this.initOrigin ||
       tr.origin === this.followUpOrigin ||
       tr.origin === this.scanOrigin ||
-      tr.origin === this.runEndOrigin ||
       (this._undoManager !== null && tr.origin === this._undoManager)
     ) {
       return false;
@@ -4438,7 +4851,7 @@ export class YBinding {
     const doc = this._doc;
     // What no one else keeps (an UndoManager, the binding's own format
     // items) and the app's filter lets go.
-    doc.transact(t => tryGc(t, tr.deleteSet, doc.gcFilter), this.scanOrigin);
+    this.transact(t => tryGc(t, tr.deleteSet, doc.gcFilter), this.scanOrigin);
     const filters = this.gcFilters;
     if (this.heldUnread.size === 0 && filters !== null) {
       // Unless something replaced or wrapped it since: the binding's holds
@@ -4556,7 +4969,7 @@ export class YBinding {
       return;
     }
     if (tr.origin instanceof IdentityLayoutOrigin) {
-      // The layout 3 record this client wrote again (see
+      // The layout record this client wrote again (see
       // keepIdentityRecord): nothing the editor shows changed, and reading
       // does not depend on the record (every document reads as paired
       // runs).
@@ -4579,9 +4992,9 @@ export class YBinding {
     if (takePairingChanges(this._doc)) {
       // The selection is put back where it was (a caret, a composition's
       // caret included): the read gives the lines it is in other nodes.
-      const cursor = this._editor
-        .getEditorState()
-        .read(() => this.$cursorBeforeRead());
+      const cursor = this._editor.read('latest', () =>
+        this.$cursorBeforeRead(),
+      );
       this.readAll(cursor, null, true);
       return;
     }
@@ -4662,13 +5075,9 @@ export class YBinding {
     const committed = this._editor.getEditorState();
     let cursor: YCursor | null = null;
     // An undo puts back the selection of its step (a range, after typing
-    // over one); any other read keeps the user's caret a caret. The nulls an
-    // undo writes after itself (see closeRestoredRuns) are read as part of
-    // it: their read puts back the same selection, which the editor may not
-    // have committed yet (an undo run inside an update).
+    // over one); any other read keeps the user's caret a caret.
     const undoing =
-      (tr.origin === this._undoManager && this._undoManager !== null) ||
-      tr.origin === this.runEndOrigin;
+      tr.origin === this._undoManager && this._undoManager !== null;
     let rebuilt: ReadonlySet<CS> = new Set();
     let naming = false;
     this.guardedRead({
@@ -4726,9 +5135,7 @@ export class YBinding {
         cursor = this.pendingCursor;
         this.pendingCursor = null;
         if (undoing) {
-          if (tr.origin !== this.runEndOrigin) {
-            this.undoneCursor = cursor;
-          }
+          this.undoneCursor = cursor;
           cursor = this.stepCursor ?? cursor;
         }
         // A re-read of a naming update's change is tagged as that update
@@ -4970,8 +5377,9 @@ export class YBinding {
         key,
         payload.tags.has(COLLABORATION_TAG),
         () =>
-          payload.editorState.read(() => this.$composingOwner()) ===
-          hidden.ownerKey,
+          this._editor.read(payload.editorState, () =>
+            this.$composingOwner(),
+          ) === hidden.ownerKey,
       )
     ) {
       hidden.missed = true;
@@ -5149,7 +5557,7 @@ export class YBinding {
       // the read where the editor is idle, else right after it: refused and
       // warned about while read only, and, while still opening, part of what
       // the read replaces.
-      this.replies.unshift(...editor._updates.splice(0));
+      spliceAll(this.replies, 0, 0, editor._updates.splice(0));
       this.pending.add('replies');
       this.schedulePending();
     }
@@ -5495,7 +5903,8 @@ export class YBinding {
         : (editorState._textEdits.get(prevEditorState._nodeMap) ?? null);
     if (
       hidden !== null &&
-      editorState.read(
+      this._editor.read(
+        editorState,
         () =>
           $heldDecision(
             this.state,
@@ -5560,7 +5969,7 @@ export class YBinding {
     );
     this.readEditLog = heldLog;
     try {
-      editorState.read(() =>
+      this.readToWrite(editorState, () =>
         this.$writeCommit(
           state,
           commit,
@@ -5657,60 +6066,53 @@ export class YBinding {
     editorState: EditorState,
     readState: EditorState,
   ): boolean {
-    const editor = this._editor;
     const tops = (state: EditorState, keys: Iterable<NodeKey>) =>
-      state.read(
-        () => {
-          const out = new Set<NodeKey>();
-          for (const key of keys) {
-            const node = $getNodeByKey(key);
-            if (node === null) {
-              continue;
-            }
-            if ($isRootNode(node)) {
-              out.add('root');
-              continue;
-            }
-            // The root's child it is in, by its parents (or slot hosts): the
-            // read's update runs no transforms, so it can leave a shape
-            // getTopLevelElement throws on (inline content right under a
-            // shadow root).
-            let at: LexicalNode | null = node;
-            while (at !== null) {
-              const parent: NodeKey | null =
-                at.__parent ??
-                (at as {__slotHost?: null | NodeKey}).__slotHost ??
-                null;
-              if (parent === 'root') {
-                out.add(at.getKey());
-                break;
-              }
-              at = parent === null ? null : $getNodeByKey(parent);
-            }
+      this._editor.read(state, () => {
+        const out = new Set<NodeKey>();
+        for (const key of keys) {
+          const node = $getNodeByKey(key);
+          if (node === null) {
+            continue;
           }
-          return out;
-        },
-        {editor},
-      );
+          if ($isRootNode(node)) {
+            out.add('root');
+            continue;
+          }
+          // The root's child it is in, by its parents (or slot hosts): the
+          // read's update runs no transforms, so it can leave a shape
+          // getTopLevelElement throws on (inline content right under a
+          // shadow root).
+          let at: LexicalNode | null = node;
+          while (at !== null) {
+            const parent: NodeKey | null =
+              at.__parent ??
+              (at as {__slotHost?: null | NodeKey}).__slotHost ??
+              null;
+            if (parent === 'root') {
+              out.add(at.getKey());
+              break;
+            }
+            at = parent === null ? null : $getNodeByKey(parent);
+          }
+        }
+        return out;
+      });
     const keys = [...dirtyElements.keys(), ...dirtyLeaves];
     const blocks = new Set([
       ...tops(editorState, keys),
       ...tops(readState, keys),
     ]);
     const shown = (state: EditorState, key: NodeKey) =>
-      state.read(
-        () => {
-          const node = $getNodeByKey(key);
-          if (node === null || !node.isAttached()) {
-            return null;
-          }
-          if ($isRootNode(node)) {
-            return JSON.stringify(node.getChildrenKeys());
-          }
-          return JSON.stringify($deepJSON(node, null, null, true));
-        },
-        {editor},
-      );
+      this._editor.read(state, () => {
+        const node = $getNodeByKey(key);
+        if (node === null || !node.isAttached()) {
+          return null;
+        }
+        if ($isRootNode(node)) {
+          return JSON.stringify(node.getChildrenKeys());
+        }
+        return JSON.stringify($deepJSON(node, null, null, true));
+      });
     for (const key of blocks) {
       if (shown(editorState, key) !== shown(readState, key)) {
         return true;
@@ -5998,7 +6400,7 @@ export class YBinding {
     }
     state.hidden = null;
     hidden.releaseKeeps();
-    if (this.heldResult.size > 0) {
+    if (this.heldIds.size > 0) {
       // The lines whose re-typing was not written: normalized once read.
       this.pending.add('normalize');
     }
@@ -6514,7 +6916,7 @@ export class YBinding {
     // there is one (see Unread and guard).
     this.writeGrace = grace;
     try {
-      editorState.read(() =>
+      this.readToWrite(editorState, () =>
         this.$writeCommit(
           state,
           commit,
@@ -6561,7 +6963,7 @@ export class YBinding {
     const capped = this.rereads > MAX_REREADS;
     const empty: NodeKey[] = [];
     const composing = this._editor._compositionKey;
-    editorState.read(() => {
+    this._editor.read(editorState, () => {
       const selection = $getSelection();
       const caret =
         $isRangeSelection(selection) && selection.isCollapsed()
@@ -6659,7 +7061,7 @@ export class YBinding {
   ): Set<NodeKey> {
     const localKeys = new Set<NodeKey>();
     const prevMap = prevEditorState._nodeMap;
-    editorState.read(() => {
+    this._editor.read(editorState, () => {
       for (const [key, intentional] of dirtyElements) {
         if (!intentional) {
           continue;
@@ -6701,7 +7103,7 @@ export class YBinding {
     marked: ReadonlySet<NodeKey>,
   ): boolean {
     let untransformed = false;
-    editorState.read(() => {
+    this._editor.read(editorState, () => {
       for (const [key, intentional] of dirtyElements) {
         if (!intentional || transformed.has(key)) {
           continue;
@@ -6770,13 +7172,53 @@ export class YBinding {
     plan.textEdits =
       textEdits === null ? null : textEdits.get(prevEditorState._nodeMap);
     // The author's normalization of the lines holding characters of a line
-    // whose re-typing was not written (see heldResult): only what agrees is
-    // written, and everything the update changed is read again as stored.
-    const release = commit.normalize ? this.releasing : null;
+    // whose re-typing was not written (see heldIds), which joins the undo
+    // step of the update that ended the composition (see releaseStep).
+    const rerunScope = commit.normalize ? this.rerunScope : null;
     if (commit.normalize) {
-      this.releasing = null;
+      this.rerunScope = null;
     }
-    plan.release = release;
+    const rerun = rerunScope !== null;
+    if (
+      rerunScope !== null &&
+      (!$staysInLines(plan, rerunScope, roles, prevEditorState) ||
+        $removesNonText(dirtyElements, prevEditorState) ||
+        $leavesUnstoredTextFields(dirtyElements, prevEditorState))
+    ) {
+      // What the transforms make is written only where it stays in those
+      // lines, as an edit of their content in place: where they restructure
+      // the document (convert, split, move or remove a line, or change
+      // another block: a code block after the line, which a change of the
+      // line marks dirty, tokenized), remove a decorator or an inline
+      // element at any depth (a code highlighter turns a decorator into its
+      // text, and takes the text out of a link, which loses its NodeState),
+      // or leave text fields stored nowhere, nothing is written, and what
+      // they changed is read again as stored.
+      this.releaseStep = null;
+      this.$refuseChanged(
+        dirtyElements,
+        dirtyLeaves,
+        editorState,
+        prevEditorState,
+      );
+      return;
+    }
+    if (rerunScope !== null && plan.unwritable !== undefined) {
+      // A change of an element's text format or style where it is derived
+      // (text below it), which the writer does not write (see
+      // WritePlan#unwritable): read again as stored, as a follow-up's is
+      // (see Writer#$run).
+      for (const key of plan.unwritable) {
+        const node = $getNodeByKey(key);
+        if (node !== null && node.isAttached()) {
+          const cs = state.csByKey.get(roles.$containerOf(node).getKey());
+          if (cs !== undefined) {
+            this.refused.add(cs);
+            this.pending.add('reread');
+          }
+        }
+      }
+    }
     if (
       plan.structural.size === 0 &&
       plan.inline.size === 0 &&
@@ -6806,7 +7248,7 @@ export class YBinding {
     this.writeCursor =
       origin === this && this._undoManager !== null
         ? this.splitWhileUnread(() =>
-            prevEditorState.read(() => {
+            this._editor.read(prevEditorState, () => {
               try {
                 return this.$captureCursor();
               } catch (_e) {
@@ -6827,7 +7269,7 @@ export class YBinding {
     // captureTimeout is, while that step is the last one (see releaseStep).
     let captureTimeout: number | null = null;
     if (
-      release !== null &&
+      rerun &&
       um !== null &&
       origin === this &&
       this.releaseStep !== null &&
@@ -6839,7 +7281,7 @@ export class YBinding {
         um.lastChange = Date.now();
       }
     }
-    if (release !== null) {
+    if (rerun) {
       this.releaseStep = null;
     }
     let written: Writer | null | Refusal | 'held';
@@ -6893,15 +7335,6 @@ export class YBinding {
       return;
     }
     const writer = written;
-    if (release !== null) {
-      this.$refuseChanged(
-        dirtyElements,
-        dirtyLeaves,
-        editorState,
-        prevEditorState,
-      );
-      return;
-    }
     if (writer !== null) {
       this.noteWriteRefusals(
         state,
@@ -6922,11 +7355,10 @@ export class YBinding {
         // hold shows it as a block its shared counterpart no longer is, was
         // not written (see Writer#skippedLine). It is read again as stored
         // and the hold ends, as for an edit refused for the hold, and its
-        // transforms run again on what is stored, of which what agrees with
-        // this update is written (see heldResult). The rest of the update is
-        // written.
-        for (const [id, attrs] of writer.heldResult) {
-          this.heldResult.set(id, attrs);
+        // transforms run again on what is stored, as the author's own edit
+        // (see heldIds). The rest of the update is written.
+        for (const id of writer.heldIds) {
+          this.heldIds.add(id);
         }
         // The undo step holding this write, if it wrote anything.
         if (um !== null) {
@@ -6965,7 +7397,7 @@ export class YBinding {
           this.retypeReported = true;
           this.warn(
             UNSUPPORTED_EDIT_WARNING,
-            "a local update re-typed the line being composed (a transform's tokens for it, such as a code highlighter's) while the composition's hold shows that line as a block its shared counterpart no longer is (a collaborator changed its type, or joined it into the line before it): the re-typing is not written, the rest of the update is, and the line is read again as stored; its transforms then run again, and only changes that agree with what that update would have written are saved",
+            "a local update re-typed the line being composed (a transform's tokens for it, such as a code highlighter's) while the composition's hold shows that line as a block its shared counterpart no longer is (a collaborator changed its type, or joined it into the line before it): the re-typing is not written, the rest of the update is, and the line is read again as stored; its transforms then run again on it as the composer's own edit, and what they change in that line, in place, is saved (see DECISIONS.md D115)",
             {detailCode: 'held-line-retokenize', reason: 'other'},
           );
         }
@@ -7188,8 +7620,8 @@ export class YBinding {
         prev === undefined ||
         now === undefined ||
         prev.__parent !== now.__parent ||
-        prevEditorState.read(() => shallow(prev)) !==
-          editorState.read(() => shallow(now)) ||
+        this._editor.read(prevEditorState, () => shallow(prev)) !==
+          this._editor.read(editorState, () => shallow(now)) ||
         kids(prev, c => prevMap.get(c)) !==
           kids(now, c => nowMap.get(c) ?? prevMap.get(c))
       ) {
@@ -7388,7 +7820,7 @@ export class YBinding {
     // The clock ranges this write's own mutations made (see Owned.ts).
     const ownedRanges: OwnedRanges = [];
     try {
-      this._doc.transact(
+      this.transact(
         tr =>
           collectOwned(state, ownedRanges, () => {
             clockBefore = this._doc.store.getClock(this._doc.clientID);
@@ -7522,11 +7954,6 @@ export class YBinding {
                   this.isUnderRoot(t),
                 );
               }
-              // In the same transaction as the first member entry of a set, even
-              // when the write throws part way: clients that only read layout 1
-              // never get one without the version that tells them they cannot
-              // read it.
-              recordSetMembersLayout(this._root, tr);
               // A write D08 permits may record this client's own schema version
               // (its first write at it): its pins and its recovery are admitted
               // on the records it was admitted on plus exactly that record, and
@@ -7564,7 +7991,7 @@ export class YBinding {
         return null;
       }
       if (!commit.followUp) {
-        this._doc.transact(tr => {
+        this.transact(tr => {
           // Admitted inside its own transaction too (see the write's): a
           // record that stopped admitting writes gets no pin, and is read
           // (see readChange).
@@ -7609,7 +8036,7 @@ export class YBinding {
       let recoveryRefused: 'layout' | 'schema' | null = null;
       const failed = writer as Writer | null;
       try {
-        this._doc.transact(tr => {
+        this.transact(tr => {
           // Admitted inside its own transaction, as the write it recovers.
           recoveryRefused = this.refusalIn(after);
           if (recoveryRefused !== null) {
@@ -7678,7 +8105,6 @@ export class YBinding {
                 this.isUnderRoot(t),
               );
             }
-            recordSetMembersLayout(this._root, tr);
           }
         }, origin);
       } catch (e2) {
@@ -7927,7 +8353,7 @@ export class YBinding {
       return false;
     }
     let found = false;
-    editorState.read(() => {
+    this._editor.read(editorState, () => {
       const roles = new Roles(this.state);
       for (const key of dirtyElements.keys()) {
         if (
@@ -8101,7 +8527,7 @@ export class YBinding {
       const prevEnd = idx > 0 ? units[idx - 1].end : null;
       let left = prevEnd;
       while (left !== null && !isShownEndIn(view, left, state.hidden)) {
-        left = prevLiveEnd(view, left, state.hidden);
+        left = prevShownEnd(view, left, state.hidden);
       }
       start = left === null ? unit.cs.y._start : left.right;
       // (Before the copy: a stale start is folded again, see frontierOf.)
@@ -8502,8 +8928,8 @@ export class YBinding {
       this.toSettle.clear();
       this.untransformed.clear();
       this.untransformedText.clear();
-      this.heldResult.clear();
-      this.releasing = null;
+      this.heldIds.clear();
+      this.rerunScope = null;
       this.releaseStep = null;
       this.storedHoles.clear();
       this.registrationPasses.length = 0;
@@ -8532,7 +8958,7 @@ export class YBinding {
           // $rereadRefused).
           if (
             this.pending.has('reread') &&
-            this._editor.getEditorState().read(() => this.$releasesWithReread())
+            this._editor.read('latest', () => this.$releasesWithReread())
           ) {
             this.rereadRefused();
           }
@@ -8889,18 +9315,18 @@ export class YBinding {
   }
 
   /**
-   * The lines that hold the stored characters `record` names (see
-   * heldResult), where any of them is still there: a character belongs to
+   * The lines that hold the stored characters `ids` names (see heldIds),
+   * where any of them is still there: a character belongs to
    * the line whose marker is the next one after it in its container (a
    * character in an inline node, to the line holding that node). None for
    * characters a collaborator deleted since, nor for any outside a line.
    */
-  private $linesHolding(record: ReadonlyMap<string, Attrs>): ElementNode[] {
+  private $linesHolding(ids: Iterable<string>): ElementNode[] {
     const state = this.state;
     const store = this._doc.store;
     const found = new Set<ElementNode>();
     const seen = new Set<Item>();
-    for (const id of record.keys()) {
+    for (const id of ids) {
       const colon = id.indexOf(':');
       const client = Number(id.slice(0, colon));
       const clock = Number(id.slice(colon + 1));
@@ -8944,14 +9370,14 @@ export class YBinding {
 
   /** The author's normalization itself, inside an update. */
   private $normalize(): void {
-    this.releasing = null;
+    this.rerunScope = null;
     // The lines holding characters of a line whose re-typing was not
-    // written, once its hold has ended: in an update of their own, in which
-    // nothing else is written (see heldResult).
-    if (this.state.hidden === null && this.heldResult.size > 0) {
-      const record = this.heldResult;
-      this.heldResult = new Map();
-      const lines = this.writesEdits() ? this.$linesHolding(record) : [];
+    // written, once its hold has ended: their transforms run again, in an
+    // update of their own (see heldIds).
+    if (this.state.hidden === null && this.heldIds.size > 0) {
+      const ids = [...this.heldIds];
+      this.heldIds.clear();
+      const lines = this.writesEdits() ? this.$linesHolding(ids) : [];
       if (lines.length === 0) {
         this.releaseStep = null;
       } else {
@@ -8971,7 +9397,7 @@ export class YBinding {
             text.markDirty();
           }
         }
-        this.releasing = {lines: keys, record};
+        this.rerunScope = keys;
         if (
           this.untransformed.size > 0 ||
           this.untransformedText.size > 0 ||
@@ -9114,27 +9540,6 @@ export class YBinding {
    * leave a malformed container).
    */
   private isKeptByUndo(item: Item): boolean {
-    // A null a format change wrote after its range to end its value there:
-    // kept where without it the content after it would take a value (that
-    // of a collaborator's change that ended inside the range, closed with
-    // the value this change gave), and where a collaborator removed this
-    // change's own opener (an undo of that removal brings it back).
-    if (isFormatCloser(item) && this.undoing !== null) {
-      const {key} = item.content as ContentFormat;
-      for (let it = item.left; it !== null; it = it.left) {
-        if (!(it.content instanceof ContentFormat) || it.content.key !== key) {
-          continue;
-        }
-        if (this.undoing.hasId(it.id)) {
-          if (it.deleted) {
-            return true;
-          }
-        } else if (!it.deleted) {
-          return it.content.value !== null;
-        }
-      }
-      return false;
-    }
     // The layout and schema records only grow.
     if (
       item.parent === this._root &&
@@ -9265,8 +9670,6 @@ export class YBinding {
       const base = opposite().length;
       const popped = undo ? um.undo() : um.redo();
       if (popped !== null) {
-        this.carryCloserMarks(popped);
-        this.closeRestoredRuns(popped);
         // Read inside the running update (see undoOrRedo): what the
         // binding writes of it, in that update's commit, is part of the
         // step (see stepFold).
@@ -9286,7 +9689,6 @@ export class YBinding {
     } finally {
       this.restoring = null;
       this.removing = null;
-      this.undoing = null;
       this.stepCursor = null;
     }
   }
@@ -9337,195 +9739,6 @@ export class YBinding {
   }
 
   /**
-   * Give the copies the undo or redo of `step` made of format closers (see
-   * isKeptByUndo) the closers' mark: a redo makes a new item of each item
-   * its undo deleted, and without the mark the next undo of that change
-   * deleted a closer it would have kept, so the value it ended ran on (a
-   * bold made, undone and redone, then a collaborator's removal of it undone
-   * after its undo, left the rest of the document bold).
-   */
-  private carryCloserMarks(step: UndoManager['undoStack'][number]): void {
-    const store = this._doc.store;
-    this._doc.transact(tr => {
-      iterateStructsByIdSet(tr, step.deletes, s => {
-        if (s instanceof Item && s.redone !== null && isFormatCloser(s)) {
-          const copy = store.getItem(s.redone);
-          if (copy instanceof Item) {
-            markFormatCloser(copy);
-          }
-        }
-      });
-    }, this.scanOrigin);
-  }
-
-  /**
-   * End each run that a format item the undo or redo of `step` brought back
-   * opens with an item of this client's own, where the item that ended it is
-   * another client's: right before a live null of another client's that ends
-   * it, or right after the end the original's own change gave its run (see
-   * changeEnd), where that is gone and nothing ends the run before it. An
-   * undo brings back the items its change deleted, and the closer that ended
-   * such a run was not among them: a collaborator's concurrent undo of the
-   * change that wrote it removed it, and the value ran on to the end of the
-   * document (a comment added, undone while a collaborator resolved it and
-   * undid the resolve, put the comment on everything after it; bold removed
-   * from a collaborator's bold text while the collaborator undid it, and that
-   * removal undone, made everything after it bold). Invariant: a run an undo
-   * or redo brings back ends where a closer ended it for this client,
-   * whatever another client removes at the same time. A run that another
-   * value ends is left as it is: where that value's change is undone, the run
-   * going on over its text is what it had before (a copy of that value kept
-   * it there after its own undo). A copy inside a run of its own value (see
-   * opensRun) opens no run: the run it is in ends where it ends.
-   */
-  private closeRestoredRuns(step: UndoManager['undoStack'][number]): void {
-    const doc = this._doc;
-    const store = doc.store;
-    const client = doc.clientID;
-    // Where to write each null: after the item that ends at `leftEnd`,
-    // before the item that starts at `right` (null: at that end of the
-    // list). Ids, not items: the scan's
-    // transaction splits items and its cleanup merges them back, so an item
-    // object it saw can be a piece no longer in the store by the time the
-    // null is written (an item linked to such a piece breaks the list's
-    // links).
-    const ends: [leftEnd: ID | null, right: ID | null, key: string][] = [];
-    doc.transact(tr => {
-      const copies: [original: Item, copy: Item][] = [];
-      iterateStructsByIdSet(tr, step.deletes, s => {
-        if (
-          s instanceof Item &&
-          s.redone !== null &&
-          s.content instanceof ContentFormat
-        ) {
-          const copy = store.getItem(s.redone);
-          if (
-            copy instanceof Item &&
-            !copy.deleted &&
-            copy.content instanceof ContentFormat &&
-            copy.content.value !== null &&
-            !this.pairsKey(copy.content.key)
-          ) {
-            copies.push([s, copy]);
-          }
-        }
-      });
-      for (const [original, copy] of copies) {
-        const {key} = copy.content as ContentFormat;
-        // The end of the run the original opened in its own write (see
-        // changeEnd): where that is gone (the undo of that write), the
-        // copy's run ends there.
-        const gone = opensRun(copy) ? changeEnd(doc, original) : null;
-        let shown = false;
-        for (let it = copy.right; it !== null; it = it.right) {
-          if (it === gone && it.deleted) {
-            if (shown) {
-              ends.push([it.lastId, it.right && it.right.id, key]);
-            }
-            break;
-          }
-          if (it.deleted) {
-            continue;
-          }
-          if (it.content instanceof ContentFormat) {
-            if (it.content.key === key) {
-              if (
-                shown &&
-                it.id.client !== client &&
-                it.content.value === null
-              ) {
-                ends.push([it.left && it.left.lastId, it.id, key]);
-              }
-              break;
-            }
-          } else if (it.countable) {
-            shown = true;
-          }
-        }
-      }
-    }, this.scanOrigin);
-    if (ends.length > 0) {
-      doc.transact(tr => {
-        // Development builds: the binding's own write, even when it joined
-        // an app's transaction (see noteRawWrite).
-        if (__DEV__) {
-          markBindingWrite(tr);
-        }
-        // The nulls this loop writes: two keys can need an end in the same
-        // gap, and the second must not take the first's null for a change
-        // of the gap.
-        const written = new Set<Item>();
-        for (const [leftEnd, rightStart, key] of ends) {
-          // The items as the store holds them now, split at those ids.
-          const right =
-            rightStart === null ? null : getItemCleanStart(tr, rightStart);
-          let left: Item | null = null;
-          if (leftEnd !== null) {
-            const at = store.getItem(leftEnd);
-            if (
-              at instanceof Item &&
-              at.id.clock + at.length - 1 > leftEnd.clock
-            ) {
-              getItemCleanStart(
-                tr,
-                createID(leftEnd.client, leftEnd.clock + 1),
-              );
-            }
-            const found = store.getItem(leftEnd);
-            left = found instanceof Item ? found : null;
-          }
-          if (
-            (rightStart !== null && !(right instanceof Item)) ||
-            (leftEnd !== null && left === null) ||
-            (left === null && right === null) ||
-            (left !== null && right !== null && left.parent !== right.parent)
-          ) {
-            continue;
-          }
-          // Still next to each other but for the nulls written here, in one
-          // type (never next to an item of another type: see checkLinkable
-          // in Cursor). The null goes right before `right`, after those.
-          let before: Item | null;
-          if (right !== null) {
-            let l = right.left;
-            while (l !== null && written.has(l)) {
-              l = l.left;
-            }
-            if (l !== left) {
-              continue;
-            }
-            before = right.left;
-          } else {
-            let last = left as Item;
-            let r = last.right;
-            while (r !== null && written.has(r)) {
-              last = r;
-              r = r.right;
-            }
-            if (r !== null) {
-              continue;
-            }
-            before = last;
-          }
-          const item = new Item(
-            createID(client, store.getClock(client)),
-            before,
-            before && before.lastId,
-            right,
-            right && right.id,
-            (left ?? right)!.parent,
-            null,
-            new ContentFormat(key, null as unknown as object),
-          );
-          item.integrate(tr, 0);
-          written.add(item);
-          markFormatCloser(item);
-        }
-      }, this.runEndOrigin);
-    }
-  }
-
-  /**
    * The stored nodes the next stack item restores (by name) and deletes
    * (items), for the undo delete filter.
    */
@@ -9533,7 +9746,6 @@ export class YBinding {
     const top = stack[stack.length - 1];
     this.restoring = null;
     this.removing = null;
-    this.undoing = null;
     if (top === undefined) {
       return;
     }
@@ -9546,7 +9758,7 @@ export class YBinding {
       const name = nameOf(s);
       return name !== MARKER && name !== RUN_END;
     };
-    this._doc.transact(tr => {
+    this.transact(tr => {
       iterateStructsByIdSet(tr, top.deletes, s => {
         if (isStored(s)) {
           names.add(nameOf(s));
@@ -9560,9 +9772,6 @@ export class YBinding {
     }, this.scanOrigin);
     this.restoring = names;
     this.removing = removing;
-    // By id: this scan's transaction splits items and merges them back, so
-    // the item objects it saw need not be those the undo meets.
-    this.undoing = top.inserts;
   }
 
   // -------------------------------------------------------------------------
@@ -9618,7 +9827,7 @@ export class YBinding {
     }
     let cursor: YCursor | null = null;
     try {
-      doc.transact(tr => {
+      this.transact(tr => {
         this.splitting = tr;
         cursor = take(tr);
       }, this.scanOrigin);
@@ -9659,7 +9868,7 @@ export class YBinding {
     }
     let result: T | undefined;
     try {
-      this._doc.transact(tr => {
+      this.transact(tr => {
         this.splitting = tr;
         this.splitAtUnread(tr);
         result = fn();
@@ -9671,7 +9880,7 @@ export class YBinding {
   }
 
   private readCursor(): YCursor | null {
-    return this._editor.getEditorState().read(() => {
+    return this._editor.read('latest', () => {
       try {
         return this.$captureCursor();
       } catch (_e) {
@@ -10175,7 +10384,7 @@ export class YBinding {
       const idx = units.indexOf(unit);
       let left = idx > 0 ? units[idx - 1].end : null;
       while (left !== null && !isShownEndIn(view, left, state.hidden)) {
-        left = prevLiveEnd(view, left, state.hidden);
+        left = prevShownEnd(view, left, state.hidden);
       }
       start = left === null ? unit.cs.y._start : left.right;
     } else {
@@ -10403,7 +10612,7 @@ export class YBinding {
     ) {
       // Captured in an empty line (see emptyLinePositions): the start of
       // that line, before what was typed into it since.
-      const left = prevLiveEnd(view, found, hidden);
+      const left = prevShownEnd(view, found, hidden);
       item = left === null ? (found.parent as YNode)._start : left.right;
       diff = 0;
     } else if (rel.assoc < 0) {
@@ -10436,7 +10645,7 @@ export class YBinding {
           ? null
           : implicitUnitAt(cs, undefined);
       if (implicit !== null) {
-        const left = prevLiveEnd(view, found, hidden);
+        const left = prevShownEnd(view, found, hidden);
         return this.$pointInLine(
           implicit.key!,
           left === null ? (found.parent as YNode)._start : left.right,
@@ -10464,7 +10673,7 @@ export class YBinding {
       const left =
         unit.end === end
           ? unitLeftEnd(view, unit.cs.units, unit, hidden)
-          : prevLiveEnd(view, end, hidden);
+          : prevShownEnd(view, end, hidden);
       start = left === null ? parentY._start : left.right;
     } else {
       const cs = this.state.containers.get(parentY);
@@ -10476,8 +10685,8 @@ export class YBinding {
       if (implicit !== null) {
         const left =
           end === null
-            ? prevLiveEnd(view, item, hidden)
-            : prevLiveEnd(view, end, hidden);
+            ? prevShownEnd(view, item, hidden)
+            : prevShownEnd(view, end, hidden);
         return this.$pointInLine(
           implicit.key!,
           left === null ? parentY._start : left.right,
@@ -10496,10 +10705,7 @@ export class YBinding {
       ownerKey = cs.key;
       start = parentY._start;
     }
-    let offset = 0;
-    for (let it = start; it !== null && it !== item; it = it.right) {
-      offset += shownLengthIn(view, it, hidden);
-    }
+    let offset = countShown(view, start, item, hidden);
     offset +=
       item === end
         ? 0
@@ -10889,25 +11095,40 @@ function changedKeys(
 
 /**
  * A client id derived from content (the initial content's, see
- * YBinding#seedUpdate): a hash of `seed` in the document's client id range
- * (see {@link ClientIDRange}), 53 bits under `'uint53'` (Yjs 14's own range)
- * and 32 bits under `'uint32'`. Invariant: equal seeds give equal ids. Why:
- * clients writing the same items from the same inputs write them once.
- * Different seeds share an id only with the probability of a collision in
- * that range (a shared id with different items would diverge), the same odds
- * as two random client ids; so every client of a document must use the same
- * range.
+ * YBinding#seedUpdate): a hash (cyrb53, public domain) of `parts` read as
+ * one string, each byte of a `Uint8Array` part as one char, in the
+ * document's client id range (53 bits, Yjs 14's own range). Invariant: equal
+ * seeds give equal ids. Why: clients writing the same items from the same
+ * inputs write them once. Different seeds share an id only with the
+ * probability of a collision in that range (a shared id with different
+ * items would diverge), the same odds as two random client ids. The bytes
+ * are read where they are: a string made of them hashes the same, but
+ * reading a long string built by concatenation costs far more.
  */
-/** `bytes` as a string of one char per byte (see initClientID). */
-function byteString(bytes: Uint8Array): string {
-  let out = '';
-  for (let i = 0; i < bytes.length; i += 4096) {
-    out += String.fromCharCode.apply(
-      null,
-      Array.from(bytes.subarray(i, i + 4096)),
-    );
+function initClientID(parts: readonly (string | Uint8Array)[]): number {
+  let h1 = 0xdeadbeef;
+  let h2 = 0x41c6ce57;
+  for (const part of parts) {
+    if (typeof part === 'string') {
+      for (let i = 0; i < part.length; i++) {
+        const ch = part.charCodeAt(i);
+        h1 = Math.imul(h1 ^ ch, 2654435761);
+        h2 = Math.imul(h2 ^ ch, 1597334677);
+      }
+    } else {
+      for (let i = 0; i < part.length; i++) {
+        const ch = part[i];
+        h1 = Math.imul(h1 ^ ch, 2654435761);
+        h2 = Math.imul(h2 ^ ch, 1597334677);
+      }
+    }
   }
-  return out;
+  h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507);
+  h1 ^= Math.imul(h2 ^ (h2 >>> 13), 3266489909);
+  h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507);
+  h2 ^= Math.imul(h1 ^ (h1 >>> 13), 3266489909);
+  const id = 0x100000000 * (h2 & 0x1fffff) + (h1 >>> 0);
+  return id === 0 ? 1 : id;
 }
 
 /**
@@ -10923,26 +11144,6 @@ function storedTypeOf(doc: Doc, client: number, clock: number): YNode {
     '@lexical/y: the copy of the document does not hold the root',
   );
   return item.content.type as YNode;
-}
-
-function initClientID(seed: string, range: ClientIDRange = 'uint53'): number {
-  // cyrb53 (public domain).
-  let h1 = 0xdeadbeef;
-  let h2 = 0x41c6ce57;
-  for (let i = 0; i < seed.length; i++) {
-    const ch = seed.charCodeAt(i);
-    h1 = Math.imul(h1 ^ ch, 2654435761);
-    h2 = Math.imul(h2 ^ ch, 1597334677);
-  }
-  h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507);
-  h1 ^= Math.imul(h2 ^ (h2 >>> 13), 3266489909);
-  h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507);
-  h2 ^= Math.imul(h1 ^ (h1 >>> 13), 3266489909);
-  const id =
-    range === 'uint53'
-      ? 0x100000000 * (h2 & 0x1fffff) + (h1 >>> 0)
-      : (h1 ^ h2) >>> 0;
-  return id === 0 ? 1 : id;
 }
 
 /**

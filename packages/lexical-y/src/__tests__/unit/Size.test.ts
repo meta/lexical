@@ -56,7 +56,8 @@ function emitted(peer: Peer, fn: () => void): number {
 const BUDGETS: Record<string, [number, number, number]> = {
   'Backspace join': [13, 32, 13],
   'Enter mid line': [32, 13, 31],
-  // The first comment also records layout 2 (`lexical-y:2`) in its update.
+  // (Before layout 4 the first comment also recorded layout 2,
+  // `lexical-y:2`, in its update: the budget still has that room.)
   'add a comment (MarkStateExtension)': [115, 13, 84],
   'add an overlapping comment (MarkStateExtension)': [90, 13, 84],
   'bold a range': [71, 13, 67],

@@ -88,8 +88,12 @@ export const UNSUPPORTED_CONFIG_WARNING = '@lexical/y/unsupported-config';
  *   hold shows that line as a block its shared counterpart no longer is (a
  *   collaborator changed its type, or joined it into the line before it).
  *   The re-typing is not written, the rest of the update is, and the line
- *   is read again as stored; its transforms then run again, and only
- *   changes that agree with what that update would have written are saved.
+ *   is read again as stored; its transforms then run again on it as the
+ *   composer's own edit, and what they change in that line, in place, is
+ *   saved (nothing where they would restructure the document, change or
+ *   move the line's text, change another block, remove a decorator or an
+ *   inline element, or leave a text format no reader shows; see
+ *   DECISIONS.md D115).
  *   Reported once per composition.
  */
 export const UNSUPPORTED_EDIT_WARNING = '@lexical/y/unsupported-edit';
@@ -265,12 +269,18 @@ export type YStorageMismatchData =
       readonly key: string;
       readonly found: unknown;
     }
-  /** The class of `type` cannot be stored as the document stores it. */
+  /**
+   * The class of `type` cannot be stored as the document stores it. With
+   * `replacement`: this editor built a stored node of `type` as that type
+   * (a node replacement), whose class cannot be stored as `stored` (it is
+   * stored as `declared`), so edits to it could not be written.
+   */
   | {
       readonly reason: 'declaration-changed';
       readonly type: string;
       readonly stored: YStoredAs;
       readonly declared: YStoredAs;
+      readonly replacement?: string;
     };
 
 /**

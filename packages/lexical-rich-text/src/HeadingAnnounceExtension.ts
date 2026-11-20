@@ -86,7 +86,7 @@ export const HeadingAnnounceExtension = defineExtension({
                     $readHeadingTag(key),
                   );
                 } else if (mutation === 'destroyed' && destroyedTag === null) {
-                  destroyedTag = prevEditorState.read(() =>
+                  destroyedTag = editor.read(prevEditorState, () =>
                     $readHeadingTag(key),
                   );
                 }

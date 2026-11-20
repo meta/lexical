@@ -58,7 +58,7 @@ function bind(gc: boolean, state: Uint8Array = rawDoc(SEED)) {
       },
     }),
   );
-  const binding = new YBinding(editor, doc, {schemaVersion: 1});
+  const binding = new YBinding(editor, doc, {onStatus: null, schemaVersion: 1});
   binding.start();
   binding.initialize();
   const append = () =>

@@ -60,6 +60,7 @@ function buildEditor(doc: YDoc | null) {
           ? [
               configExtension(YCollabExtension, {
                 doc,
+                onYStatus: null,
                 schemaVersion: 1,
                 synced: true,
               }),
@@ -144,7 +145,7 @@ test.each([
     expect(
       readYState(
         Y.encodeStateAsUpdate(doc),
-        {extensions: EXTENSIONS, schemaVersion: 1},
+        {extensions: EXTENSIONS, onWarn: null, schemaVersion: 1},
         () => $getEditor().getEditorState().toJSON(),
       ),
     ).toEqual(bound.getEditorState().toJSON());

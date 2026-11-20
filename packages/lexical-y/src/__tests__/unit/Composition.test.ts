@@ -414,7 +414,10 @@ describe('@lexical/y a held-back insert survives a read that keeps the composed 
         throw e;
       },
     });
-    const binding = new YBinding(editor, doc, {schemaVersion: 1});
+    const binding = new YBinding(editor, doc, {
+      onStatus: null,
+      schemaVersion: 1,
+    });
     binding.start();
     return {binding, doc, editor};
   };

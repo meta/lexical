@@ -30,6 +30,7 @@ import {describe, expect, test} from 'vitest';
 import {createYDoc} from '../../..';
 import {migrateYState} from '../../../migrate';
 import {createBoundEditor, NODES} from '../../utils/harness';
+import {flat} from '../../utils/migrateResults';
 import {SEED, STAMP, stamp} from '../../utils/migrateSteps';
 import {rightOriginSplit, textOf, unitDump} from '../../utils/splitFixtures';
 
@@ -102,12 +103,15 @@ describe.each([false, true])('gc %s', gc => {
     const pending = relay.store.pendingStructs !== null;
     // Barrier: u0 is drained into the quarantine, never applied. Migrate.
     let code: string | null = null;
-    let result: ReturnType<typeof migrateYState> | null = null;
+    let result: ReturnType<typeof flat> | null = null;
     try {
-      result = migrateYState(Y.encodeStateAsUpdate(relay), [STAMP], {
-        gc,
-        to: SEED + 1,
-      });
+      result = flat(
+        migrateYState(Y.encodeStateAsUpdate(relay), [STAMP], {
+          gc,
+          pending: 'return',
+          to: SEED + 1,
+        }),
+      );
     } catch (e) {
       code = (e as {code?: string}).code ?? String(e);
     }
@@ -131,7 +135,11 @@ describe.each([false, true])('gc %s', gc => {
     expect(textOf(out.get('lexical-y'))).toContain(' Y');
     let after: string | null = null;
     try {
-      migrateYState(Y.encodeStateAsUpdate(relay), [STAMP], {gc, to: SEED + 1});
+      migrateYState(Y.encodeStateAsUpdate(relay), [STAMP], {
+        gc,
+        pending: 'return',
+        to: SEED + 1,
+      });
     } catch (e) {
       after = (e as {code?: string}).code ?? String(e);
     }
@@ -145,7 +153,13 @@ describe.each([false, true])('gc %s', gc => {
 
   test('the right-origin split: state, split material and the missing prefix hold what the plain merge holds', () => {
     const {stored, missing, docs} = rightOriginSplit(gc);
-    const result = migrateYState(stored, [stamp(2)], {gc, to: 3});
+    const result = flat(
+      migrateYState(stored, [stamp(2)], {
+        gc,
+        pending: 'return',
+        to: 3,
+      }),
+    );
     const out = createYDoc(result.state, {gc});
     expect(out.store.skips.isEmpty()).toBe(true);
     expect(out.store.pendingStructs).toBeNull();

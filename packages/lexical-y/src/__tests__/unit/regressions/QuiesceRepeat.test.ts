@@ -50,7 +50,7 @@ function setup(gc: boolean) {
       onWarn: () => {},
     }),
   );
-  const binding = new YBinding(editor, doc, {schemaVersion: 1});
+  const binding = new YBinding(editor, doc, {onStatus: null, schemaVersion: 1});
   binding.start();
   binding.initialize();
   const element = document.createElement('div');

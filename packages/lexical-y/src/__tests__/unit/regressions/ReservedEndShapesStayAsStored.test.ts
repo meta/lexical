@@ -133,7 +133,11 @@ const RAW: Record<(typeof KEYS)[number], unknown> = {
 };
 
 for (const gc of [false, true]) {
-  describe(`reserved end shapes stay as stored (gc ${gc ? 'on' : 'off'})`, () => {
+  // Each test runs every reserved shape under every key through a two-peer
+  // session: up to about 3.5 s alone, past vitest's default 5 s on a loaded
+  // machine.
+  const title = `reserved end shapes stay as stored (gc ${gc ? 'on' : 'off'})`;
+  describe(title, {timeout: 60_000}, () => {
     test('the binding writes formats, text and deletes over them, and undoes and redoes those writes, without touching them', async () => {
       for (const [label, make] of RESERVED_END_SHAPES) {
         for (const key of KEYS) {

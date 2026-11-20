@@ -6,7 +6,6 @@
  *
  */
 
-import type {ClientIDRange} from './ClientID';
 import type {YDoc} from './YDoc';
 import type {Node as YNode} from '@y/y';
 
@@ -34,6 +33,14 @@ import {
 
 import {isSchemaVersion, YBinding, type YBindingStatus} from './Binding';
 import {
+  attachCollabBinding,
+  collabBindingOf,
+  detachCollabBinding,
+  hasState,
+  type YCollabBinding,
+  type YStatus,
+} from './CollabBinding';
+import {
   isYLayoutUpgradeHandle,
   type YLayoutUpgradeHandle,
 } from './LayoutUpgrade';
@@ -44,13 +51,34 @@ import {
 
 /**
  * @experimental What an app writes to configure {@link YCollabExtension}
- * through createYCollabConfig: `doc`, `layoutUpgrade` and `schemaVersion`
- * are required, and every option that has a default is optional, so a later
- * release adds options without breaking code typed with it.
+ * through createYCollabConfig: `doc`, `layoutUpgrade`, `schemaVersion`,
+ * `synced` and `onYStatus` are required (every choice that loses edits or
+ * hides a failure when left to a default), and every other option is
+ * optional, so a later release adds options without breaking code typed
+ * with it.
  */
 export interface YCollabInput {
   /** See YCollabConfig.doc. */
   readonly doc: YDoc;
+  /**
+   * Required: whether the document already holds what the server has
+   * (headless, tests, a document loaded from storage): `true` initializes
+   * at once. `false`: call `binding.initialize()` (or `collab.markSynced()`)
+   * after the provider's first sync; until then the editor is not editable.
+   * Never `true` to make a pending editor editable: on a document that has
+   * not synced, the editor's initial content is written into it and then
+   * merges with the server's (duplicated content).
+   */
+  readonly synced: boolean;
+  /**
+   * Required: called with the binding's {@link YStatus} when it changes,
+   * with the cause of a read-only status (see `YReadOnlyCause`): show it to
+   * the user. Read only with `unstorable-change`, the editor holds an edit
+   * the document does not, until the app takes it (`collab.freeze()`).
+   * `null` only where the app reads the extension's `yStatus` signal
+   * instead.
+   */
+  readonly onYStatus: ((status: YStatus) => void) | null;
   /**
    * Required: how documents below MIN_LAYOUT are upgraded (see y.md
    * "Layout upgrades"). `createYServerLayoutUpgrade()`: the document's
@@ -65,9 +93,7 @@ export interface YCollabInput {
    */
   readonly schemaVersion: number;
   readonly root?: YNode | null;
-  readonly synced?: boolean;
   readonly captureTimeout?: number | null;
-  readonly clientIDRange?: ClientIDRange;
   readonly selfCheck?: boolean | null;
   readonly selfCheckSample?: number | null;
   readonly convert?: boolean;
@@ -107,8 +133,6 @@ export interface YCollabConfig {
   synced: boolean;
   /** Undo capture timeout in ms; null disables collaborative undo. */
   captureTimeout: number | null;
-  /** See YBindingOptions.clientIDRange (default 'uint53'). */
-  clientIDRange: ClientIDRange;
   /**
    * See YBindingOptions.selfCheck; null keeps the default (off). Warnings
    * go to the editor's `onWarn`.
@@ -124,11 +148,20 @@ export interface YCollabConfig {
    * also brings UNSUPPORTED_CONFIG_WARNING `'missing-layout-upgrade'`.
    */
   layoutUpgrade?: YLayoutUpgradeHandle | null;
+  /**
+   * Called with the binding's {@link YStatus} when it changes (what
+   * yCollab's `onStatus` and YCollabInput's `onYStatus` set). Required: the
+   * extension throws at build when it is left out (a config's fields cannot
+   * be required by its type); `null` only where the app reads the `yStatus`
+   * output signal instead. See YCollabInput.onYStatus.
+   */
+  onYStatus?: ((status: YStatus) => void) | null;
 }
 
 /**
  * @experimental The configured YCollabExtension, for an editor's
- * `dependencies`: `createYCollabConfig({doc, schemaVersion, layoutUpgrade})`.
+ * `dependencies`: `createYCollabConfig({doc, schemaVersion, layoutUpgrade,
+ * synced, onYStatus})`.
  * The way to configure the extension: its input type requires every
  * decision the app must make (`layoutUpgrade` included), and options a
  * later release adds are optional.
@@ -146,9 +179,10 @@ export function createYCollabConfig(input: YCollabInput) {
 /**
  * @experimental Binds the editor to a Yjs 14 document with the block-marker
  * layout, and provides collaborative undo (UNDO_COMMAND / REDO_COMMAND,
- * CAN_UNDO_COMMAND / CAN_REDO_COMMAND). Its output has the binding and a
+ * CAN_UNDO_COMMAND / CAN_REDO_COMMAND). Its output has the binding, a
  * `status` signal ('pending' until the layout record is read, then 'active'
- * or 'readonly'). It conflicts with the history extensions.
+ * or 'readonly') and a `yStatus` signal (the {@link YStatus}, with the cause
+ * of a read-only status). It conflicts with the history extensions.
  *
  * The binding starts once the editor has its initial state: after every
  * extension has registered, and after InitialStateExtension has applied
@@ -178,22 +212,53 @@ export const YCollabExtension = defineExtension({
         isYLayoutUpgradeHandle(config.layoutUpgrade),
       '@lexical/y: layoutUpgrade is a handle from createYServerLayoutUpgrade(), or null',
     );
+    // A config's fields cannot be required by its type (configExtension
+    // takes a partial config), so the app's decision is checked here: left
+    // out, a read-only document and its cause would reach no one.
+    invariant(
+      config.onYStatus !== undefined,
+      "@lexical/y: YCollabExtension needs onYStatus: a function that shows the user the binding's status (a read-only document, and why; with 'unstorable-change' the editor holds an edit the document does not), or null where the app reads the extension's yStatus signal",
+    );
     const status = signal<YBindingStatus>('pending');
+    const yStatus = signal<YStatus>({kind: 'pending'});
+    const onYStatus = config.onYStatus;
+    const report = (value: YStatus) => {
+      yStatus.value = value;
+      if (onYStatus !== null) {
+        onYStatus(value);
+      }
+    };
+    const hadState = hasState(config.doc);
+    let collab: YCollabBinding | null = null;
+    const binding = new YBinding(editor, config.doc, {
+      captureTimeout: config.captureTimeout,
+      convert: config.convert,
+      layoutUpgrade: config.layoutUpgrade,
+      onStatus: value => {
+        status.value = value;
+        if (collab !== null) {
+          report(collab.status);
+        }
+      },
+      root: config.root || undefined,
+      schemaVersion: config.schemaVersion,
+      selfCheck: config.selfCheck ?? undefined,
+      selfCheckSample: config.selfCheckSample ?? undefined,
+    });
+    // The extension starts and stops the binding (afterRegistration);
+    // collab.dispose() disposes it too.
+    // It listens from afterRegistration, when the binding starts.
+    collab = collabBindingOf(binding, hadState, null, report, false);
     return {
-      binding: new YBinding(editor, config.doc, {
-        captureTimeout: config.captureTimeout,
-        clientIDRange: config.clientIDRange,
-        convert: config.convert,
-        layoutUpgrade: config.layoutUpgrade,
-        onStatus: value => {
-          status.value = value;
-        },
-        root: config.root || undefined,
-        schemaVersion: config.schemaVersion,
-        selfCheck: config.selfCheck ?? undefined,
-        selfCheckSample: config.selfCheckSample ?? undefined,
-      }),
+      binding,
+      /** The binding's public API (see YCollabBinding). */
+      collab,
       status: status as ReadonlySignal<YBindingStatus>,
+      /**
+       * The binding's {@link YStatus}, with the cause of a read-only status
+       * (`frozen` included), the value `onYStatus` is called with.
+       */
+      yStatus: yStatus as ReadonlySignal<YStatus>,
     };
   },
   // Invariant: the binding starts here, after InitialStateExtension's
@@ -205,6 +270,7 @@ export const YCollabExtension = defineExtension({
   // eslint-disable-next-line sort-keys-fix/sort-keys-fix -- `build` comes first: TypeScript infers the output type from it in order
   afterRegistration(editor, config, state) {
     const {binding} = state.getOutput();
+    attachCollabBinding(binding);
     const stop = binding.start();
     const um = binding.undoManager;
     if (um !== null) {
@@ -224,13 +290,16 @@ export const YCollabExtension = defineExtension({
     if (config.synced) {
       binding.initialize();
     }
-    return stop;
+    return () => {
+      detachCollabBinding(binding);
+      stop();
+    };
   },
   config: safeCast<YCollabConfig>({
     captureTimeout: 500,
-    clientIDRange: 'uint53',
     convert: false,
     doc: null,
+    // No default: the app must choose (see build).
     root: null,
     // Not a version: the app must set its own (see build).
     schemaVersion: 0,

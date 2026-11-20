@@ -24,6 +24,7 @@ export interface FlatConfig {
   };
   rules: {
     '@lexical/rules-of-lexical': 'warn' | 'error' | 'off';
+    '@lexical/y-collab-status': 'warn' | 'error' | 'off';
   };
 }
 
@@ -35,6 +36,7 @@ export interface Plugin {
   rules: {
     'no-document-in-dom-methods': Rule.RuleModule;
     'rules-of-lexical': Rule.RuleModule;
+    'y-collab-status': Rule.RuleModule;
   };
   configs: {
     all: FlatConfig;

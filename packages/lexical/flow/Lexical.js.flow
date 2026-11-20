@@ -320,6 +320,7 @@ declare export class LexicalEditor {
     updateFn?: () => void,
   ): EditorState;
   read<V>(callbackFn: () => V): V;
+  read<V>(editorState: EditorState, callbackFn: () => V): V;
   read<V>(mode: EditorReadMode, callbackFn: () => V): V;
   update(updateFn: () => void, options?: EditorUpdateOptions): boolean;
   focus(callbackFn?: () => void, options?: EditorFocusOptions): void;
@@ -480,7 +481,12 @@ export interface EditorState {
   // shape came back. `EditorState` is not extended anywhere, so the
   // override-check limitation that keeps `exportJSON` to one signature does not
   // reach here: a Flow caller passing `true` gets the partial form, in which
-  // every property a compact export may omit is optional.
+  // every property a compact export may omit is optional. The options form
+  // follows `compact` the same way.
+  toJSON(
+    options: {...EditorStateToJSONOptions, compact?: false},
+  ): SerializedEditorState;
+  toJSON(options: EditorStateToJSONOptions): CompactSerializedEditorState;
   toJSON(compact?: false): SerializedEditorState;
   toJSON(compact: boolean): CompactSerializedEditorState;
   clone(selection?: BaseSelection | null): EditorState;
@@ -488,6 +494,10 @@ export interface EditorState {
 type EditorStateReadOptions = {
   editor?: LexicalEditor | null;
 }
+export type EditorStateToJSONOptions = {
+  compact?: boolean;
+  editor?: LexicalEditor | null;
+};
 
 /**
  * LexicalNode
@@ -1354,6 +1364,7 @@ declare export function $setFormatFromDOM<T extends ElementNode>(
 declare export function $cloneWithProperties<T extends LexicalNode>(node: T): T;
 declare export function $cloneWithPropertiesEphemeral<T extends LexicalNode>(node: T): T;
 declare export function $copyNode<T extends LexicalNode>(node: T, skipReset?: boolean): T;
+declare export function $deepCopy<T extends LexicalNode>(node: T): T;
 declare export function $getDocument(): Document;
 declare export function $getEditor(): LexicalEditor;
 /** @internal */

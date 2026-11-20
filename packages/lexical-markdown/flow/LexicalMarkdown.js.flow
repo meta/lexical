@@ -27,6 +27,8 @@ export type ElementTransformer = {
   export: (
     node: LexicalNode,
     traverseChildren: (node: ElementNode) => string,
+    selection?: ?BaseSelection,
+    traverseBlocks?: (node: ElementNode) => string,
   ) => string | null,
   regExp: RegExp,
   replace: (
@@ -44,6 +46,8 @@ export type MultilineElementTransformer = {
   export?: (
     node: LexicalNode,
     traverseChildren: (node: ElementNode) => string,
+    selection?: ?BaseSelection,
+    traverseBlocks?: (node: ElementNode) => string,
   ) => string | null;
   handleImportAfterStartMatch?: (args: {
     lines: string[];
@@ -149,6 +153,7 @@ declare export var ITALIC_UNDERSCORE: TextFormatTransformer;
 
 declare export var HEADING: ElementTransformer;
 declare export var QUOTE: ElementTransformer;
+declare export var QUOTE_CONTAINER: ElementTransformer;
 declare export var CODE: MultilineElementTransformer;
 declare export var UNORDERED_LIST: ElementTransformer;
 declare export var CHECK_LIST: ElementTransformer;

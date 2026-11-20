@@ -46,7 +46,11 @@ function client(id: number, blockIds: boolean, doc = createYDoc()) {
   const editor = buildEditorFromExtensions(
     defineExtension({
       dependencies: [
-        configExtension(YCollabExtension, {doc, schemaVersion: 1}),
+        configExtension(YCollabExtension, {
+          doc,
+          onYStatus: null,
+          schemaVersion: 1,
+        }),
         ...(blockIds ? [BlockIdExtension] : []),
       ],
       name: '@lexical/y/test/binding-state',
@@ -334,7 +338,7 @@ for (const nested of [false, true]) {
     doc.clientID = 700;
     const root = doc.get('lexical-y');
     root.setAttr('lexical-y:1', true);
-    root.setAttr('lexical-y:3', true);
+    root.setAttr('lexical-y:4', true);
     root.setAttr('k:unregistered_line', 'line');
     if (!nested) {
       root.insert(0, 'secret');
@@ -393,7 +397,7 @@ test('removing the layout record while the root is empty makes the binding read 
     remote.clientID = 902;
     remote.transact(() => {
       remote.get('lexical-y').deleteAttr('lexical-y:1');
-      remote.get('lexical-y').deleteAttr('lexical-y:3');
+      remote.get('lexical-y').deleteAttr('lexical-y:4');
     });
     Y.applyUpdate(c.doc, Y.encodeStateAsUpdate(remote), 'net');
     await idle();

@@ -24,7 +24,7 @@ import {type YLayoutMigration} from '../../migrate';
 
 /** The layout a seed records on this build (read from a seed). */
 export const SEED: number = recordedLayout(
-  createYDoc(seedYState({schemaVersion: 1}, () => {})),
+  createYDoc(seedYState({onWarn: null, schemaVersion: 1}, () => {})),
 )!;
 
 /**

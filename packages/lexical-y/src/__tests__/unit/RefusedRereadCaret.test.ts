@@ -52,6 +52,7 @@ for (const gc of [false, true])
               dependencies: [
                 configExtension(YCollabExtension, {
                   doc,
+                  onYStatus: null,
                   schemaVersion: 1,
                   selfCheck: false,
                 }),

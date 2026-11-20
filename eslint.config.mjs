@@ -58,6 +58,16 @@ const OFF = 0;
 const WARN = 1;
 const ERROR = 2;
 
+// A read of an EditorState with no editor runs node methods with no active
+// editor, so one that calls $getEditor() throws (#9934). EditorStates are
+// recognized by name, since the lint has no types.
+const EDITORLESS_STATE_READ = {
+  message:
+    'Read with the editor active, so that node methods can call $getEditor(): editor.read(editorState, fn), or editorState.read(fn, {editor}) where a published Lexical without that overload may run. See https://github.com/meta/lexical/issues/9934.',
+  selector:
+    'CallExpression[arguments.length=1][callee.property.name="read"]:matches([callee.object.name=/([Ss]tate|^prev|^held)$/], [callee.object.property.name=/[Ss]tate$/], [callee.object.callee.property.name="getEditorState"], [callee.object.property.name="value"][callee.object.object.name=/[Ss]tateStore$/])',
+};
+
 export default [
   // Global ignores (replaces .eslintignore)
   {
@@ -463,6 +473,44 @@ export default [
           message:
             'Use getDefaultView() or getWindow() instead of window.* for Shadow DOM / iframe safety. See AGENTS.md.',
           selector: 'MemberExpression[object.name="window"]',
+        },
+        EDITORLESS_STATE_READ,
+      ],
+    },
+  },
+
+  // The same check for the playground and the examples, which the library
+  // block above leaves out, and which apps copy from.
+  {
+    files: [
+      'packages/lexical-playground/src/**',
+      'packages/lexical-playground/esm/**',
+      'packages/lexical-devtools/src/**',
+      'packages/lexical-website/src/**',
+      'examples/**/src/**',
+      'dev-examples/**/src/**',
+    ],
+    ignores: ['**/__tests__/**'],
+    rules: {
+      'no-restricted-syntax': [ERROR, 'WithStatement', EDITORLESS_STATE_READ],
+    },
+  },
+  // examples/ run on a published Lexical, and devtools on whatever Lexical
+  // the inspected page runs, which may predate editor.read(editorState, fn):
+  // there it would read the current state.
+  {
+    files: ['examples/**/src/**', 'packages/lexical-devtools/src/**'],
+    ignores: ['**/__tests__/**'],
+    rules: {
+      'no-restricted-syntax': [
+        ERROR,
+        'WithStatement',
+        EDITORLESS_STATE_READ,
+        {
+          message:
+            'This code runs on a published Lexical that may predate editor.read(editorState, fn): use editorState.read(fn, {editor}).',
+          selector:
+            'CallExpression[arguments.length=2][callee.property.name="read"][callee.object.name=/[Ee]ditor$/]:not([arguments.0.type="Literal"])',
         },
       ],
     },

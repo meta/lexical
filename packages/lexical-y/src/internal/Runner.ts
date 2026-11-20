@@ -24,7 +24,7 @@ import {
   type Transaction,
 } from '@y/y';
 
-import {type ClientIDRange} from './ClientID';
+import {pushAll} from './Arrays';
 import {
   DEFAULT_ROOT_NAME,
   EPOCH_KEY,
@@ -42,6 +42,7 @@ import {
   type YMigrationEpoch,
 } from './Layouts';
 import {applyStoredState} from './LoadFully';
+import {requirePendingMaterial, type YPendingMaterial} from './Pending';
 import {createRawYDoc, type YDoc, type YDocOptions} from './RawYDoc';
 import {assertSupportedMigrationYjs} from './YjsMigrationContract';
 
@@ -173,7 +174,8 @@ export type YMigrationErrorCode = YKnownMigrationErrorCode | (string & {});
 
 /**
  * @experimental A migration refused or failed. Nothing was written: the
- * caller's document and stored state are as they were.
+ * caller's document and stored state are as they were. When a step threw
+ * (in its read, check or write), `cause` is the error it threw.
  */
 export class YMigrationError extends Error {
   readonly code: YMigrationErrorCode;
@@ -186,8 +188,9 @@ export class YMigrationError extends Error {
     message: string,
     problems: readonly string[] = [],
     root: string | null = null,
+    options?: {cause?: unknown},
   ) {
-    super(message);
+    super(message, options);
     this.name = 'YMigrationError';
     this.code = code;
     this.problems = problems;
@@ -239,6 +242,13 @@ export interface YMigrationReceipt {
   /** The encoded state's size before and after, in bytes. */
   readonly bytesBefore: number;
   readonly bytesAfter: number;
+  /**
+   * The size of the pending material split out of the input, in bytes (0
+   * when there was none or nothing ran): returned in the result with
+   * `pending: 'return'`, dropped with `'discard'`, so a reader of a copy
+   * can log what it did not show.
+   */
+  readonly pendingBytes: number;
   readonly ms: number;
 }
 
@@ -263,11 +273,6 @@ export interface YMigrateOptions {
    */
   readonly to?: number;
   /**
-   * The range of the hashed client ids (default `'uint53'`; `'uint32'` for
-   * servers that read client ids as 32-bit numbers).
-   */
-  readonly clientIDRange?: ClientIDRange;
-  /**
    * An allocator of guaranteed-unique client ids, one per step run (default:
    * the hash of the inputs). Its id must not be one the document holds.
    */
@@ -281,24 +286,50 @@ export interface YMigrateStateOptions extends YMigrateOptions {
    * one): must equal the authority's stored documents' setting.
    */
   readonly gc?: boolean;
+  /**
+   * Required: what to do with the pending material `state` never holds
+   * (see {@link YPendingMaterial}). `'return'` to store it, `'discard'` for
+   * a copy nothing stores.
+   */
+  readonly pending: YPendingMaterial;
 }
 
-/** @experimental What migrateYState returns. */
-export interface YMigrationResult {
-  /**
-   * The migrated state (update format V1), without pending material; the
-   * input bytes themselves when nothing ran (store nothing then).
-   */
-  readonly state: Uint8Array;
-  /** The update from the input's integrated state to `state`; null when nothing ran. */
-  readonly update: Uint8Array | null;
-  /**
-   * The input's pending structs and pending delete set (V1), for the
-   * quarantine: never in `state`. Null when there are none or nothing ran.
-   */
-  readonly pending: Uint8Array | null;
-  readonly receipt: YMigrationReceipt;
-}
+/**
+ * @experimental What migrateYState returns: a union on `split`, so the
+ * migrated bytes are reached only after narrowing on it. Where the input
+ * held pending material (`split: true`, only with `pending: 'return'`),
+ * the migrated state is `integrated` and the material is `pending` beside
+ * it: store both (the material as a `pending` quarantine record), or the
+ * edits it holds are lost. With `pending: 'discard'` the result is never
+ * split.
+ */
+export type YMigrationResult =
+  | {
+      readonly split: false;
+      /**
+       * The migrated state (update format V1); the input bytes themselves
+       * when nothing ran (store nothing then). With `pending: 'discard'`,
+       * without the pending material the input held.
+       */
+      readonly state: Uint8Array;
+      /** The update from the input's integrated state to `state`; null when nothing ran. */
+      readonly update: Uint8Array | null;
+      readonly receipt: YMigrationReceipt;
+    }
+  | {
+      readonly split: true;
+      /** The migrated state (update format V1), without the pending material. */
+      readonly integrated: Uint8Array;
+      /**
+       * The input's pending structs and pending delete set (V1), never in
+       * `integrated`: store it (a `pending` quarantine record,
+       * `createYQuarantineRecord` on `@lexical/y/server`).
+       */
+      readonly pending: Uint8Array;
+      /** The update from the input's integrated state to `integrated`. */
+      readonly update: Uint8Array;
+      readonly receipt: YMigrationReceipt;
+    };
 
 /**
  * @internal (not exported from @lexical/y/migrate). The origin of the
@@ -318,8 +349,6 @@ export const MIGRATION_ORIGIN: unique symbol = Symbol.for(
 export type YMigrationLoaders = {
   readonly [from: number]: () => Promise<unknown>;
 };
-
-const MAX_UINT32 = 0xffffffff;
 
 /**
  * FNV-1a, 32 bits, from `basis` (frozen: part of the wire contract), over
@@ -352,9 +381,9 @@ function fnv1a32(
 /**
  * @internal The client id a step writes with: a hash of every input (the
  * copy's re-encoded state; the UTF-8 JSON of `[root, step id, revision,
- * target layout, gc]`). `'uint53'`: two FNV-1a 32 hashes (bases 0x811c9dc5
- * and 0x050c5d1f), the second's high 21 bits above the first's 32;
- * `'uint32'`: the first. Hashed again with the next seed while it is 0 or a
+ * target layout, gc]`): two FNV-1a 32 hashes (bases 0x811c9dc5 and
+ * 0x050c5d1f), the second's high 21 bits above the first's 32 (Yjs 14's
+ * 53-bit range). Hashed again with the next seed while it is 0 or a
  * client the document holds (`taken`).
  */
 export function migrationClientID(
@@ -366,7 +395,6 @@ export function migrationClientID(
     readonly to: number;
     readonly gc: boolean;
   },
-  range: ClientIDRange,
   taken: (client: number) => boolean,
 ): number {
   const text = new TextEncoder().encode(
@@ -375,9 +403,7 @@ export function migrationClientID(
   for (let seed = 0; ; seed++) {
     const low = fnv1a32(0x811c9dc5, seed, state, text);
     const client =
-      range === 'uint32'
-        ? low
-        : (fnv1a32(0x050c5d1f, seed, state, text) >>> 11) * 0x100000000 + low;
+      (fnv1a32(0x050c5d1f, seed, state, text) >>> 11) * 0x100000000 + low;
     if (client !== 0 && !taken(client)) {
       return client;
     }
@@ -859,7 +885,7 @@ function containerState(
         `the read of container ${keyOf(node, root)} gave ${strings.length} strings for ${units.length} units`,
       );
     }
-    perUnit.push(...strings);
+    pushAll(perUnit, strings);
   }
   if (check !== null) {
     for (const problem of check(node)) {
@@ -920,7 +946,10 @@ function stateProblems(
       );
       continue;
     }
-    out.push(...y.problems.map(p => `${what}: ${p}`));
+    pushAll(
+      out,
+      y.problems.map(p => `${what}: ${p}`),
+    );
     if (x.units.join('\n') !== y.units.join('\n')) {
       const i = x.units.findIndex((u, n) => y.units[n] !== u);
       out.push(
@@ -1141,7 +1170,9 @@ function runStep(
     problems,
     'before',
   );
-  problems.push(...[...before.values()].flatMap(c => c.problems));
+  for (const c of before.values()) {
+    pushAll(problems, c.problems);
+  }
   const othersBefore = documentState(copy, root);
   const recordsBefore = Object.keys(root.getAttrs()).filter(k =>
     k.startsWith(LAYOUT_PREFIX),
@@ -1150,7 +1181,6 @@ function runStep(
   // the copy no longer holds) and every client an earlier step wrote: an
   // id the migration takes must name nothing of the input's history.
   const taken = (c: number) => copy.store.clients.has(c) || reserved.has(c);
-  const range = options.clientIDRange ?? 'uint53';
   let client: number;
   if (options.clientID !== undefined) {
     client = options.clientID({
@@ -1159,12 +1189,7 @@ function runStep(
       step: step.id,
       to: step.to,
     });
-    if (
-      !Number.isSafeInteger(client) ||
-      client < 1 ||
-      (range === 'uint32' && client > MAX_UINT32) ||
-      taken(client)
-    ) {
+    if (!Number.isSafeInteger(client) || client < 1 || taken(client)) {
       throw new YMigrationError(
         'post-condition',
         `@lexical/y: the clientID allocator gave ${client}, which is not a free client id of this document`,
@@ -1182,7 +1207,6 @@ function runStep(
         root: name,
         to: step.to,
       },
-      range,
       taken,
     );
   }
@@ -1190,6 +1214,8 @@ function runStep(
   const own = copy.clientID;
   let epoch: YMigrationEpoch | null = null;
   let counts = {deleted: 0, problems: [] as string[], written: 0};
+  // What the step threw in the transaction (an array: assigned in a callback).
+  const thrown: unknown[] = [];
   copy.clientID = client;
   try {
     copy.transact(tr => {
@@ -1210,6 +1236,7 @@ function runStep(
         };
         root.setAttr(EPOCH_KEY, epoch as never);
       } catch (error) {
+        thrown.push(error);
         problems.push(`the step threw: ${String(error)}`);
       }
       counts = outsideWrites(tr, client, root, step);
@@ -1223,10 +1250,11 @@ function runStep(
       `@lexical/y: step ${step.id} failed on root ${name}: ${problems.join('; ')}`,
       problems,
       name,
+      thrown.length === 0 ? undefined : {cause: thrown[0]},
     );
   }
   const written: YMigrationEpoch = epoch;
-  problems.push(...counts.problems);
+  pushAll(problems, counts.problems);
   const after = rootState(
     copy,
     root,
@@ -1236,7 +1264,7 @@ function runStep(
     problems,
     'after',
   );
-  problems.push(...stateProblems(before, after, 'result', true));
+  pushAll(problems, stateProblems(before, after, 'result', true));
   for (const key of documentDiff(othersBefore, documentState(copy, root))) {
     problems.push(`result: container ${key} outside the root changed`);
   }
@@ -1252,11 +1280,17 @@ function runStep(
   if (JSON.stringify(epochOf(root)) !== JSON.stringify(written)) {
     problems.push('the root does not record a well-formed epoch');
   }
-  problems.push(...heldProblems(copy).map(p => `result: ${p}`));
+  pushAll(
+    problems,
+    heldProblems(copy).map(p => `result: ${p}`),
+  );
   // The encoded result, read again by a fresh document, reads the same.
   const reread = createYDoc(encodeStateAsUpdate(copy), {gc: copy.gc});
   try {
-    problems.push(...heldProblems(reread).map(p => `re-read: ${p}`));
+    pushAll(
+      problems,
+      heldProblems(reread).map(p => `re-read: ${p}`),
+    );
     const rroot = reread.get(name) as YNode;
     const rstate = rootState(
       reread,
@@ -1276,7 +1310,7 @@ function runStep(
       [],
       'after',
     );
-    problems.push(...stateProblems(astate, rstate, 're-read', true));
+    pushAll(problems, stateProblems(astate, rstate, 're-read', true));
     if (JSON.stringify(epochOf(rroot)) !== JSON.stringify(written)) {
       problems.push('re-read: the epoch differs');
     }
@@ -1487,6 +1521,8 @@ function runOnCopy(
       'post-condition',
       `@lexical/y: a step threw: ${String(error)}`,
       [`the step threw: ${String(error)}`],
+      null,
+      {cause: error},
     );
   }
 }
@@ -1509,15 +1545,41 @@ function unchanged(plans: readonly RootPlan[]): YMigrationRootReceipt[] {
  * observer-free copy, each step checked there; any refusal or failed check
  * throws a YMigrationError and nothing is returned. Pending structs, a
  * pending delete set and skipped ranges (with everything after the gap and
- * everything that depends on it) are split out (`pending`), never migrated
- * or kept in `state`. When no root needs a step, the input bytes come back as `state`,
- * with `update: null` and `changed: false`: store nothing.
+ * everything that depends on it) are split out, never migrated or kept in
+ * `state`: `options.pending` (required) says whether the result returns
+ * them (`'return'`, to store them) or drops them (`'discard'`, for a copy
+ * nothing stores). When no root needs a step, the input bytes come back as
+ * `state`, with `update: null` and `changed: false`: store nothing.
+ *
+ * @example
+ * ```ts
+ * const result = migrateYState(stored, steps, {pending: 'return'});
+ * if (result.split) {
+ *   store(result.integrated, pendingRecord(stored, result.pending));
+ * } else if (result.receipt.changed) {
+ *   store(result.state);
+ * }
+ * ```
  */
 export function migrateYState(
   state: Uint8Array,
   steps: readonly YLayoutMigration[],
-  options: YMigrateStateOptions = {},
+  options: YMigrateStateOptions & {readonly pending: 'discard'},
+): Extract<YMigrationResult, {readonly split: false}>;
+export function migrateYState(
+  state: Uint8Array,
+  steps: readonly YLayoutMigration[],
+  options: YMigrateStateOptions,
+): YMigrationResult;
+export function migrateYState(
+  state: Uint8Array,
+  steps: readonly YLayoutMigration[],
+  options: YMigrateStateOptions,
 ): YMigrationResult {
+  requirePendingMaterial(
+    'migrateYState',
+    options == null ? undefined : options.pending,
+  );
   const t0 = Date.now();
   const gc = options.gc ?? true;
   const doc = createYDoc(state, {gc});
@@ -1525,15 +1587,16 @@ export function migrateYState(
     const plans = planOf(doc, steps, options);
     if (plans.every(p => p.steps.length === 0)) {
       return {
-        pending: null,
         receipt: {
           bytesAfter: state.length,
           bytesBefore: state.length,
           changed: false,
           ms: Date.now() - t0,
+          pendingBytes: 0,
           roots: unchanged(plans),
           v: 1,
         },
+        split: false,
         state,
         update: null,
       };
@@ -1548,19 +1611,19 @@ export function migrateYState(
     )!;
     try {
       const out = encodeStateAsUpdate(copy);
-      return {
-        pending,
-        receipt: {
-          bytesAfter: out.length,
-          bytesBefore: state.length,
-          changed: true,
-          ms: Date.now() - t0,
-          roots,
-          v: 1,
-        },
-        state: out,
-        update: checkedUpdate(integrated, copy, encodeStateVector(doc)),
+      const receipt: YMigrationReceipt = {
+        bytesAfter: out.length,
+        bytesBefore: state.length,
+        changed: true,
+        ms: Date.now() - t0,
+        pendingBytes: pending === null ? 0 : pending.length,
+        roots,
+        v: 1,
       };
+      const update = checkedUpdate(integrated, copy, encodeStateVector(doc));
+      return pending !== null && options.pending === 'return'
+        ? {integrated: out, pending, receipt, split: true, update}
+        : {receipt, split: false, state: out, update};
     } finally {
       copy.destroy();
     }
@@ -1617,6 +1680,7 @@ export function migrateYDoc(
       bytesBefore: integrated.length,
       changed: false,
       ms: Date.now() - t0,
+      pendingBytes: 0,
       roots: unchanged(plans),
       v: 1,
     };
@@ -1640,6 +1704,7 @@ export function migrateYDoc(
     bytesBefore: integrated.length,
     changed: true,
     ms: Date.now() - t0,
+    pendingBytes: 0,
     roots,
     v: 1,
   };

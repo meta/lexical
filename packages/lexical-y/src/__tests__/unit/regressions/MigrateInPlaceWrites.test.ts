@@ -76,7 +76,7 @@ describe.each([false, true])('values changed in place, gc %s', gc => {
   test("another root's JSON attribute sorted in place: post-condition, nothing returned", () => {
     const state = withConfig(gc);
     const error = refusal(() =>
-      migrateYState(state, [sortConfig], {gc, to: 2}),
+      migrateYState(state, [sortConfig], {gc, pending: 'discard', to: 2}),
     );
     expect(error.code).toBe('post-condition');
     expect(error.problems.join('\n')).toMatch(
@@ -127,7 +127,9 @@ describe.each([false, true])('values changed in place, gc %s', gc => {
       readBefore: plainRead,
       rewrites: key => key.startsWith('f:'),
     });
-    const error = refusal(() => migrateYState(state, [paint], {gc, to: 2}));
+    const error = refusal(() =>
+      migrateYState(state, [paint], {gc, pending: 'discard', to: 2}),
+    );
     expect(error.code).toBe('post-condition');
     expect(error.problems.join('\n')).toMatch(
       /the input with the update differs from the result/,
@@ -136,7 +138,11 @@ describe.each([false, true])('values changed in place, gc %s', gc => {
 
   test('a step that writes nothing outside its root still migrates, and the update brings the input to the state', () => {
     const state = withConfig(gc);
-    const result = migrateYState(state, [stamp(1)], {gc, to: 2});
+    const result = migrateYState(state, [stamp(1)], {
+      gc,
+      pending: 'discard',
+      to: 2,
+    });
     const viaUpdate = createYDoc(state, {gc});
     Y.applyUpdate(viaUpdate, result.update!);
     const after = createYDoc(result.state, {gc});

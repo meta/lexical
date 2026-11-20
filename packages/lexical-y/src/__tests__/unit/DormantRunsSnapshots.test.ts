@@ -38,7 +38,7 @@ for (const gc of [false, true])
     const doc = createYDoc(null, {gc});
     doc.clientID = 17;
     const root = doc.get('c');
-    root.setAttr('lexical-y:3', true);
+    root.setAttr('lexical-y:4', true);
     function append(key: string, value: unknown) {
       let result: Y.Item | undefined;
       doc.transact(tr => {

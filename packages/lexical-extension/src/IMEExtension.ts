@@ -106,7 +106,7 @@ export const IMEExtension = defineExtension({
         if (!tags.has(COMPOSITION_START_TAG)) {
           return;
         }
-        editorState.read(() => {
+        editor.read(editorState, () => {
           const selection = $getSelection();
           if (!$isRangeSelection(selection)) {
             return;
