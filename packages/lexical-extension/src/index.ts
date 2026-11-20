@@ -134,6 +134,11 @@ export {
   type TabIndentationConfig,
   TabIndentationExtension,
 } from './TabIndentationExtension';
+export {
+  DEFAULT_TEXT_SUBSTITUTIONS,
+  type TextSubstitutionConfig,
+  TextSubstitutionExtension,
+} from './TextSubstitutionExtension';
 export {WatchEditableExtension} from './WatchEditableExtension';
 export {watchedSignal} from './watchedSignal';
 export {
