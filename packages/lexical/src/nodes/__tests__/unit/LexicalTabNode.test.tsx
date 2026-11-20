@@ -164,7 +164,7 @@ describe('LexicalTabNode tests', () => {
       expect(testEnv.innerHTML).toBe(
         '<p dir="auto" style="padding-inline-start: calc(1 * var(--lexical-indent-base-value, 40px));"><span data-lexical-text="true">foo</span></p>' +
           '<h1 dir="auto" style="padding-inline-start: calc(1 * var(--lexical-indent-base-value, 40px));"><span data-lexical-text="true">bar</span></h1>' +
-          '<ol dir="auto"><li value="1"><ol><li value="1"><span data-lexical-text="true">xyz</span></li></ol></li></ol>',
+          '<ol dir="auto"><li><ol><li><span data-lexical-text="true">xyz</span></li></ol></li></ol>',
       );
     });
 

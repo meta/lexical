@@ -361,11 +361,70 @@ export function freshSnapshot(
   );
 }
 
-/** The `<li value>` of every rendered list item, in order. */
-export function renderedValues(root: HTMLElement | null): number[] | null {
+/**
+ * The number the browser draws for a rendered list item: its `value`
+ * attribute when it has one, otherwise the list's own count (the `<ol start>`
+ * for the first item, then the previous item's number plus one). Lexical
+ * writes `value` only where that count would differ from the item's number.
+ */
+export function shownListItemNumber(li: HTMLLIElement): number {
+  if (li.hasAttribute('value')) {
+    return li.value;
+  }
+  let prev = li.previousElementSibling;
+  while (prev !== null && prev.tagName !== 'LI') {
+    prev = prev.previousElementSibling;
+  }
+  if (prev !== null) {
+    return shownListItemNumber(prev as HTMLLIElement) + 1;
+  }
+  const list = li.parentElement;
+  return list !== null && list.tagName === 'OL'
+    ? (list as HTMLOListElement).start
+    : 1;
+}
+
+/**
+ * The `value` attributes found on bullet and check list items, which must
+ * carry none.
+ */
+export function valuesOnUnorderedItems(root: HTMLElement | null): string[] {
+  return root === null
+    ? []
+    : Array.from(root.querySelectorAll('ul > li[value]')).map(
+        li => li.getAttribute('value') ?? '',
+      );
+}
+
+/**
+ * The number every rendered list item shows, in order; `null` for a bullet or
+ * check item, which shows no number (its `value`, which must be absent, is
+ * checked by {@link valuesOnUnorderedItems}).
+ */
+export function renderedValues(
+  root: HTMLElement | null,
+): (number | null)[] | null {
   return root === null
     ? null
-    : Array.from(root.querySelectorAll('li')).map(li => li.value);
+    : Array.from(root.querySelectorAll('li')).map(li =>
+        li.parentElement !== null && li.parentElement.tagName === 'OL'
+          ? shownListItemNumber(li)
+          : null,
+      );
+}
+
+/**
+ * Whether every numbered item shows its model value: `values` are the model's
+ * values of every item, in document order.
+ */
+export function showsValues(
+  rendered: readonly (number | null)[],
+  values: readonly number[],
+): boolean {
+  return (
+    rendered.length === values.length &&
+    rendered.every((n, i) => n === null || n === values[i])
+  );
 }
 
 /** What an editor without collab derives for `shapes`. */

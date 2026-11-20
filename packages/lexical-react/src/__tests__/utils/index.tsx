@@ -17,7 +17,10 @@ import {
   CollaborationPlugin,
   CollaborationPluginV2__EXPERIMENTAL,
 } from '@lexical/react/LexicalCollaborationPlugin';
-import {LexicalComposer} from '@lexical/react/LexicalComposer';
+import {
+  type InitialConfigType,
+  LexicalComposer,
+} from '@lexical/react/LexicalComposer';
 import {useLexicalComposerContext} from '@lexical/react/LexicalComposerContext';
 import {ContentEditable} from '@lexical/react/LexicalContentEditable';
 import {LexicalErrorBoundary} from '@lexical/react/LexicalErrorBoundary';
@@ -180,7 +183,10 @@ export class Client implements Provider {
   start(
     rootContainer: Container,
     awarenessData?: object,
-    options: {shouldBootstrapEditor?: boolean} = {},
+    options: {
+      nodes?: InitialConfigType['nodes'];
+      shouldBootstrapEditor?: boolean;
+    } = {},
   ) {
     const container = document.createElement('div');
     const reactRoot = createRoot(container);
@@ -196,6 +202,7 @@ export class Client implements Provider {
             initialConfig={{
               editorState: null,
               namespace: '',
+              nodes: options.nodes,
               onError: e => {
                 throw e;
               },

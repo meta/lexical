@@ -54,6 +54,7 @@ import {afterEach, describe, expect, test} from 'vitest';
 
 import {YBinding, YCollabExtension} from '../../..';
 import {createYDoc, readYState, seedYState} from '../../../headless';
+import {renderedValues, valuesOnUnorderedItems} from '../../catalog/bind';
 
 /** An element with a declared slot next to its children (a card). */
 class CalloutNode extends ElementNode {
@@ -310,8 +311,9 @@ function bind(seed: Uint8Array, how: Bind) {
     doc,
     editor,
     json: editor.getEditorState().toJSON(),
-    rendered: Array.from(root.querySelectorAll('li')).map(li => li.value),
+    rendered: renderedValues(root),
     starts: editor.getEditorState().read($starts),
+    unordered: valuesOnUnorderedItems(root),
     values: editor.getEditorState().read($values),
     warnings,
   };
@@ -353,6 +355,7 @@ describe('a freshly bound editor shows the derived fields a fresh reader does', 
           ]);
           expect(bound.values).toEqual([1, 2, 3, 9, 10, 11]);
           expect(bound.rendered).toEqual([1, 2, 3, 9, 10, 11]);
+          expect(bound.unordered).toEqual([]);
           expect(bound.starts).toEqual([1, 9]);
         }
         // Every derived field as an editor with no binding derives it.
