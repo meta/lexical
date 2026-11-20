@@ -1166,7 +1166,8 @@ export function $getOutermostAncestorRefusingText(
     (isBefore ? child.getPreviousSibling() : child.getNextSibling()) === null
   ) {
     if (
-      isBefore ? !parent.canInsertTextBefore() : !parent.canInsertTextAfter()
+      (child === node || parent.isInline()) &&
+      (isBefore ? !parent.canInsertTextBefore() : !parent.canInsertTextAfter())
     ) {
       refusing = parent;
     }

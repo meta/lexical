@@ -445,9 +445,9 @@ function $insertText(
       (!anchorNode.canInsertTextAfter() || refusingAfter !== null));
 
   if (needsRedirect) {
-    // Token/segmented nodes and nodes whose parent forbids text insertion
-    // at the boundary: reposition the cursor to an adjacent insertable
-    // node, then recurse.
+    // Token/segmented nodes, and an edge of the text where it or an element
+    // around it takes no text: reposition the cursor to an adjacent
+    // insertable node, then recurse.
 
     // Segmented node with cursor in the middle: convert to normal
     // text node so that the recursive insertText can proceed.
@@ -488,8 +488,7 @@ function $insertText(
       const before =
         offset === 0 && (refusingBefore !== null || refusingAfter === null);
       const direction = before ? 'previous' : 'next';
-      const beside = (before ? refusingBefore : refusingAfter) || anchorNode;
-      const sibling = $getSiblingCaret(beside, direction).getNodeAtCaret();
+      const sibling = $getSiblingCaret(anchorNode, direction).getNodeAtCaret();
       let target: TextNode;
       if (
         $isTextNode(sibling) &&
@@ -501,7 +500,10 @@ function $insertText(
         target = sibling;
       } else {
         target = $createTextNode().setFormat(format).setStyle(style);
-        $getSiblingCaret(beside, direction).insert(target);
+        $getSiblingCaret(
+          (before ? refusingBefore : refusingAfter) || anchorNode,
+          direction,
+        ).insert(target);
       }
       const targetOffset = before ? undefined : 0;
       target.select(targetOffset, targetOffset);

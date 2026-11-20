@@ -1787,10 +1787,29 @@ describe('insertText at the edge of a link, in an inline element inside it (#928
     }
   }
 
+  // A block that takes no text at its edges. No published block does this.
+  class RefusingBlockNode extends ElementNode {
+    $config() {
+      return this.config('test_refusing_block', {extends: ElementNode});
+    }
+    createDOM(): HTMLElement {
+      return document.createElement('div');
+    }
+    updateDOM(): boolean {
+      return false;
+    }
+    canInsertTextBefore(): false {
+      return false;
+    }
+    canInsertTextAfter(): false {
+      return false;
+    }
+  }
+
   const extension = defineExtension({
     dependencies: [LinkExtension, RichTextExtension],
     name: '[insert-text-at-link-edge]',
-    nodes: () => [MarkNode, InlineNode],
+    nodes: () => [MarkNode, InlineNode, RefusingBlockNode],
   });
 
   function $shape(node: LexicalNode): string {
@@ -1811,11 +1830,11 @@ describe('insertText at the edge of a link, in an inline element inside it (#928
     $create(InlineNode).append(...children);
 
   /**
-   * Writes the paragraph `$build` returns, puts the caret at the given edge of
-   * the text it names, inserts `X` there, and returns the paragraph's shape.
+   * Writes the block `$build` returns, puts the caret at the given edge of the
+   * text it names, inserts `X` there, and returns the block's shape.
    */
   function insertX(
-    $build: () => [ParagraphNode, TextNode],
+    $build: () => [ElementNode, TextNode],
     edge: 'start' | 'end',
   ): string {
     using editor = buildEditorFromExtensions(extension);
@@ -1939,7 +1958,7 @@ describe('insertText at the edge of a link, in an inline element inside it (#928
     ).toBe('paragraph["X", link[mark["xy"], " cd"], " ef"]');
   });
 
-  test('writes in the link, after an inline element away from its edge', () => {
+  test("writes in an inline element away from the link's edge", () => {
     expect(
       insertX(() => {
         const caret = $createTextNode('xy');
@@ -1951,8 +1970,39 @@ describe('insertText at the edge of a link, in an inline element inside it (#928
           caret,
         ];
       }, 'end'),
-    ).toBe('paragraph["ab ", link[test_inline["xy"], "X cd"]]');
+    ).toBe('paragraph["ab ", link[test_inline["xyX"], " cd"]]');
   });
+
+  test('writes after the MarkNode, at the end of a link that ends it', () => {
+    expect(
+      insertX(() => {
+        const caret = $createTextNode('ef');
+        return [
+          $createParagraphNode().append(
+            $createTextNode('ab '),
+            $mark($createTextNode('cd '), $link(caret)),
+          ),
+          caret,
+        ];
+      }, 'end'),
+    ).toBe('paragraph["ab ", mark["cd ", link["ef"]], "X"]');
+  });
+
+  test.each(['start', 'end'] as const)(
+    'writes in an inline element at the %s of a block that takes no text there',
+    edge => {
+      expect(
+        insertX(() => {
+          const caret = $createTextNode('xy');
+          return [$create(RefusingBlockNode).append($inline(caret)), caret];
+        }, edge),
+      ).toBe(
+        edge === 'start'
+          ? 'test_refusing_block[test_inline["Xxy"]]'
+          : 'test_refusing_block[test_inline["xyX"]]',
+      );
+    },
+  );
 
   test('writes between two tokens inside a link, in the link', () => {
     expect(
