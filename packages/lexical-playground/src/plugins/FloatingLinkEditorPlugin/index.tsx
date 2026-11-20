@@ -369,6 +369,28 @@ function FloatingLinkEditor({
             onKeyDown={event => {
               monitorInputInteraction(event);
             }}
+            onPointerDown={event => {
+              // The link editor floats over the editor's contenteditable. A
+              // text selection dragged out of the input would otherwise be
+              // computed from the contenteditable under the pointer, which
+              // moves the selection to unrelated offsets. Capturing the
+              // pointer keeps the drag tied to the input, as in a plain input.
+              // Mouse and pen drags need this; touch gets implicit capture,
+              // and buttons other than the primary one don't drag-select.
+              const target = event.currentTarget;
+              if (
+                event.pointerType === 'touch' ||
+                event.button !== 0 ||
+                typeof target.setPointerCapture !== 'function'
+              ) {
+                return;
+              }
+              try {
+                target.setPointerCapture(event.pointerId);
+              } catch {
+                // The pointer is not active (e.g. a synthetic event).
+              }
+            }}
           />
           <div>
             <div
