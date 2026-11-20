@@ -22,14 +22,14 @@ import {
 } from 'lexical';
 
 /**
- * Move the selection off a node-selected `node` in `direction`, as an arrow
+ * Moves the selection off a node-selected `node` in `direction`, as an arrow
  * key does: to the end of what precedes the node, or to the start of what
  * follows it. Where the node's neighbour in that direction is a block shadow
  * root, the caret is placed between the two instead, where the block cursor
  * is drawn.
  *
- * @param node The node the NodeSelection holds.
- * @param direction The direction to move in.
+ * @param node - The node the NodeSelection holds.
+ * @param direction - The direction to move in.
  */
 export function $exitNodeSelectionToward(
   node: LexicalNode,
@@ -52,13 +52,18 @@ export function $exitNodeSelectionToward(
 }
 
 /**
- * Convert a contiguous NodeSelection to a RangeSelection that covers the same
- * siblings. Discontiguous NodeSelections cannot be represented as a range
- * without selecting the nodes between them, so they retain the existing
- * collapse behavior in the arrow handlers.
+ * Converts a contiguous NodeSelection to the RangeSelection that covers the
+ * same siblings, with its focus at the end that `direction` faces. A range
+ * can't cover nodes that aren't contiguous siblings without the nodes between
+ * them, so such a NodeSelection is left as it is.
  *
- * @param selection The NodeSelection to convert.
- * @param direction The direction the RangeSelection's focus faces.
+ * A conversion calls `$flushSyncAfterUpdate()`, which commits the caller's
+ * update synchronously, so that the default action of a keydown being handled
+ * extends the new selection: Firefox doesn't pick up a selection committed
+ * after the keydown listeners return.
+ *
+ * @param selection - The NodeSelection to convert.
+ * @param direction - The direction the RangeSelection's focus faces.
  * @returns Whether the selection was converted.
  */
 export function $convertContiguousNodeSelection(
@@ -87,13 +92,6 @@ export function $convertContiguousNodeSelection(
       direction,
     ),
   );
-  // The arrow handlers fall through to the RangeSelection paths after this,
-  // and the vertical ones leave the extension to the browser's default action
-  // for this keydown. That action reads the DOM selection, but this update
-  // would otherwise be committed in a microtask, and Firefox does not pick up
-  // a selection that lands after the keydown listeners return — it would
-  // extend nothing on the first press. Commit synchronously so every browser
-  // extends the converted selection.
   $flushSyncAfterUpdate();
   return true;
 }

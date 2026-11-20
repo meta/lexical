@@ -146,7 +146,9 @@ function onCutForPlainText(
  * Answers an arrow key pressed while a NodeSelection is active, as rich text
  * does. With Shift, a contiguous NodeSelection becomes the RangeSelection that
  * covers the same nodes, and `false` leaves the key to extend it. Otherwise the
- * caret moves to the side of the first selected node in `direction`.
+ * caret moves to the side of the first selected node in `direction`. A key
+ * pressed in an input embedded in a node's DOM, such as a node-selected
+ * decorator's own field, is left to that input.
  */
 function $exitNodeSelection(
   event: KeyboardEvent,
@@ -154,7 +156,7 @@ function $exitNodeSelection(
   direction: CaretDirection,
 ): boolean {
   const nodes = selection.getNodes();
-  if (nodes.length === 0) {
+  if (nodes.length === 0 || $isEventFromEmbeddedInput(event)) {
     return false;
   }
   if (event.shiftKey && $convertContiguousNodeSelection(selection, direction)) {

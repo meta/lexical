@@ -14,6 +14,7 @@ import {
   $createTextNode,
   $getRoot,
   $getSelection,
+  $isNodeSelection,
   $isRangeSelection,
   $setSelection,
   DecoratorNode,
@@ -254,4 +255,135 @@ describe('Shift+Arrow on a NodeSelection (#9062)', () => {
       ).toBe(true);
     });
   });
+});
+
+/** An inline decorator whose DOM holds a text field of its own. */
+class TestInputNode extends DecoratorNode<null> {
+  $config() {
+    return this.config('test_input', {extends: DecoratorNode});
+  }
+
+  createDOM(): HTMLElement {
+    const span = document.createElement('span');
+    const input = document.createElement('input');
+    input.value = 'field text';
+    span.appendChild(input);
+    return span;
+  }
+
+  updateDOM(): false {
+    return false;
+  }
+
+  decorate(): null {
+    return null;
+  }
+
+  isInline(): true {
+    return true;
+  }
+}
+
+/**
+ * `ab (field text)`, with the decorator that holds the field node-selected and
+ * then the caret clicked into the field after `field`, which keeps the
+ * NodeSelection.
+ */
+async function mountWithCaretInSelectedDecoratorInput(): Promise<{
+  editor: LexicalEditor;
+  input: HTMLInputElement;
+}> {
+  const rootElement = document.createElement('div');
+  rootElement.contentEditable = 'true';
+  document.body.appendChild(rootElement);
+  const editor = buildEditorFromExtensions({
+    $initialEditorState: () => {
+      $getRoot()
+        .clear()
+        .append(
+          $createParagraphNode().append(
+            $createTextNode('ab '),
+            new TestInputNode(),
+          ),
+        );
+    },
+    dependencies: [RichTextExtension],
+    name: 'test',
+    nodes: [TestInputNode],
+  });
+  editor.setRootElement(rootElement);
+  onTestFinished(() => {
+    editor.setRootElement(null);
+    rootElement.remove();
+    editor.dispose();
+  });
+  rootElement.focus();
+  editor.update(
+    () => {
+      const selection = $createNodeSelection();
+      selection.add(
+        $getRoot().getFirstDescendant()!.getNextSibling()!.getKey(),
+      );
+      $setSelection(selection);
+    },
+    {discrete: true},
+  );
+  const input = rootElement.querySelector('input')!;
+  await userEvent.click(input);
+  input.setSelectionRange(5, 5);
+  editor.read(() => {
+    expect($isNodeSelection($getSelection())).toBe(true);
+  });
+  return {editor, input};
+}
+
+/**
+ * Presses `key` and reports whether anything prevented its default action, as
+ * the page sees it once the editor's listeners have run.
+ */
+async function pressKey(key: string): Promise<boolean> {
+  let defaultPrevented: boolean | null = null;
+  const record = (event: KeyboardEvent) => {
+    defaultPrevented = event.defaultPrevented;
+  };
+  window.addEventListener('keydown', record);
+  try {
+    await userEvent.keyboard(`{${key}}`);
+  } finally {
+    window.removeEventListener('keydown', record);
+  }
+  assert(defaultPrevented !== null, 'the keydown reached the window');
+  return defaultPrevented;
+}
+
+/**
+ * Where `key` puts the caret in a field like the decorator's, outside any
+ * editor, from after `field`: what the browser does with the key.
+ */
+async function caretAfterKeyInPlainInput(key: string): Promise<number> {
+  const input = document.createElement('input');
+  input.value = 'field text';
+  document.body.appendChild(input);
+  onTestFinished(() => input.remove());
+  await userEvent.click(input);
+  input.setSelectionRange(5, 5);
+  await userEvent.keyboard(`{${key}}`);
+  return input.selectionStart!;
+}
+
+describe('Arrow keys in the input of a node-selected decorator', () => {
+  test.for(['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'])(
+    '%s is left to the input',
+    async key => {
+      const expectedCaret = await caretAfterKeyInPlainInput(key);
+      const {editor, input} = await mountWithCaretInSelectedDecoratorInput();
+
+      expect(await pressKey(key)).toBe(false);
+
+      expect(input.selectionStart).toBe(expectedCaret);
+      editor.read(() => {
+        expect($isNodeSelection($getSelection())).toBe(true);
+      });
+    },
+  );
 });

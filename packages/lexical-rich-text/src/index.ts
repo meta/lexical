@@ -1627,9 +1627,10 @@ export function registerRichText(
         let selection = $getSelection();
         if ($isNodeSelection(selection)) {
           // If selection is on a node, let's try and move selection
-          // back to being a range selection.
+          // back to being a range selection. A key pressed in an input
+          // embedded in a node's DOM is left to that input.
           const nodes = selection.getNodes();
-          if (nodes.length > 0) {
+          if (nodes.length > 0 && !$isEventFromEmbeddedInput(event)) {
             if (
               event.shiftKey &&
               $convertContiguousNodeSelection(selection, 'previous')
@@ -1677,9 +1678,10 @@ export function registerRichText(
         let selection = $getSelection();
         if ($isNodeSelection(selection)) {
           // If selection is on a node, let's try and move selection
-          // back to being a range selection.
+          // back to being a range selection. A key pressed in an input
+          // embedded in a node's DOM is left to that input.
           const nodes = selection.getNodes();
-          if (nodes.length > 0) {
+          if (nodes.length > 0 && !$isEventFromEmbeddedInput(event)) {
             if (
               event.shiftKey &&
               $convertContiguousNodeSelection(selection, 'next')
@@ -1730,9 +1732,10 @@ export function registerRichText(
         let selection = $getSelection();
         if ($isNodeSelection(selection)) {
           // If selection is on a node, let's try and move selection
-          // back to being a range selection.
+          // back to being a range selection. A key pressed in an input
+          // embedded in a node's DOM is left to that input.
           const nodes = selection.getNodes();
-          if (nodes.length > 0) {
+          if (nodes.length > 0 && !$isEventFromEmbeddedInput(event)) {
             const direction = $isParentRTL(nodes[0]) ? 'next' : 'previous';
             if (
               event.shiftKey &&
@@ -1788,9 +1791,10 @@ export function registerRichText(
         let selection = $getSelection();
         if ($isNodeSelection(selection)) {
           // If selection is on a node, let's try and move selection
-          // back to being a range selection.
+          // back to being a range selection. A key pressed in an input
+          // embedded in a node's DOM is left to that input.
           const nodes = selection.getNodes();
-          if (nodes.length > 0) {
+          if (nodes.length > 0 && !$isEventFromEmbeddedInput(event)) {
             const direction = $isParentRTL(nodes[0]) ? 'previous' : 'next';
             if (
               event.shiftKey &&
