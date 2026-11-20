@@ -41,6 +41,7 @@ import {
 } from 'lexical';
 
 import {$inlineStylesFromStyleSheetsDOM} from './import/inlineStylesFromStyleSheets';
+import {wrapMonospacePreSiblingRunsDOM} from './import/wrapMonospacePreRuns';
 import {contextValue} from './internal/ContextRecord';
 import {
   $getSessionDOMRenderConfig,
@@ -149,6 +150,7 @@ export function $generateNodesFromDOM(
   dom: Document | ParentNode,
 ): LexicalNode[] {
   $inlineStylesFromStyleSheetsDOM(dom);
+  wrapMonospacePreSiblingRunsDOM(dom);
 
   const elements = isDOMDocumentNode(dom)
     ? dom.body.childNodes
