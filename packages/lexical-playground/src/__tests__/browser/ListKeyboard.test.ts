@@ -42,22 +42,19 @@ test('Should outdent if indented when the backspace key is pressed', async () =>
     root,
     html`
       <ul class="PlaygroundEditorTheme__ul" dir="auto">
-        <li class="PlaygroundEditorTheme__listItem" value="1">
+        <li class="PlaygroundEditorTheme__listItem">
           <span data-lexical-text="true">Hello</span>
         </li>
         <li
-          class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__nestedListItem"
-          value="2">
+          class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__nestedListItem">
           <ul class="PlaygroundEditorTheme__ul">
             <li
-              class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__nestedListItem"
-              value="1">
+              class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__nestedListItem">
               <ul class="PlaygroundEditorTheme__ul">
                 <li
-                  class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__nestedListItem"
-                  value="1">
+                  class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__nestedListItem">
                   <ul class="PlaygroundEditorTheme__ul">
-                    <li class="PlaygroundEditorTheme__listItem" value="1">
+                    <li class="PlaygroundEditorTheme__listItem">
                       <br data-lexical-managed-linebreak="true" />
                     </li>
                   </ul>
@@ -76,18 +73,16 @@ test('Should outdent if indented when the backspace key is pressed', async () =>
     root,
     html`
       <ul class="PlaygroundEditorTheme__ul" dir="auto">
-        <li class="PlaygroundEditorTheme__listItem" value="1">
+        <li class="PlaygroundEditorTheme__listItem">
           <span data-lexical-text="true">Hello</span>
         </li>
         <li
-          class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__nestedListItem"
-          value="2">
+          class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__nestedListItem">
           <ul class="PlaygroundEditorTheme__ul">
             <li
-              class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__nestedListItem"
-              value="1">
+              class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__nestedListItem">
               <ul class="PlaygroundEditorTheme__ul">
-                <li class="PlaygroundEditorTheme__listItem" value="1">
+                <li class="PlaygroundEditorTheme__listItem">
                   <br data-lexical-managed-linebreak="true" />
                 </li>
               </ul>
@@ -104,14 +99,13 @@ test('Should outdent if indented when the backspace key is pressed', async () =>
     root,
     html`
       <ul class="PlaygroundEditorTheme__ul" dir="auto">
-        <li class="PlaygroundEditorTheme__listItem" value="1">
+        <li class="PlaygroundEditorTheme__listItem">
           <span data-lexical-text="true">Hello</span>
         </li>
         <li
-          class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__nestedListItem"
-          value="2">
+          class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__nestedListItem">
           <ul class="PlaygroundEditorTheme__ul">
-            <li class="PlaygroundEditorTheme__listItem" value="1">
+            <li class="PlaygroundEditorTheme__listItem">
               <br data-lexical-managed-linebreak="true" />
             </li>
           </ul>
@@ -129,7 +123,7 @@ test(`Should not process paragraph markdown inside list.`, async () => {
     root,
     html`
       <ul class="PlaygroundEditorTheme__ul" dir="auto">
-        <li class="PlaygroundEditorTheme__listItem" value="1">
+        <li class="PlaygroundEditorTheme__listItem">
           <span data-lexical-text="true">#</span>
         </li>
       </ul>
@@ -148,14 +142,13 @@ test(`Un-indents list empty list items when the user presses enter`, async () =>
     root,
     html`
       <ul class="PlaygroundEditorTheme__ul" dir="auto">
-        <li class="PlaygroundEditorTheme__listItem" value="1">
+        <li class="PlaygroundEditorTheme__listItem">
           <span data-lexical-text="true">a</span>
         </li>
         <li
-          class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__nestedListItem"
-          value="2">
+          class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__nestedListItem">
           <ul class="PlaygroundEditorTheme__ul">
-            <li class="PlaygroundEditorTheme__listItem" value="1">
+            <li class="PlaygroundEditorTheme__listItem">
               <br data-lexical-managed-linebreak="true" />
             </li>
           </ul>
@@ -168,10 +161,10 @@ test(`Un-indents list empty list items when the user presses enter`, async () =>
     root,
     html`
       <ul class="PlaygroundEditorTheme__ul" dir="auto">
-        <li class="PlaygroundEditorTheme__listItem" value="1">
+        <li class="PlaygroundEditorTheme__listItem">
           <span data-lexical-text="true">a</span>
         </li>
-        <li class="PlaygroundEditorTheme__listItem" value="2">
+        <li class="PlaygroundEditorTheme__listItem">
           <br data-lexical-managed-linebreak="true" />
         </li>
       </ul>
@@ -182,7 +175,7 @@ test(`Un-indents list empty list items when the user presses enter`, async () =>
     root,
     html`
       <ul class="PlaygroundEditorTheme__ul" dir="auto">
-        <li class="PlaygroundEditorTheme__listItem" value="1">
+        <li class="PlaygroundEditorTheme__listItem">
           <span data-lexical-text="true">a</span>
         </li>
       </ul>

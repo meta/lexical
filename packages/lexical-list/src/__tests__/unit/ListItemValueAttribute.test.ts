@@ -9,10 +9,15 @@
 import {
   $createListItemNode,
   $createListNode,
-  type ListItemNode,
-  type ListNode,
+  ListItemNode,
+  ListNode,
 } from '@lexical/list';
-import {$createTextNode, $getRoot} from 'lexical';
+import {
+  $createParagraphNode,
+  $createTextNode,
+  $getRoot,
+  createEditor,
+} from 'lexical';
 import {initializeUnitTest} from 'lexical/src/__tests__/utils';
 import {describe, expect, test} from 'vitest';
 
@@ -147,5 +152,131 @@ describe('ListItemNode value attribute', () => {
       );
       expect(values).toEqual([1, 2, 3]);
     });
+  });
+});
+
+describe('ListItemNode exportDOM', () => {
+  test('writes value before the theme classes, as before', () => {
+    const editor = createEditor({
+      nodes: [ListNode, ListItemNode],
+      onError: e => {
+        throw e;
+      },
+      theme: {list: {listitem: 'item', olDepth: ['ol1']}},
+    });
+    editor.setRootElement(document.createElement('div'));
+    editor.update(
+      () => {
+        $getRoot().append($createListNode('number').append($item('a')));
+      },
+      {discrete: true},
+    );
+    const html = editor.read(
+      () =>
+        (
+          ($getRoot().getFirstChildOrThrow() as ListNode)
+            .getFirstChildOrThrow()
+            .exportDOM(editor).element as HTMLElement
+        ).outerHTML,
+    );
+    expect(html).toBe('<li value="1" class="item"></li>');
+  });
+
+  test('every exported item keeps its value, in the same place, in every list type', () => {
+    const editor = createEditor({
+      nodes: [ListNode, ListItemNode],
+      onError: e => {
+        throw e;
+      },
+      theme: {list: {listitem: 'item', nested: {listitem: 'holder'}}},
+    });
+    editor.setRootElement(document.createElement('div'));
+    editor.update(
+      () => {
+        $getRoot().append(
+          $createListNode('number').append(
+            $item('a'),
+            $createListItemNode().append(
+              $createListNode('number').append($item('x')),
+            ),
+            $item('b'),
+          ),
+          $createListNode('bullet').append($item('c'), $item('d')),
+          $createListNode('check').append($item('e'), $item('f')),
+        );
+      },
+      {discrete: true},
+    );
+    const exported = editor.read(() =>
+      $getRoot()
+        .getChildren()
+        .flatMap(list => (list as ListNode).getChildren())
+        .map(item => {
+          const element = (item as ListItemNode).exportDOM(editor)
+            .element as HTMLElement;
+          return Array.from(element.attributes)
+            .map(a => a.name)
+            .filter(n => n === 'value' || n === 'class')
+            .join(',');
+        }),
+    );
+    // As before: `value` first on every item, then the theme classes.
+    expect(exported).toEqual(Array(7).fill('value,class'));
+  });
+
+  test('a live item whose number the browser draws reads li.value 0', () => {
+    const editor = createEditor({
+      nodes: [ListNode, ListItemNode],
+      onError: e => {
+        throw e;
+      },
+    });
+    const root = document.createElement('div');
+    editor.setRootElement(root);
+    editor.update(
+      () => {
+        $getRoot().append(
+          $createListNode('number').append($item('a'), $item('b')),
+        );
+      },
+      {discrete: true},
+    );
+    // The documented change: read the number with getValue() or exportDOM.
+    expect(
+      Array.from(root.querySelectorAll('li')).map(
+        li => (li as HTMLLIElement).value,
+      ),
+    ).toEqual([0, 0]);
+  });
+
+  test('an item after a non-item child writes its value', () => {
+    // Only reachable with the list transforms skipped (a remote apply): the
+    // browser does not count the stray child, so the item says its number.
+    const editor = createEditor({
+      nodes: [ListNode, ListItemNode],
+      onError: e => {
+        throw e;
+      },
+    });
+    const root = document.createElement('div');
+    editor.setRootElement(root);
+    editor.update(
+      () => {
+        $getRoot().append(
+          $createListNode('number').append($item('a'), $item('b'), $item('c')),
+        );
+      },
+      {discrete: true},
+    );
+    editor.update(
+      () => {
+        const list = $getRoot().getFirstChildOrThrow() as ListNode;
+        list
+          .getChildAtIndex(1)!
+          .insertBefore($createParagraphNode().append($createTextNode('x')));
+      },
+      {discrete: true, skipTransforms: true},
+    );
+    expect(valueAttributes(root)).toEqual([null, '2', null]);
   });
 });
