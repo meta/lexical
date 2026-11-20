@@ -190,6 +190,24 @@ describe("typing at a link's edge, in an inline element inside it (#9280)", () =
     );
   });
 
+  test('writes after the MarkNode, at the end of an inline element that ends it', async () => {
+    await typeX(
+      () => {
+        const caret = $createTextNode('xy');
+        return [
+          $createParagraphNode().append(
+            $createTextNode('ab '),
+            $mark($createTextNode('cd '), $inline(caret)),
+            $createTextNode(' ef'),
+          ),
+          caret,
+        ];
+      },
+      'end',
+      'paragraph["ab ", mark["cd ", test_inline["xy"]], "X ef"]',
+    );
+  });
+
   test('writes after the link, at the end of its own text', async () => {
     await typeX(
       () => {
