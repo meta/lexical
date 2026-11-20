@@ -6,37 +6,38 @@
  *
  */
 
-import type {ExtensionState} from '../../store';
 import type {LexicalCommandLog} from '@lexical/devtools-core';
 import type {LexicalEditor} from 'lexical';
-import type {StoreApi} from 'zustand';
 
 import {registerRPCService} from '@webext-pegasus/rpc';
 
 import {InjectedPegasusService} from './InjectedPegasusService';
+import {InjectedTabState} from './InjectedTabState';
 import scanAndListenForEditors from './scanAndListenForEditors';
 
 const commandLog = new WeakMap<LexicalEditor, LexicalCommandLog>();
 
-export default async function main(
-  tabID: number,
-  extensionStore: StoreApi<ExtensionState>,
-) {
+export default function main() {
+  // State for this page, held by this page: nothing about any other tab is
+  // mirrored into the page's world.
+  const tabState = new InjectedTabState();
+
   registerRPCService(
     'InjectedPegasusService',
-    new InjectedPegasusService(tabID, extensionStore, commandLog),
+    new InjectedPegasusService(tabState, commandLog),
   );
 
-  scanAndListenForEditors(tabID, extensionStore, commandLog);
+  scanAndListenForEditors(tabState, commandLog);
 
-  // Serialized state is masked while no panel is open for this tab, so re-scan
-  // whenever that changes to swap the relayed states between masked and clear.
-  let wasPanelOpen = extensionStore.getState().isPanelOpen[tabID] === true;
-  extensionStore.subscribe(state => {
-    const isPanelOpen = state.isPanelOpen[tabID] === true;
-    if (isPanelOpen !== wasPanelOpen) {
-      wasPanelOpen = isPanelOpen;
-      scanAndListenForEditors(tabID, extensionStore, commandLog);
-    }
-  });
+  // The panel outlives the page it inspects, so a page that loads with one
+  // already attached -- a reload, or any navigation -- has to ask whether it
+  // should be reporting its editors to it.
+  tabState
+    .adoptPanelState()
+    .then(() => {
+      if (tabState.isPanelOpen()) {
+        scanAndListenForEditors(tabState, commandLog);
+      }
+    })
+    .catch(console.error);
 }

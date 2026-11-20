@@ -15,6 +15,7 @@ import {
 } from '@lexical/html';
 import {$insertNodeIntoLeaf, $wrapNodeInElement} from '@lexical/utils';
 import {
+  $create,
   $createParagraphNode,
   $getSelection,
   $isRangeSelection,
@@ -29,10 +30,13 @@ import {
 
 import {
   $createDateTimeNode,
+  $createDateTimeNodeFromValue,
   DateTimeNode,
 } from '../../nodes/DateTimeNode/DateTimeNode';
 
 type CommandPayload = {
+  /** Insert the local calendar date of `dateTime` as an all-day date */
+  allDay?: boolean;
   dateTime: Date;
 };
 
@@ -41,16 +45,14 @@ export const INSERT_DATETIME_COMMAND: LexicalCommand<CommandPayload> =
 
 const DateTimeRule = defineImportRule({
   $import: (ctx, el, $next) => {
-    const dateTimeValue = el.getAttribute('data-lexical-datetime')!;
-    const parsedDate = Date.parse(dateTimeValue);
-    // An unparseable attribute would build a node around an Invalid Date,
-    // whose dateTime state cannot be serialized (toISOString throws). Fall
-    // through and keep the element's own content instead, the same way
-    // GoogleDocsDateRule below does.
-    if (isNaN(parsedDate)) {
+    // An unparseable attribute falls through and keeps the element's own
+    // content, the same way GoogleDocsDateRule below does.
+    const node = $createDateTimeNodeFromValue(
+      el.getAttribute('data-lexical-datetime')!,
+    );
+    if (node === null) {
       return $next();
     }
-    const node = $createDateTimeNode(new Date(parsedDate));
     const [firstChild] = ctx.$importChildren(el);
     if ($isTextNode(firstChild)) {
       node.setFormat(firstChild.getFormat());
@@ -63,24 +65,46 @@ const DateTimeRule = defineImportRule({
 
 const GoogleDocsDateRule = defineImportRule({
   $import: (_ctx, el, $next) => {
-    let parsed: {dat_df?: {dfie_ts?: {tv?: {tv_s?: number}}; dfie_dt?: string}};
+    let parsed: {
+      dat_df?: {
+        dfie_dt?: string;
+        dfie_tpt?: number;
+        dfie_ts?: {tv?: {tv_s?: number}};
+      } | null;
+    };
     try {
       parsed = JSON.parse(el.getAttribute('data-rich-links') ?? '{}');
     } catch {
       return $next();
     }
-    if (parsed?.dat_df === undefined) {
+    const {dat_df} = parsed;
+    if (dat_df == null) {
       return $next();
     }
-    const parsedDate =
-      (parsed.dat_df.dfie_ts?.tv?.tv_s ?? 0) * 1000 ||
-      Date.parse(parsed.dat_df.dfie_dt ?? '');
-    if (isNaN(parsedDate)) {
+    const seconds = dat_df.dfie_ts?.tv?.tv_s;
+    const date = new Date(
+      (seconds ?? 0) * 1000 || Date.parse(dat_df.dfie_dt ?? ''),
+    );
+    if (isNaN(date.getTime())) {
       return $next();
     }
-    return [
-      applyFormatFromStyle($createDateTimeNode(new Date(parsedDate)), el.style),
-    ];
+    // Google Docs writes what some chips show as UTC: noon of the day for a
+    // date without a time (dfie_tpt 0), and the wall clock time for a time
+    // without a time zone (dfie_tpt 1). The time is kept without an offset,
+    // so it is read as local time where it is pasted.
+    const year = date.getUTCFullYear();
+    const shown =
+      seconds && year >= 0 && year <= 9999 ? date.toISOString() : '';
+    const value =
+      dat_df.dfie_tpt === 0
+        ? shown.slice(0, 10)
+        : dat_df.dfie_tpt === 1
+          ? shown.slice(0, 19)
+          : '';
+    const node =
+      (value !== '' ? $createDateTimeNodeFromValue(value) : null) ??
+      $createDateTimeNode(date);
+    return [applyFormatFromStyle(node, el.style)];
   },
   match: sel.tag('span').attr('data-rich-links', /"type"\s*:\s*"date"/),
   name: '@lexical/playground/datetime-google-docs',
@@ -104,8 +128,10 @@ export const DateTimeExtension = defineExtension({
     editor.registerCommand(
       INSERT_DATETIME_COMMAND,
       payload => {
-        const {dateTime} = payload;
-        const dateTimeNode = $createDateTimeNode(dateTime);
+        const {allDay, dateTime} = payload;
+        const dateTimeNode = allDay
+          ? $create(DateTimeNode).setAllDayDate(dateTime)
+          : $createDateTimeNode(dateTime);
 
         const selection = $getSelection();
         if ($isRangeSelection(selection)) {

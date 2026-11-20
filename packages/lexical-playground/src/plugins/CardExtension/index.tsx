@@ -344,7 +344,7 @@ export const CardExtension = defineExtension({
         return editor.registerUpdateListener(({editorState}) => {
           let activeCardKey: NodeKey | null = null;
           let activeSlot: 'title' | 'body' | null = null;
-          editorState.read(() => {
+          editor.read(editorState, () => {
             const selection = $getSelection();
             if ($isRangeSelection(selection)) {
               const context = $findCardSlotContext(selection.anchor.getNode());

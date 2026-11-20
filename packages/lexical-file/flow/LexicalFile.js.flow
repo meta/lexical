@@ -8,10 +8,36 @@
  *
  */
 
-import type {LexicalEditor} from 'lexical';
+import type {
+  EditorState,
+  LexicalEditor,
+  SerializedEditorState,
+} from 'lexical';
 
 declare export function importFile(editor: LexicalEditor): void;
 declare export function exportFile(
   editor: LexicalEditor,
   config?: Readonly<{fileName?: string, source?: string}>,
 ): void;
+
+export type SerializedDocument = {
+  editorState: SerializedEditorState,
+  lastSaved: number,
+  source: string,
+  version: string,
+  ...
+};
+
+declare export function serializedDocumentFromEditorState(
+  editorState: EditorState,
+  config?: Readonly<{
+    source?: string,
+    lastSaved?: number,
+    editor?: LexicalEditor,
+  }>,
+): SerializedDocument;
+
+declare export function editorStateFromSerializedDocument(
+  editor: LexicalEditor,
+  maybeStringifiedDocument: SerializedDocument | string,
+): EditorState;

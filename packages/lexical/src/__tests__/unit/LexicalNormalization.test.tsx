@@ -9,7 +9,12 @@ import {
   $createParagraphNode,
   $createTextNode,
   $getRoot,
+  $setCompositionKey,
+  COLLABORATION_TAG,
+  DEFER_COMPOSITION_MERGE_TAG,
+  type ParagraphNode,
   type RangeSelection,
+  type TextNode,
 } from 'lexical';
 import {describe, expect, test} from 'vitest';
 
@@ -22,6 +27,100 @@ import {
 
 describe('LexicalNormalization tests', () => {
   initializeUnitTest(testEnv => {
+    describe('text nodes next to a composition', () => {
+      const $paragraph = () => $getRoot().getFirstChild() as ParagraphNode;
+      const texts = () =>
+        editor()
+          .getEditorState()
+          .read(() =>
+            $paragraph()
+              .getChildren()
+              .map(t => t.getTextContent()),
+          );
+      const editor = () => testEnv.editor;
+      async function startComposition(): Promise<string> {
+        let composedKey = '';
+        await editor().update(() => {
+          const composed = $createTextNode('にj2z');
+          $getRoot().clear().append($createParagraphNode().append(composed));
+          composedKey = composed.getKey();
+          composed.select(1, 1);
+          $setCompositionKey(composedKey);
+        });
+        return composedKey;
+      }
+      // Text from another source lands right before the composition.
+      const insertBefore = (tag?: string) =>
+        editor().update(
+          () => {
+            $paragraph()
+              .getLastChildOrThrow()
+              .insertBefore($createTextNode('j1z'));
+          },
+          {tag},
+        );
+      const compositionStep = () =>
+        editor().update(() => {
+          const node = $paragraph().getLastChildOrThrow() as TextNode;
+          node.setTextContent(node.getTextContent().replace('に', 'にほ'));
+        });
+
+      test('text tagged DEFER_COMPOSITION_MERGE_TAG is not merged into the composed node until it ends', async () => {
+        const composedKey = await startComposition();
+        await insertBefore(DEFER_COMPOSITION_MERGE_TAG);
+        expect(texts()).toEqual(['j1z', 'にj2z']);
+        editor()
+          .getEditorState()
+          .read(() =>
+            expect($paragraph().getLastChildOrThrow().getKey()).toBe(
+              composedKey,
+            ),
+          );
+        // Later steps of the same composition do not merge either.
+        await compositionStep();
+        expect(texts()).toEqual(['j1z', 'にほj2z']);
+        editor()
+          .getEditorState()
+          .read(() =>
+            expect($paragraph().getLastChildOrThrow().getKey()).toBe(
+              composedKey,
+            ),
+          );
+        // The composition ends: the nodes merge.
+        await editor().update(() => $setCompositionKey(null));
+        expect(texts()).toEqual(['j1zにほj2z']);
+      });
+
+      test('text inserted without the tag merges at once', async () => {
+        await startComposition();
+        await insertBefore();
+        expect(texts()).toEqual(['j1zにj2z']);
+      });
+
+      test('COLLABORATION_TAG alone merges at once', async () => {
+        await startComposition();
+        await insertBefore(COLLABORATION_TAG);
+        expect(texts()).toEqual(['j1zにj2z']);
+        await compositionStep();
+        expect(texts()).toEqual(['j1zにほj2z']);
+      });
+
+      test('a new composition of the same node merges as usual', async () => {
+        const composedKey = await startComposition();
+        await insertBefore(DEFER_COMPOSITION_MERGE_TAG);
+        expect(texts()).toEqual(['j1z', 'にj2z']);
+        // The composition is reset without normalizing (as setEditorState
+        // does), then a new one starts on the same node: nothing is held.
+        await editor().update(() => {
+          testEnv.editor._compositionKey = null;
+        });
+        await editor().update(() => $setCompositionKey(composedKey));
+        expect(texts()).toEqual(['j1zにj2z']);
+        await insertBefore();
+        expect(texts()).toEqual(['j1zj1zにj2z']);
+      });
+    });
+
     describe('$normalizeSelection', () => {
       for (const reversed of [false, true]) {
         const getAnchor = (x: RangeSelection) =>

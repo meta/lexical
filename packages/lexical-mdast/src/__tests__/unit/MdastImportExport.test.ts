@@ -12,6 +12,7 @@ import {
   buildEditorFromExtensions,
   configExtension,
   type LexicalEditorWithDispose,
+  NodeStructureExtension,
 } from '@lexical/extension';
 import {
   $getImportContextValue,
@@ -21,13 +22,19 @@ import {
   createImportState,
 } from '@lexical/html';
 import {$createLinkNode, $isLinkNode} from '@lexical/link';
-import {$createListItemNode, $createListNode, $isListNode} from '@lexical/list';
+import {
+  $createListItemNode,
+  $createListNode,
+  $getTaskListItemChecked,
+  $isListItemNode,
+  $isListNode,
+  $setTaskListItemChecked,
+} from '@lexical/list';
 import {
   $createQuoteNode,
   $isHeadingNode,
   $isQuoteNode,
 } from '@lexical/rich-text';
-import {$isTableNode} from '@lexical/table';
 import {
   $createLineBreakNode,
   $createParagraphNode,
@@ -42,7 +49,6 @@ import {
   $isTextNode,
   $setSelectionFromCaretRange,
   defineExtension,
-  type ElementNode,
   type LexicalNode,
   TEXT_TYPE_TO_FORMAT,
   type TextNode,
@@ -66,12 +72,11 @@ import {
   MdastHeadingExtension,
   MdastShadowRootQuoteExtension,
   MdastStrikethroughExtension,
-  MdastTableExtension,
   MdastTaskListExtension,
   RenderContextMarkdownSelection,
 } from '../../index';
 
-function createEditor(withTable = false): LexicalEditorWithDispose {
+function createEditor(): LexicalEditorWithDispose {
   // The caller is responsible for disposal (with `using`).
   return buildEditorFromExtensions(
     defineExtension({
@@ -81,15 +86,14 @@ function createEditor(withTable = false): LexicalEditorWithDispose {
         MdastStrikethroughExtension,
         MdastTaskListExtension,
         MdastExtension,
-        ...(withTable ? [MdastTableExtension] : []),
       ],
       name: '[root]',
     }),
   );
 }
 
-function importExport(markdown: string, withTable = false): string {
-  using editor = createEditor(withTable);
+function importExport(markdown: string): string {
+  using editor = createEditor();
   editor.update(
     () => {
       $convertFromMarkdownString(markdown);
@@ -258,6 +262,43 @@ describe('@lexical/mdast import/export', () => {
     });
   });
 
+  it('with NodeStructureExtension, leaves no break where a nested block is lifted out', () => {
+    using editor = buildEditorFromExtensions(
+      defineExtension({
+        dependencies: [MdastCommonMarkExtension, NodeStructureExtension],
+        name: '[root]',
+      }),
+    );
+    const shapeOf = (node: LexicalNode): unknown => {
+      if (!$isElementNode(node)) {
+        return $isTextNode(node) ? node.getTextContent() : node.getType();
+      }
+      const children = node.getChildren().map(shapeOf);
+      return $isListNode(node)
+        ? [`list ${node.getStart()}`, ...children]
+        : [node.getType(), ...children];
+    };
+    const shapes = (markdown: string) => {
+      editor.update(() => $convertFromMarkdownString(markdown), {
+        discrete: true,
+      });
+      return editor.read(() => $getRoot().getChildren().map(shapeOf));
+    };
+    expect(shapes('> a\n>\n> ```\n> c\n> ```\n>\n> b')).toEqual([
+      ['quote', 'a'],
+      ['code', 'c'],
+      ['quote', 'b'],
+    ]);
+    expect(shapes('1. x\n2. a\n\n   ---\n\n   b\n3. y')).toEqual([
+      ['list 1', ['listitem', 'x'], ['listitem', 'a']],
+      'horizontalrule',
+      // The second list continues the numbering.
+      ['list 3', ['listitem', 'b'], ['listitem', 'y']],
+    ]);
+    // Paragraphs of one quote stay one quote, as without the extension.
+    expect(shapes('> a\n>\n> b')).toEqual([['quote', 'a', 'linebreak', 'b']]);
+  });
+
   it('round-trips an ordered list with a custom start', () => {
     expect(importExport('5. five\n6. six')).toBe('5. five\n6. six');
   });
@@ -307,6 +348,162 @@ describe('@lexical/mdast import/export', () => {
       expect(list.getListType()).toBe('bullet');
       // a, b, (nested list wrapper), c
       expect(list.getChildrenSize()).toBe(4);
+    });
+  });
+
+  describe('task lists', () => {
+    function exportAfter(markdown: string, $edit: () => void): string {
+      using editor = createEditor();
+      editor.update(
+        () => {
+          $convertFromMarkdownString(markdown);
+        },
+        {discrete: true},
+      );
+      editor.update($edit, {discrete: true});
+      return editor.read(() => $convertToMarkdownString());
+    }
+
+    function $firstList() {
+      return $assertNodeType($getRoot().getFirstChild(), $isListNode);
+    }
+
+    describe('round-trips', () => {
+      // GFM decides per item whether it is a task, so plain items and task
+      // items can share a list, and an ordered list can hold task items.
+      const cases: [string, string][] = [
+        ['plain items next to task items', '- plain\n- [x] done\n- [ ] todo'],
+        ['a task item followed by a plain item', '- [x] done\n- plain'],
+        ['an ordered task list', '1. [ ] todo\n2. [x] done'],
+        [
+          'an ordered task list with a custom start',
+          '3. [x] three\n4. [ ] four',
+        ],
+        ['an ordered list with plain and task items', '1. plain\n2. [x] done'],
+        [
+          'a mixed task list nested in a task list',
+          '- [ ] parent\n  - child\n  - [x] done',
+        ],
+        [
+          'an ordered task list nested in a bullet list',
+          '- parent\n  1. [x] done\n  2. [ ] todo',
+        ],
+      ];
+      for (const [name, markdown] of cases) {
+        it(name, () => {
+          expect(importExport(markdown)).toBe(markdown);
+        });
+      }
+    });
+
+    it('writes an ordered task list with "." so the boxes are kept', () => {
+      // The GFM task list writer only adds a box after `1.`, not after `1)`.
+      expect(importExport('1) [ ] todo\n2) [x] done')).toBe(
+        '1. [ ] todo\n2. [x] done',
+      );
+    });
+
+    describe('imports a list with task items as its own kind', () => {
+      function importedItems(markdown: string) {
+        using editor = createEditor();
+        editor.update(
+          () => {
+            $convertFromMarkdownString(markdown);
+          },
+          {discrete: true},
+        );
+        return editor.read(() => {
+          const list = $firstList();
+          return {
+            checked: list
+              .getChildren()
+              .map(item =>
+                $getTaskListItemChecked($assertNodeType(item, $isListItemNode)),
+              ),
+            start: list.getStart(),
+            type: list.getListType(),
+          };
+        });
+      }
+
+      it('a list of task items only is a check list', () => {
+        expect(importedItems('- [ ] todo\n- [x] done')).toEqual({
+          checked: [false, true],
+          start: 1,
+          type: 'check',
+        });
+      });
+
+      it('a bullet list with plain items keeps them plain', () => {
+        expect(importedItems('- plain\n- [x] done\n- [ ] todo')).toEqual({
+          checked: [undefined, true, false],
+          start: 1,
+          type: 'bullet',
+        });
+      });
+
+      it('an ordered list keeps its numbers and its task items', () => {
+        expect(importedItems('3. [x] three\n4. four')).toEqual({
+          checked: [true, undefined],
+          start: 3,
+          type: 'number',
+        });
+      });
+    });
+
+    it('writes a box on a plain item once it is made a task', () => {
+      expect(
+        exportAfter('- plain\n- [x] done', () => {
+          $setTaskListItemChecked(
+            $assertNodeType($firstList().getFirstChild(), $isListItemNode),
+            false,
+          );
+        }),
+      ).toBe('- [ ] plain\n- [x] done');
+    });
+
+    it('adds a plain item after a plain item, and a task after a task', () => {
+      expect(
+        exportAfter('1. plain\n2. [x] done', () => {
+          const [plain, done] = $firstList()
+            .getChildren()
+            .map(item => $assertNodeType(item, $isListItemNode));
+          plain
+            .insertNewAfter(plain.selectEnd())
+            .append($createTextNode('new plain'));
+          done
+            .insertNewAfter(done.selectEnd())
+            .append($createTextNode('new task'));
+        }),
+      ).toBe('1. plain\n2. new plain\n3. [x] done\n4. [ ] new task');
+    });
+
+    it('writes a box on every item of a bullet list turned into a check list', () => {
+      expect(
+        exportAfter('- one\n- two', () => {
+          $firstList().setListType('check');
+        }),
+      ).toBe('- [ ] one\n- [ ] two');
+    });
+
+    it('writes a box on every item of a check list made in the editor', () => {
+      using editor = createEditor();
+      editor.update(
+        () => {
+          $getRoot()
+            .clear()
+            .append(
+              $createListNode('check').append(
+                $createListItemNode().append($createTextNode('todo')),
+                $createListItemNode(true).append($createTextNode('done')),
+              ),
+            );
+        },
+        {discrete: true},
+      );
+      expect(editor.read(() => $convertToMarkdownString())).toBe(
+        '- [ ] todo\n- [x] done',
+      );
     });
   });
 
@@ -478,7 +675,10 @@ describe('@lexical/mdast import/export', () => {
         });
         editor.update(
           () => {
-            const paragraph = $getRoot().getFirstChildOrThrow<ElementNode>();
+            const paragraph = $assertNodeType(
+              $getRoot().getFirstChildOrThrow(),
+              $isElementNode,
+            );
             const lines = paragraph
               .getChildren()
               .filter(node => !$isLineBreakNode(node));
@@ -1061,66 +1261,6 @@ describe('@lexical/mdast import/export', () => {
     const once = importExport(markdown);
     const twice = importExport(once);
     expect(twice).toBe(once);
-  });
-
-  describe('with MdastTableExtension', () => {
-    it('round-trips a GFM table', () => {
-      const markdown = [
-        '| a | b |',
-        '| - | - |',
-        '| 1 | 2 |',
-        '| 3 | 4 |',
-      ].join('\n');
-      const out = importExport(markdown, true);
-      // Re-import to confirm the structure is stable.
-      expect(importExport(out, true)).toBe(out);
-      expect(out).toContain('| a | b |');
-      expect(out).toContain('| 1 | 2 |');
-    });
-
-    it('imports a table into @lexical/table nodes', () => {
-      using editor = createEditor(true);
-      editor.update(
-        () => {
-          $convertFromMarkdownString('| h1 | h2 |\n| - | - |\n| a | b |');
-        },
-        {discrete: true},
-      );
-      editor.read(() => {
-        const table = $assertNodeType($getRoot().getFirstChild(), $isTableNode);
-        expect(table.getChildrenSize()).toBe(2);
-      });
-    });
-
-    it('preserves column alignment', () => {
-      const markdown = '| a | b | c |\n| :- | :-: | -: |\n| 1 | 2 | 3 |';
-      const out = importExport(markdown, true);
-      expect(out).toContain(':-');
-      expect(out).toContain(':-:');
-      expect(out).toContain('-:');
-      expect(importExport(out, true)).toBe(out);
-    });
-
-    it('joins multi-paragraph cells instead of fusing their text', () => {
-      using editor = createEditor(true);
-      editor.update(
-        () => {
-          $convertFromMarkdownString('| a |\n| - |\n| foo |');
-          const table = $assertNodeType(
-            $getRoot().getFirstChild(),
-            $isTableNode,
-          );
-          const lastRow = $assertNodeType(table.getLastChild(), $isElementNode);
-          const cell = $assertNodeType(lastRow.getFirstChild(), $isElementNode);
-          const extra = $createParagraphNode();
-          extra.append($createTextNode('bar'));
-          cell.append(extra);
-        },
-        {discrete: true},
-      );
-      const out = editor.read(() => $convertToMarkdownString());
-      expect(out).toContain('| foo bar |');
-    });
   });
 
   describe('with MdastShadowRootQuoteExtension', () => {

@@ -19,4 +19,4 @@ type CollaborationContextType = {
 
 declare export var CollaborationContext: React.Context<CollaborationContextType>;
 declare export function useCollaborationContext(): CollaborationContextType;
-declare export function LexicalCollaboration({children: React.Node}): React.Node;
+declare export function LexicalCollaboration(v: {children: React.Node}): React.Node;

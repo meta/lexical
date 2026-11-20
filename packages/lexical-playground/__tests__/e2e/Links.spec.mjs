@@ -1685,7 +1685,7 @@ test.describe('Links', () => {
       await focus(page, '.link-input');
       await selectAll(page);
       await page.keyboard.press('Backspace');
-      await page.keyboard.type('https://github.com/facebook/lexical');
+      await page.keyboard.type('https://github.com/meta/lexical');
       await click(page, '.link-confirm');
 
       // Verify link was updated
@@ -1695,7 +1695,7 @@ test.describe('Links', () => {
           <p class="PlaygroundEditorTheme__paragraph" dir="auto">
             <a
               class="PlaygroundEditorTheme__link"
-              href="https://github.com/facebook/lexical"
+              href="https://github.com/meta/lexical"
               rel="noreferrer">
               <span
                 class="editor-image"
@@ -1875,7 +1875,7 @@ test.describe('Links', () => {
       await focus(page, '.link-input');
       await selectAll(page);
       await page.keyboard.press('Backspace');
-      await page.keyboard.type('https://github.com/facebook/lexical');
+      await page.keyboard.type('https://github.com/meta/lexical');
       await click(page, '.link-confirm');
 
       // Verify both links were updated
@@ -1885,7 +1885,7 @@ test.describe('Links', () => {
           <p class="PlaygroundEditorTheme__paragraph" dir="auto">
             <a
               class="PlaygroundEditorTheme__link"
-              href="https://github.com/facebook/lexical"
+              href="https://github.com/meta/lexical"
               rel="noreferrer">
               <span
                 class="editor-image"
@@ -1916,7 +1916,7 @@ test.describe('Links', () => {
           <p class="PlaygroundEditorTheme__paragraph" dir="auto">
             <a
               class="PlaygroundEditorTheme__link"
-              href="https://github.com/facebook/lexical"
+              href="https://github.com/meta/lexical"
               rel="noreferrer">
               <span
                 class="editor-image"

@@ -9,7 +9,10 @@
 import type {BlockContent} from 'mdast';
 
 import {
+  $createHorizontalRuleNode,
   buildEditorFromExtensions,
+  getExtensionDependencyFromEditor,
+  HorizontalRuleNode,
   type LexicalEditorWithDispose,
 } from '@lexical/extension';
 import {
@@ -36,6 +39,7 @@ import {
 } from '@lexical/rich-text';
 import {
   $create,
+  $createLineBreakNode,
   $createParagraphNode,
   $createTextNode,
   $getRoot,
@@ -50,10 +54,14 @@ import {
   type LexicalNode,
   type TextNode,
 } from 'lexical';
+import {$assertNodeType} from 'lexical/src/__tests__/utils';
+import {fromMarkdown} from 'mdast-util-from-markdown';
 import {describe, expect, it} from 'vitest';
 
 import {
   $convertFromMarkdownString,
+  $convertFromMdast,
+  $convertSelectionToMarkdownString,
   $convertToMarkdownString,
   $exportViaDOM,
   ImportContextMarkdown,
@@ -63,6 +71,7 @@ import {
   MdastHtmlExtension,
   MdastShadowRootQuoteExtension,
   MdastStrikethroughExtension,
+  MdastTableExtension,
   rawHtmlBlock,
   RenderContextMarkdownExport,
 } from '../../index';
@@ -892,6 +901,386 @@ describe('MdastHtmlExtension', () => {
       // the sibling outside it sees the default.
       expect(editor.read(() => $getRoot().getTextContent())).toBe(
         'a saw:from-emphasis b saw:default',
+      );
+    });
+  });
+
+  it('writes a block raw HTML imports as in a cell after the table', () => {
+    using editor = buildEditorFromExtensions(
+      defineExtension({
+        dependencies: [
+          MdastCommonMarkExtension,
+          MdastExtension,
+          MdastHtmlExtension,
+          MdastTableExtension,
+        ],
+        name: '[root]',
+      }),
+    );
+    editor.update(() => $convertFromMarkdownString('| a |\n| - |\n| <hr> |'), {
+      discrete: true,
+    });
+    editor.read(() => {
+      expect($convertToMarkdownString()).toBe('| a |\n| - |\n|   |\n\n***');
+    });
+  });
+
+  it('writes raw HTML embedding Markdown in a cell after the table', () => {
+    using editor = buildEditorFromExtensions(
+      defineExtension({
+        dependencies: [
+          MdastCommonMarkExtension,
+          MdastExtension,
+          MdastHtmlExtension,
+          MdastTableExtension,
+          configExtension(MdastExtension, {
+            exportRules: [
+              {
+                $export: () => [rawHtmlBlock('<hr class="x">')],
+                type: HorizontalRuleNode,
+              },
+            ],
+          }),
+        ],
+        name: '[root]',
+      }),
+    );
+    editor.update(
+      () => {
+        $convertFromMarkdownString('| a |\n| - |\n| 1 |');
+        const table = $assertNodeType(
+          $getRoot().getFirstChildOrThrow(),
+          $isElementNode,
+        );
+        const row = $assertNodeType(
+          table.getLastChildOrThrow(),
+          $isElementNode,
+        );
+        const cell = $assertNodeType(
+          row.getFirstChildOrThrow(),
+          $isElementNode,
+        );
+        cell.append($createHorizontalRuleNode());
+      },
+      {discrete: true},
+    );
+    editor.read(() => {
+      expect($convertToMarkdownString()).toBe(
+        '| a |\n| - |\n| 1 |\n\n<hr class="x">',
+      );
+    });
+  });
+
+  it('writes raw HTML embedding Markdown in a cell paragraph after the table', () => {
+    using editor = buildEditorFromExtensions(
+      defineExtension({
+        dependencies: [
+          MdastCommonMarkExtension,
+          MdastExtension,
+          MdastHtmlExtension,
+          MdastTableExtension,
+          configExtension(MdastExtension, {
+            exportRules: [
+              {
+                $export: () => [rawHtmlBlock('<hr class="x">')],
+                type: HorizontalRuleNode,
+              },
+            ],
+          }),
+        ],
+        name: '[root]',
+      }),
+    );
+    editor.update(
+      () => {
+        $convertFromMarkdownString('| a |\n| - |\n| 1 |');
+        const table = $assertNodeType(
+          $getRoot().getFirstChildOrThrow(),
+          $isElementNode,
+        );
+        const row = $assertNodeType(
+          table.getLastChildOrThrow(),
+          $isElementNode,
+        );
+        const cell = $assertNodeType(
+          row.getFirstChildOrThrow(),
+          $isElementNode,
+        );
+        $assertNodeType(cell.getFirstChildOrThrow(), $isElementNode).append(
+          $createHorizontalRuleNode(),
+          $createTextNode('2'),
+        );
+      },
+      {discrete: true},
+    );
+    editor.read(() => {
+      expect($convertToMarkdownString()).toBe(
+        '| a      |\n| ------ |\n| 1<br>2 |\n\n<hr class="x">',
+      );
+    });
+  });
+
+  it('keeps a block raw HTML imports as in its aligned cell paragraph', () => {
+    using editor = buildEditorFromExtensions(
+      defineExtension({
+        dependencies: [
+          MdastCommonMarkExtension,
+          MdastExtension,
+          MdastHtmlExtension,
+          MdastTableExtension,
+        ],
+        name: '[root]',
+      }),
+    );
+    editor.update(
+      () => $convertFromMarkdownString('| <hr> | b |\n| :-: | - |\n| x | y |'),
+      {discrete: true},
+    );
+    editor.read(() => {
+      expect($convertToMarkdownString()).toBe(
+        '|     | b |\n| :-: | - |\n|  x  | y |\n\n***',
+      );
+    });
+  });
+
+  it('reads the pipes in raw HTML in a cell of a tree parsed with the editor’s grammar', () => {
+    using editor = buildEditorFromExtensions(
+      defineExtension({
+        dependencies: [
+          MdastCommonMarkExtension,
+          MdastExtension,
+          MdastHtmlExtension,
+          MdastTableExtension,
+          LinkExtension,
+        ],
+        name: '[root]',
+      }),
+    );
+    const markdown = '| a |\n| - |\n| <a href="x\\|y">q</a> |';
+    const {registry} = getExtensionDependencyFromEditor(
+      editor,
+      MdastExtension,
+    ).output;
+    const tree = fromMarkdown(markdown, {
+      extensions: registry.micromarkExtensions,
+      mdastExtensions: registry.mdastExtensions,
+    });
+    for (const $convert of [
+      () => $convertFromMarkdownString(markdown),
+      () => $convertFromMdast(tree),
+    ]) {
+      editor.update($convert, {discrete: true});
+      editor.read(() => {
+        expect($convertToMarkdownString()).toBe(
+          '| a         |\n| --------- |\n| [q](x\\|y) |',
+        );
+      });
+    }
+  });
+
+  it('keeps the inline content of a block without a rule in its cell', () => {
+    using editor = buildEditorFromExtensions(
+      defineExtension({
+        dependencies: [
+          MdastCommonMarkExtension,
+          MdastExtension,
+          MdastTableExtension,
+        ],
+        name: '[root]',
+        nodes: [CalloutNode],
+      }),
+    );
+    editor.update(
+      () => {
+        $convertFromMarkdownString('# T\n\n| a |\n| - |\n| 1 |\n\nend');
+        const table = $assertNodeType(
+          $getRoot().getChildAtIndex(1),
+          $isElementNode,
+        );
+        const row = $assertNodeType(
+          table.getLastChildOrThrow(),
+          $isElementNode,
+        );
+        const cell = $assertNodeType(
+          row.getFirstChildOrThrow(),
+          $isElementNode,
+        );
+        cell
+          .clear()
+          .append(
+            $create(CalloutNode).append(
+              $createTextNode('a'),
+              $createTextNode('b').toggleFormat('bold'),
+              $createLineBreakNode(),
+              $createTextNode('c'),
+            ),
+          );
+      },
+      {discrete: true},
+    );
+    editor.read(() => {
+      expect($convertToMarkdownString()).toBe(
+        '# T\n\n| a           |\n| ----------- |\n| a**b**<br>c |\n\nend',
+      );
+    });
+  });
+
+  it('writes a block in a cell as its export rule does', () => {
+    using editor = buildEditorFromExtensions(
+      defineExtension({
+        dependencies: [
+          MdastExtension,
+          MdastTableExtension,
+          configExtension(MdastExtension, {
+            exportRules: [
+              {
+                // The rule writes the title slot, then the body.
+                $export: (node, ctx) => [
+                  {
+                    children: ctx.exportInline(
+                      $assertNodeType($getSlot(node, 'title'), $isElementNode),
+                    ),
+                    type: 'paragraph',
+                  },
+                  ...ctx.exportBlocks($assertNodeType(node, $isElementNode)),
+                ],
+                type: 'x-callout',
+              },
+            ],
+          }),
+        ],
+        name: '[root]',
+        nodes: [CalloutNode],
+      }),
+    );
+    editor.update(
+      () => {
+        $convertFromMarkdownString('| a |\n| - |\n| b |');
+        const callout = $create(CalloutNode).append(
+          $createParagraphNode().append($createTextNode('body')),
+        );
+        $setSlot(
+          callout,
+          'title',
+          $createParagraphNode().append($createTextNode('title')),
+        );
+        const table = $assertNodeType(
+          $getRoot().getFirstChildOrThrow(),
+          $isElementNode,
+        );
+        const row = $assertNodeType(
+          table.getFirstChildOrThrow(),
+          $isElementNode,
+        );
+        const cell = $assertNodeType(
+          row.getFirstChildOrThrow(),
+          $isElementNode,
+        );
+        cell.clear().append(callout);
+      },
+      {discrete: true},
+    );
+    editor.read(() => {
+      expect($convertToMarkdownString()).toBe(
+        '| title<br>body |\n| ------------- |\n| b             |',
+      );
+    });
+  });
+
+  it('writes a selection in a named slot of a block in a cell as copied in the cell', () => {
+    using editor = buildEditorFromExtensions(
+      defineExtension({
+        dependencies: [
+          MdastExtension,
+          MdastHtmlExtension,
+          MdastTableExtension,
+          configExtension(MdastExtension, {
+            exportRules: [{$export: $exportViaDOM, type: 'x-callout'}],
+          }),
+        ],
+        name: '[root]',
+        nodes: [CalloutNode],
+      }),
+    );
+    editor.update(
+      () => {
+        $convertFromMarkdownString('| a |\n| - |\n| b |');
+        const title = $createTextNode('title');
+        const callout = $create(CalloutNode).append($createParagraphNode());
+        $setSlot(callout, 'title', $createParagraphNode().append(title));
+        const table = $assertNodeType(
+          $getRoot().getFirstChildOrThrow(),
+          $isElementNode,
+        );
+        const row = $assertNodeType(
+          table.getLastChildOrThrow(),
+          $isElementNode,
+        );
+        const cell = $assertNodeType(
+          row.getFirstChildOrThrow(),
+          $isElementNode,
+        );
+        cell.append(callout);
+        title.select(1, 4);
+      },
+      {discrete: true},
+    );
+    editor.read(() => {
+      // As copied from a callout outside a table.
+      expect($convertSelectionToMarkdownString()).toBe(
+        '<x-callout open>\n<header>\nitl\n</header>\n\n\n\n</x-callout>',
+      );
+    });
+  });
+
+  it('keeps the column of a cell whose reached content goes after the table', () => {
+    using editor = buildEditorFromExtensions(
+      defineExtension({
+        dependencies: [
+          MdastExtension,
+          MdastHtmlExtension,
+          MdastTableExtension,
+          configExtension(MdastExtension, {
+            exportRules: [{$export: $exportViaDOM, type: 'x-callout'}],
+          }),
+        ],
+        name: '[root]',
+        nodes: [CalloutNode],
+      }),
+    );
+    editor.update(
+      () => {
+        $convertFromMarkdownString('| a | b |\n| - | - |\n| x | 2 |\n\nend');
+        const body = $createTextNode('body');
+        const callout = $create(CalloutNode).append(
+          $createParagraphNode().append(body),
+        );
+        $setSlot(callout, 'title', $createParagraphNode());
+        const table = $assertNodeType(
+          $getRoot().getFirstChildOrThrow(),
+          $isElementNode,
+        );
+        const row = $assertNodeType(
+          table.getLastChildOrThrow(),
+          $isElementNode,
+        );
+        const cell = $assertNodeType(
+          row.getFirstChildOrThrow(),
+          $isElementNode,
+        );
+        cell.append(callout);
+        const selection = body.select(1, 1);
+        selection.focus.set(
+          $getRoot().getLastChildOrThrow().getKey(),
+          0,
+          'element',
+        );
+      },
+      {discrete: true},
+    );
+    editor.read(() => {
+      expect($convertSelectionToMarkdownString()).toMatch(
+        /^\| {3}\| 2 \|\n\| - \| - \|\n\n<x-callout open>/,
       );
     });
   });

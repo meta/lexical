@@ -15,8 +15,11 @@ import {
   $createLineBreakNode,
   $createParagraphNode,
   $createTabNode,
+  $createTextNode,
   $getDocument,
   $getEditor,
+  $getNodeByKey,
+  $hasUpdateTag,
   $isLineBreakNode,
   $isTabNode,
   $isTextNode,
@@ -34,6 +37,7 @@ import {
   nullable,
   optional,
   type ParagraphNode,
+  PASTE_TAG,
   type RangeSelection,
   type SerializedElementNode,
   type SerializedPartial,
@@ -49,7 +53,6 @@ import {
   $isCodeHighlightNode,
   type CodeHighlightNode,
 } from './CodeHighlightNode';
-import {$getFirstCodeNodeOfLine} from './FlatStructureUtils';
 import {
   afterCloneCodeNode,
   GENERATED_CODE,
@@ -119,6 +122,7 @@ export class CodeNode extends ElementNode {
 
   $config() {
     return this.config('code', {
+      children: 'inline',
       extends: ElementNode,
       generated: GENERATED_CODE,
       importDOM: {
@@ -336,30 +340,63 @@ export class CodeNode extends ElementNode {
     const firstPoint = anchor.isBefore(focus) ? anchor : focus;
     const firstSelectionNode = firstPoint.getNode();
     if ($isTextNode(firstSelectionNode)) {
-      let node: null | LexicalNode =
-        $getFirstCodeNodeOfLine(firstSelectionNode);
+      // Walk back to the first node of the line. Every text node counts:
+      // without a highlighter a line holds plain TextNodes, not
+      // CodeHighlightNodes.
+      let node: null | LexicalNode = firstSelectionNode;
+      for (
+        let previous = node.getPreviousSibling();
+        $isTextNode(previous);
+        previous = previous.getPreviousSibling()
+      ) {
+        node = previous;
+      }
       const insertNodes = [];
-
-      while (true) {
-        if ($isTabNode(node)) {
-          insertNodes.push($createTabNode());
-          node = node.getNextSibling();
-        } else if ($isCodeHighlightNode(node)) {
-          let spaces = 0;
-          const text = node.getTextContent();
-          const textSize = node.getTextContentSize();
-          while (spaces < textSize && text[spaces] === ' ') {
-            spaces++;
+      // A paste inserts its text as written, so it copies no indentation.
+      if (!$hasUpdateTag(PASTE_TAG)) {
+        // Text another update inserts line by line, such as a drop, is in
+        // plain TextNodes that a highlighter has not tokenized yet and that
+        // bring their own indentation, so a plain TextNode only gives its
+        // indentation if it was in the editor before this update.
+        const prevEditorState = $getEditor().getEditorState();
+        while (node !== null) {
+          // Only the indentation before the caret is copied: the rest of the
+          // line moves to the new line with the indentation it has.
+          const isCaretNode = node.is(firstSelectionNode);
+          if ($isTabNode(node)) {
+            if (isCaretNode && firstPoint.offset === 0) {
+              break;
+            }
+            insertNodes.push($createTabNode());
+          } else if (
+            $isCodeHighlightNode(node) ||
+            ($isTextNode(node) &&
+              $getNodeByKey(node.getKey(), prevEditorState) !== null)
+          ) {
+            const text = node.getTextContent();
+            const end = isCaretNode ? firstPoint.offset : text.length;
+            let spaces = 0;
+            while (spaces < end && text[spaces] === ' ') {
+              spaces++;
+            }
+            if (spaces !== 0) {
+              const indent = ' '.repeat(spaces);
+              insertNodes.push(
+                $isCodeHighlightNode(node)
+                  ? $createCodeHighlightNode(indent)
+                  : $createTextNode(indent),
+              );
+            }
+            if (spaces !== text.length) {
+              break;
+            }
+          } else {
+            break;
           }
-          if (spaces !== 0) {
-            insertNodes.push($createCodeHighlightNode(' '.repeat(spaces)));
-          }
-          if (spaces !== textSize) {
+          if (isCaretNode) {
             break;
           }
           node = node.getNextSibling();
-        } else {
-          break;
         }
       }
       const split = firstSelectionNode.splitText(anchor.offset)[0];

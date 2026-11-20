@@ -12,16 +12,17 @@ import {
   $extendCaretToRange,
   $findMatchingParent,
   $getPreviousSelection,
+  $getSelection,
   $getSlotFrame,
   $getSlotHost,
   $hasAncestor,
+  $isBlockContainer,
   $isChildCaret,
   $isDecoratorNode,
   $isElementNode,
   $isExtendableTextPointCaret,
   $isLeafNode,
   $isRangeSelection,
-  $isRootOrShadowRoot,
   $isTabNode,
   $isTextNode,
   $isTextPointCaret,
@@ -33,6 +34,7 @@ import {
   flipDirection,
   getStyleObjectFromCSS,
   INTERNAL_$isBlock,
+  INTERNAL_isInlineContent,
   type LexicalNode,
   type NodeKey,
   type Point,
@@ -192,6 +194,33 @@ export function $setBlocksType<T extends ElementNode>(
     if ($getSlotHost(prevNode) !== null) {
       continue;
     }
+    if ($isBlockContainer(prevNode)) {
+      // An empty declared container (roots and shadow roots are never in
+      // the map) is not a block to convert: with a selection point in it
+      // (either end, in either direction), the new block goes in it, as
+      // with $insertList and $wrapNodes. The container stays, so its indent
+      // and format are not copied, and the points in it move into the new
+      // block (a range keeps its other end). A replacement above may have
+      // made a new active selection, so its points count too.
+      const points: Point[] = [];
+      for (const s of new Set([selection, $getSelection()])) {
+        if ($isRangeSelection(s)) {
+          for (const point of [s.anchor, s.focus]) {
+            if (point.key === prevNode.getKey()) {
+              points.push(point);
+            }
+          }
+        }
+      }
+      if (points.length > 0 && prevNode.isEmpty()) {
+        const element = $createElement();
+        prevNode.append(element);
+        for (const point of points) {
+          point.set(element.getKey(), 0, 'element');
+        }
+      }
+      continue;
+    }
     const element = $createElement();
     $afterCreateElement(prevNode, element);
     prevNode.replace(element, true);
@@ -205,10 +234,8 @@ function isPointAttached(point: Point): boolean {
 function $removeParentEmptyElements(startingNode: ElementNode): void {
   let node: ElementNode | null = startingNode;
 
-  while (node !== null && !$isRootOrShadowRoot(node)) {
+  while (node !== null && !$isBlockContainer(node)) {
     const latest = node.getLatest();
-    // Annotation breaks a circular inference through the loop (TS7022),
-    // remove when the deprecated generic signatures from #8661 are removed
     const parentNode: ElementNode | null = node.getParent();
 
     if (latest.getChildrenSize() === 0) {
@@ -217,6 +244,145 @@ function $removeParentEmptyElements(startingNode: ElementNode): void {
 
     node = parentNode;
   }
+}
+
+/**
+ * The block whose content $wrapNodes moves for `node`: `node` itself or its
+ * nearest ancestor that is an element and not inline content, as the node
+ * structure normalization counts it (so a link inside a mark, or the
+ * character limit's OverflowNode, whose isInline() is false, stays in its
+ * block). The walk never leaves the block container (root, shadow root,
+ * inline or not, or declared container) that holds `node`: it returns that
+ * container when it gets there.
+ */
+function $wrappedBlock(
+  node: LexicalNode,
+  cache: Map<NodeKey, ElementNode | null> = new Map(),
+): ElementNode | null {
+  // `cache` holds the block found for each node already walked through, so
+  // the nodes of one selection walk each ancestor once.
+  const walked: NodeKey[] = [];
+  let block: LexicalNode | null = node;
+  let found: ElementNode | null | undefined;
+  while (found === undefined) {
+    if (block === null) {
+      found = null;
+    } else if (cache.has(block.getKey())) {
+      found = cache.get(block.getKey());
+    } else if (
+      $isBlockContainer(block) ||
+      ($isElementNode(block) && !INTERNAL_isInlineContent(block))
+    ) {
+      found = block;
+    } else {
+      walked.push(block.getKey());
+      block = block.getParent();
+    }
+  }
+  for (const key of walked) {
+    cache.set(key, found);
+  }
+  return found;
+}
+
+/**
+ * A leaf that is a block of its own (a block decorator, such as a horizontal
+ * rule) in an element that is not a block container but holds blocks only
+ * (a box that declares no structure): it is wrapped on its own, as it is in a
+ * block container. Why: taking its parent for its block moved all the
+ * parent's children into one new element, those before the range included,
+ * and the new elements then went next to one of them, inside that new
+ * element: the update never returned (#9638). Where the parent also holds
+ * inline content directly, the parent is the block of that content, and of
+ * the leaf, as before: its children move together, and the new elements go
+ * where it is. `cache` holds the answer for each parent already looked at.
+ */
+function $isBlockLeafInElement(
+  node: LexicalNode,
+  cache: Map<NodeKey, boolean> = new Map(),
+): boolean {
+  const parent = node.getParent();
+  if (
+    parent === null ||
+    !$isLeafNode(node) ||
+    INTERNAL_isInlineContent(node) ||
+    $isBlockContainer(parent)
+  ) {
+    return false;
+  }
+  let blocksOnly = cache.get(parent.getKey());
+  if (blocksOnly === undefined) {
+    blocksOnly = parent
+      .getChildren()
+      .every(child => !INTERNAL_isInlineContent(child));
+    cache.set(parent.getKey(), blocksOnly);
+  }
+  return blocksOnly;
+}
+
+/** An empty element that is not inline content. */
+function $isEmptyBlock(node: LexicalNode): node is ElementNode {
+  return (
+    $isElementNode(node) &&
+    node.getChildrenSize() === 0 &&
+    !INTERNAL_isInlineContent(node)
+  );
+}
+
+/**
+ * The child of block container `container` that holds `node`. `cache`
+ * holds the child found for each node already walked through, so the nodes
+ * of one selection walk each ancestor once.
+ */
+function $childIn(
+  container: ElementNode,
+  node: LexicalNode,
+  cache: Map<NodeKey, LexicalNode> = new Map(),
+): LexicalNode {
+  const walked: NodeKey[] = [];
+  let child = node;
+  let found = cache.get(child.getKey());
+  while (found === undefined) {
+    const parent: ElementNode | null = child.getParent();
+    if (parent === null || parent.is(container)) {
+      found = child;
+      break;
+    }
+    walked.push(child.getKey());
+    child = parent;
+    found = cache.get(child.getKey());
+  }
+  for (const key of walked) {
+    cache.set(key, found);
+  }
+  cache.set(node.getKey(), found);
+  return found;
+}
+
+/**
+ * The run of inline content `child`, inline content that is a child of a
+ * block container, is in: it and its siblings on both sides up to the
+ * nearest ones that are not inline content. $wrapNodes wraps such a run,
+ * not the container's children.
+ */
+function $inlineRun(child: LexicalNode): LexicalNode[] {
+  let first = child;
+  for (
+    let prev = first.getPreviousSibling();
+    prev !== null && INTERNAL_isInlineContent(prev);
+    prev = prev.getPreviousSibling()
+  ) {
+    first = prev;
+  }
+  const run: LexicalNode[] = [];
+  for (
+    let it: LexicalNode | null = first;
+    it !== null && INTERNAL_isInlineContent(it);
+    it = it.getNextSibling()
+  ) {
+    run.push(it);
+  }
+  return run;
 }
 
 /**
@@ -240,12 +406,12 @@ export function $wrapNodes(
   // wrap: the slot value is the only block in its virtual scope and its slot
   // assignment is managed by the node or extension that owns the slot, so
   // this is a no-op (same rule as $setBlocksType). A shadow-root slot value
-  // is root-like and wraps its own subtree below, as usual. (A selection
-  // never crosses a slot boundary, so checking the anchor covers the whole
-  // selection.)
+  // or block container value is root-like and wraps its own subtree below,
+  // as usual. (A selection never crosses a slot boundary, so checking the
+  // anchor covers the whole selection.)
   if (anchor !== null) {
     const slotFrame = $getSlotFrame(anchor.getNode());
-    if (slotFrame !== null && !$isRootOrShadowRoot(slotFrame)) {
+    if (slotFrame !== null && !$isBlockContainer(slotFrame)) {
       return;
     }
   }
@@ -257,21 +423,31 @@ export function $wrapNodes(
         anchor.type === 'element' &&
         anchor.getNode().getChildrenSize() === 0))
   ) {
-    const target =
-      anchor.type === 'text'
-        ? anchor.getNode().getParentOrThrow()
-        : anchor.getNode();
+    const target = $wrappedBlock(anchor.getNode());
+    if (target === null) {
+      return;
+    }
     const children = target.getChildren();
     let element = createElement();
-    element.setFormat(target.getFormatType());
-    element.setIndent(target.getIndent());
+    // An empty container stays and the new block goes in it, so the new
+    // block does not take the container's indent and format.
+    const intoContainer = $isBlockContainer(target);
+    if (!intoContainer) {
+      element.setFormat(target.getFormatType());
+      element.setIndent(target.getIndent());
+    }
     children.forEach(child => element.append(child));
 
     if (wrappingElement) {
       element = wrappingElement.append(element);
     }
 
-    target.replace(element);
+    if (intoContainer) {
+      target.append(element);
+      element.selectStart();
+    } else {
+      target.replace(element);
+    }
 
     return;
   }
@@ -284,7 +460,7 @@ export function $wrapNodes(
     // user selected multiple Root-like nodes that have to be treated separately as if they are
     // their own branch. I.e. you don't want to wrap a whole table, but rather the contents of each
     // of each of the cell nodes.
-    if ($isRootOrShadowRoot(node)) {
+    if ($isBlockContainer(node)) {
       $wrapNodesImpl(
         selection,
         descendants,
@@ -339,24 +515,41 @@ export function $wrapNodesImpl(
     return;
   }
 
-  const firstNode = nodes[0];
+  // The first node that is moved, or that an empty block stands for: the
+  // nodes before it give nothing to the new elements (a block that the
+  // range starts at the end of), so the elements go where it is.
+  const firstNode =
+    nodes.find(
+      (node, i) =>
+        i < nodesLength &&
+        (($isLeafNode(node) && node.getParent() !== null) ||
+          $isEmptyBlock(node)),
+    ) ?? nodes[0];
   const elementMapping: Map<NodeKey, ElementNode> = new Map();
   const elements = [];
   // The below logic is to find the right target for us to
   // either insertAfter/insertBefore/append the corresponding
   // elements to. This is made more complicated due to nested
   // structures.
-  const firstNodeBlock = $isElementNode(firstNode)
-    ? firstNode
-    : firstNode.getParentOrThrow();
-  let target: LexicalNode = firstNodeBlock.isInline()
-    ? firstNodeBlock.getParentOrThrow()
-    : firstNodeBlock;
+  const blockOf = new Map<NodeKey, ElementNode | null>();
+  const childOf = new Map<NodeKey, LexicalNode>();
+  const blockLeafParents = new Map<NodeKey, boolean>();
+  const firstNodeBlock = $wrappedBlock(firstNode, blockOf);
+  if (firstNodeBlock === null) {
+    return;
+  }
+  // For inline content directly in a block container, its run (see
+  // $inlineRun) stands for the block, and a block leaf there for itself.
+  let target: LexicalNode = firstNodeBlock;
+  if ($isBlockContainer(firstNodeBlock)) {
+    const child = $childIn(firstNodeBlock, firstNode, childOf);
+    target = INTERNAL_isInlineContent(child) ? $inlineRun(child)[0] : child;
+  } else if ($isBlockLeafInElement(firstNode, blockLeafParents)) {
+    target = firstNode;
+  }
 
   let targetIsPrevSibling = false;
   while (target !== null) {
-    // Annotation breaks a circular inference through the loop (TS7022),
-    // remove when the deprecated generic signatures from #8661 are removed
     const prevSibling: LexicalNode | null = target.getPreviousSibling();
 
     if (prevSibling !== null) {
@@ -367,7 +560,7 @@ export function $wrapNodesImpl(
 
     target = target.getParentOrThrow();
 
-    if ($isRootOrShadowRoot(target)) {
+    if ($isBlockContainer(target)) {
       break;
     }
   }
@@ -378,40 +571,83 @@ export function $wrapNodesImpl(
   for (let i = 0; i < nodesLength; i++) {
     const node = nodes[i];
 
-    if ($isElementNode(node) && node.getChildrenSize() === 0) {
+    if ($isEmptyBlock(node)) {
       emptyElements.add(node.getKey());
     }
   }
 
   const movedNodes: Set<NodeKey> = new Set();
 
+  // The nodes the moves empty are removed once the new elements are in the
+  // document: a removal that adjusts the selection (a list item's) compared
+  // a point in a new element with one in the document, which then had no
+  // common ancestor.
+  const removals: (() => void)[] = [];
+
+  // The block of each node, decided before anything moves: once a block's
+  // content is in its new element, a node deep inside it would otherwise
+  // find the new element as its block. For inline content directly in a
+  // block container, the run it is in (see $inlineRun) stands for the
+  // block: the container's blocks are wrapped on their own.
+  type Unit = {block: ElementNode; key: NodeKey; run: LexicalNode[] | null};
+  const units: (Unit | null)[] = [];
+  const runOf = new Map<NodeKey, Unit>();
+  for (let i = 0; i < nodesLength; i++) {
+    const nodeParent = nodes[i].getParent();
+    if (
+      nodeParent !== null &&
+      $isBlockLeafInElement(nodes[i], blockLeafParents)
+    ) {
+      units.push({block: nodeParent, key: nodes[i].getKey(), run: [nodes[i]]});
+      continue;
+    }
+    const block =
+      nodeParent === null ? null : $wrappedBlock(nodeParent, blockOf);
+    if (block === null || !$isBlockContainer(block)) {
+      units.push(block && {block, key: block.getKey(), run: null});
+      continue;
+    }
+    const child = $childIn(block, nodes[i], childOf);
+    const inline = INTERNAL_isInlineContent(child);
+    if (!inline && !$isLeafNode(child)) {
+      // A block element in the container: its own content is wrapped.
+      units.push(null);
+      continue;
+    }
+    let unit = runOf.get(child.getKey());
+    if (unit === undefined) {
+      // A block leaf (a decorator) is wrapped on its own.
+      const run = inline ? $inlineRun(child) : [child];
+      unit = {block, key: run[0].getKey(), run};
+      for (const node of run) {
+        runOf.set(node.getKey(), unit);
+      }
+    }
+    units.push(unit);
+  }
+
   // Move out all leaf nodes into our elements array.
   // If we find a top level empty element, also move make
   // an element for that.
   for (let i = 0; i < nodesLength; i++) {
     const node = nodes[i];
-    let parent = node.getParent();
+    const unit = units[i];
 
-    if (parent !== null && parent.isInline()) {
-      parent = parent.getParent();
-    }
-
-    if (
-      parent !== null &&
-      $isLeafNode(node) &&
-      !movedNodes.has(node.getKey())
-    ) {
-      const parentKey = parent.getKey();
+    if (unit !== null && $isLeafNode(node) && !movedNodes.has(node.getKey())) {
+      const parent = unit.block;
+      const parentKey = unit.key;
 
       if (elementMapping.get(parentKey) === undefined) {
         const targetElement = createElement();
-        targetElement.setFormat(parent.getFormatType());
-        targetElement.setIndent(parent.getIndent());
+        if (unit.run === null) {
+          targetElement.setFormat(parent.getFormatType());
+          targetElement.setIndent(parent.getIndent());
+        }
         elements.push(targetElement);
         elementMapping.set(parentKey, targetElement);
         // Move node and its siblings to the new
         // element.
-        const children = parent.getChildren();
+        const children = unit.run ?? parent.getChildren();
         targetElement.splice(targetElement.getChildrenSize(), 0, children);
         for (const child of children) {
           movedNodes.add(child.getKey());
@@ -422,7 +658,7 @@ export function $wrapNodesImpl(
             }
           }
         }
-        $removeParentEmptyElements(parent);
+        removals.push(() => $removeParentEmptyElements(parent));
       }
     } else if (emptyElements.has(node.getKey())) {
       invariant(
@@ -433,7 +669,7 @@ export function $wrapNodesImpl(
       targetElement.setFormat(node.getFormatType());
       targetElement.setIndent(node.getIndent());
       elements.push(targetElement);
-      node.remove(true);
+      removals.push(() => node.remove(true));
     }
   }
 
@@ -447,7 +683,7 @@ export function $wrapNodesImpl(
 
   // If our target is Root-like, let's see if we can re-adjust
   // so that the target is the first child instead.
-  if ($isRootOrShadowRoot(target)) {
+  if ($isBlockContainer(target)) {
     if (targetIsPrevSibling) {
       if (wrappingElement !== null) {
         target.insertAfter(wrappingElement);
@@ -499,6 +735,10 @@ export function $wrapNodesImpl(
         lastElement = element;
       }
     }
+  }
+
+  for (const removal of removals) {
+    removal();
   }
 
   const prevSelection = $getPreviousSelection();

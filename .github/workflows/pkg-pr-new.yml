@@ -36,8 +36,8 @@ concurrency:
 
 jobs:
   publish:
-    # Skip pushes to forks; PRs from forks still run against facebook/lexical.
-    if: github.repository == 'facebook/lexical'
+    # Skip pushes to forks; PRs from forks still run against meta/lexical.
+    if: github.repository == 'meta/lexical'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -63,7 +63,7 @@ jobs:
       #
       # The PR comment lists npm commands only. Dependencies between Lexical
       # packages are rewritten to the long commit URL
-      # (pkg.pr.new/facebook/lexical/<pkg>@<sha>), and npm dedupes a directly
+      # (pkg.pr.new/meta/lexical/<pkg>@<sha>), and npm dedupes a directly
       # installed `lexical@<pr>` against it by name and version. pnpm and
       # yarn key URL dependencies by URL instead, so short-URL commands
       # install extra copies of `lexical` (pnpm 10, yarn 1) or are refused

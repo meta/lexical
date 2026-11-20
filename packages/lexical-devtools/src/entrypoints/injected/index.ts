@@ -6,13 +6,9 @@
  *
  */
 
-import type {ITabIDService} from '../background/getTabIDService';
-
-import {getRPCService} from '@webext-pegasus/rpc';
 import {initPegasusTransport} from '@webext-pegasus/transport/window';
 
 import {CHANNEL_NAMESPACE_PARAM} from '../../constants';
-import {extensionStoreReady} from '../../store.ts';
 import main from './main';
 
 const EXTENSION_PROTOCOLS = new Set([
@@ -70,8 +66,6 @@ export default defineUnlistedScript({
     }
 
     initPegasusTransport({namespace});
-    getRPCService<ITabIDService>('getTabID', 'background')().then(tabID =>
-      extensionStoreReady().then(extensionStore => main(tabID, extensionStore)),
-    );
+    main();
   },
 });

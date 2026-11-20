@@ -8,17 +8,17 @@
     "lexical",
     "editor"
   ],
-  "version": "0.52.0",
+  "version": "0.53.0",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/facebook/lexical.git",
+    "url": "git+https://github.com/meta/lexical.git",
     "directory": "packages/lexical-eslint-plugin"
   },
   "main": "./dist/LexicalEslintPlugin.js",
   "types": "./dist/typescript-too-old.d.ts",
   "bugs": {
-    "url": "https://github.com/facebook/lexical/issues"
+    "url": "https://github.com/meta/lexical/issues"
   },
   "homepage": "https://lexical.dev/docs/packages/lexical-eslint-plugin",
   "sideEffects": false,

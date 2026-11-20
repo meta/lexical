@@ -4,4 +4,4 @@ A minimal Lexical editor built with `buildEditorFromExtensions` and no framework
 
 **Run it locally:** `pnpm i && pnpm run dev`
 
-[![Open in StackBlitz](https://developer.stackblitz.com/img/open_in_stackblitz.svg)](https://stackblitz.com/github/facebook/lexical/tree/main/examples/vanilla-js-iframe?file=src/main.ts)
+[![Open in StackBlitz](https://developer.stackblitz.com/img/open_in_stackblitz.svg)](https://stackblitz.com/github/meta/lexical/tree/main/examples/vanilla-js-iframe?file=src/main.ts)

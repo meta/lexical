@@ -9,7 +9,7 @@
 import {initPegasusTransport} from '@webext-pegasus/transport/content-script';
 
 import {CHANNEL_NAMESPACE_PARAM} from '../../constants';
-import {extensionStoreReady} from '../../store.ts';
+import {isContentScriptPing} from '../../contentScriptPing';
 import injectScript from './injectScript';
 
 /**
@@ -39,14 +39,20 @@ export default defineContentScript({
 
     initPegasusTransport({allowWindowMessagingForNamespace: namespace});
 
-    // Init store for relay between injected script and the rest of the extension to work
-    extensionStoreReady()
-      .then(() => {
-        injectScript('/injected.js', {
-          [CHANNEL_NAMESPACE_PARAM]: namespace,
-        });
-      })
-      .catch(console.error);
+    // Lets the background detect that this page is not a restricted browser
+    // page; see contentScriptPing.ts.
+    browser.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+      if (isContentScriptPing(message)) {
+        sendResponse(true);
+      }
+    });
+
+    // This relay carries the injected script's RPC to the background. The
+    // shared store is not connected here: nothing in a tab's content script
+    // or page needs it.
+    injectScript('/injected.js', {
+      [CHANNEL_NAMESPACE_PARAM]: namespace,
+    });
   },
   matches: ['<all_urls>'],
   registration: 'manifest',

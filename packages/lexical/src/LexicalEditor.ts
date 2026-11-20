@@ -14,6 +14,7 @@ import type {ElementNode} from './nodes/LexicalElementNode';
 import devInvariant from '@lexical/internal/devInvariant';
 import invariant from '@lexical/internal/invariant';
 import {LEXICAL_VERSION} from '@lexical/internal/version';
+import warnOnlyOnce from '@lexical/internal/warnOnlyOnce';
 
 import {
   $createParagraphNode,
@@ -28,6 +29,7 @@ import {
 import {FULL_RECONCILE, NO_DIRTY_NODES} from './LexicalConstants';
 import {DequeSet} from './LexicalDequeSet';
 import {
+  $isEditorState,
   cloneEditorState,
   type CompactSerializedEditorState,
   createEmptyEditorState,
@@ -54,6 +56,7 @@ import {
 } from './LexicalNode';
 import {createSharedNodeState, type SharedNodeState} from './LexicalNodeState';
 import {$isCompactExport} from './LexicalSerializedExport';
+import {validateNodeStructure} from './LexicalStructure';
 import {
   $commitPendingUpdates,
   $fullReconcile,
@@ -176,6 +179,13 @@ export type EditorSetOptions = {
  *   updates, equivalent to `editor.getEditorState().read(callbackFn, {editor})`.
  */
 export type EditorReadMode = 'force-commit' | 'pending' | 'latest';
+
+const unrecognizedReadModeWarning = warnOnlyOnce(
+  `editor.read() was called with a first argument that is not a read mode, ` +
+    `so it read the editor's committed state without flushing pending ` +
+    `updates. Pass one of 'force-commit', 'pending' or 'latest', or a state ` +
+    `of this editor.`,
+);
 
 export interface EditorFocusOptions {
   /**
@@ -512,6 +522,10 @@ export interface CreateEditorArgs {
    * route them to telemetry at warn severity without raising an error alarm.
    * Defaults to a handler that throws in development (so the condition is
    * impossible to miss) and only `console.warn`s in production.
+   *
+   * Packages that report a condition with a stable code pass a
+   * `LexicalWarning`: check `error instanceof LexicalWarning` to read its
+   * `code` and `data`.
    */
   onWarn?: ErrorHandler;
   parentEditor?: LexicalEditor;
@@ -1090,6 +1104,9 @@ export function createEditor(editorConfig?: CreateEditorArgs): LexicalEditor {
           }
         }
       }
+      if (__DEV__) {
+        validateNodeStructure(klass);
+      }
       const type = klass.getType();
       const transforms = getTransformSetFromKlass(klass);
       registeredNodes.set(type, {
@@ -1175,6 +1192,13 @@ export class LexicalEditor {
    * shifted siblings. Once enabled, persists for the lifetime of this editor.
    */
   _recordNodeMoves: boolean;
+  /**
+   * @internal Enabled by the Yjs 14 binding (`@lexical/y`) while it is bound:
+   * every update records its text splits and text edits (see
+   * EditorState#_splitNodes and EditorState#_textEdits). Off by default, so
+   * an editor without that binding records nothing.
+   */
+  _recordTextEdits: boolean;
   /** @internal */
   _parentEditor: null | LexicalEditor;
   /** @internal */
@@ -1185,6 +1209,12 @@ export class LexicalEditor {
   _pendingEditorState: null | EditorState;
   /** @internal */
   _compositionKey: null | NodeKey;
+  /**
+   * @internal The composition key for which an update tagged
+   * DEFER_COMPOSITION_MERGE_TAG held back a text merge; merges stay held back
+   * until the composition key changes.
+   */
+  _compositionMergeHeld: null | NodeKey;
   /** @internal */
   _deferred: (() => void)[];
   /** @internal */
@@ -1277,6 +1307,7 @@ export class LexicalEditor {
     this._pendingEditorState = null;
     // Used to help co-ordinate selection and events
     this._compositionKey = null;
+    this._compositionMergeHeld = null;
     this._deferred = [];
     // Used during reconciliation
     this._keyToDOMMap = new GenMap();
@@ -1319,6 +1350,7 @@ export class LexicalEditor {
     this._editable = editable;
     this._headless = parentEditor !== null && parentEditor._headless;
     this._recordNodeMoves = false;
+    this._recordTextEdits = false;
     this._window = null;
     this._blockCursorElement = null;
     this._slotsUsed = false;
@@ -1920,15 +1952,44 @@ export class LexicalEditor {
    */
   read<T>(callbackFn: () => T): T;
   /**
+   * Reads `editorState` with this editor active, without flushing anything:
+   * use it for a state of this editor that is not its current one, such as
+   * the `editorState` and `prevEditorState` an update listener receives. Node
+   * methods called in the read can use `$getEditor()`.
+   *
+   * Releases before this overload read the editor's current state instead of
+   * `editorState` (or throw, on the oldest). Code that may run on such a
+   * release (a library whose peer range includes one) should use
+   * `editorState.read(callbackFn, {editor})` instead.
+   * @param editorState - The state to read, one of this editor's.
+   * @param callbackFn - A function that has access to read-only editor state.
+   */
+  read<T>(editorState: EditorState, callbackFn: () => T): T;
+  /**
    * Executes a read of the editor's state in the given `mode`, with the editor
    * context available. See {@link EditorReadMode} for the available modes.
    * @param mode - Which editor state to read and whether to flush first.
    * @param callbackFn - A function that has access to read-only editor state.
    */
   read<T>(mode: EditorReadMode, callbackFn: () => T): T;
-  read<T>(...args: [() => T] | [EditorReadMode, () => T]): T {
-    const [mode, callbackFn]: [EditorReadMode, () => T] =
+  read<T>(...args: [() => T] | [EditorReadMode | EditorState, () => T]): T {
+    const [modeOrState, callbackFn]: [EditorReadMode | EditorState, () => T] =
       args.length === 1 ? ['force-commit', args[0]] : args;
+    if ($isEditorState(modeOrState)) {
+      return modeOrState.read(callbackFn, {editor: this});
+    }
+    const mode = modeOrState;
+    if (mode !== 'force-commit' && mode !== 'pending' && mode !== 'latest') {
+      // An object here is a state from another copy of lexical, whose
+      // committed-state fallback would read the wrong document.
+      invariant(
+        typeof mode !== 'object' || mode === null,
+        'editor.read: the first argument is an object but not an EditorState from the lexical package used by this editor',
+      );
+      // Any other value (undefined forwarded from an optional mode) keeps
+      // reading the committed state, as before.
+      unrecognizedReadModeWarning();
+    }
     if (mode === 'force-commit') {
       if (!isDispatchingCommitListeners(this)) {
         $commitPendingUpdates(this);
@@ -1939,8 +2000,8 @@ export class LexicalEditor {
             `update was not committed early, so that listeners observe ` +
             `commits in order, and the read observed the state being ` +
             `committed. Inside listeners, read with ` +
-            `editor.getEditorState().read(fn, {editor}) or ` +
-            `editor.read('latest', fn) instead.`,
+            `editor.read(editorState, fn) or editor.read('latest', fn) ` +
+            `instead.`,
         );
       }
     }
@@ -2068,13 +2129,17 @@ export class LexicalEditor {
    *
    * The form is passed on explicitly rather than picked up by the call below:
    * `EditorState.toJSON()` with no argument always writes the legacy form, so
-   * that its return type is true of what it returns.
+   * that its return type is true of what it returns. The state is read with
+   * this editor active, so its nodes' exportJSON can call $getEditor().
    *
    * @returns A JSON-serializable javascript object
    */
   toJSON(): SerializedEditor {
     return {
-      editorState: this._editorState.toJSON($isCompactExport()),
+      editorState: this._editorState.toJSON({
+        compact: $isCompactExport(),
+        editor: this,
+      }),
     };
   }
 }

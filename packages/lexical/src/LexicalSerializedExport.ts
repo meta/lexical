@@ -110,9 +110,11 @@ export function $withCompactExport<T>(
  * A getter that serializes a *nested editor* needs nothing either, as long as
  * it goes through `editor.toJSON()`: that passes the form reported here on to
  * the nested `EditorState.toJSON`, which is what keeps an image caption in the
- * same form as the document containing it. A getter that reaches past it to
- * `editorState.toJSON()` gets the legacy form, and has to pass
- * `$isCompactExport()` itself to follow the document.
+ * same form as the document containing it, and exports its nodes with the
+ * nested editor active. A getter that reaches past it to the nested
+ * `editorState.toJSON()` gets the legacy form, and the editor of the export
+ * around it (the outer one): pass both,
+ * `editorState.toJSON({compact: $isCompactExport(), editor: nestedEditor})`.
  *
  * This reports the form of the surrounding **export walk** — what
  * {@link $withCompactExport} established, and so what

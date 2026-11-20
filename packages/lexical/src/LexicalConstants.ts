@@ -110,27 +110,24 @@ export const DOUBLE_LINE_BREAK = '\n\n';
 export const COMPOSITION_START_CHAR: string = IS_FIREFOX
   ? NON_BREAKING_SPACE
   : COMPOSITION_SUFFIX;
-const RTL = '\u0591-\u07FF\uFB1D-\uFDFD\uFE70-\uFEFC';
-const LTR =
-  'A-Za-z\u00C0-\u00D6\u00D8-\u00F6' +
-  '\u00F8-\u02B8\u0300-\u0590\u0800-\u1FFF\u200E\u2C00-\uFB1C' +
-  '\uFE00-\uFE6F\uFEFD-\uFFFF';
 
 /**
- * A RegExp matching text whose first strongly directional character is in
- * `include`, skipping any run of characters outside `exclude`. A function
- * declared side-effect free (so the build annotates the calls below) rather
- * than a module-scope `new RegExp`, which is a side effect to bundlers and
- * would pin the character tables into every bundle that imports the module.
- *
- * @__NO_SIDE_EFFECTS__
+ * Matches a character with a strong direction: a letter, or one of the LRM,
+ * RLM and ALM marks. JavaScript has no Bidi_Class property, so letters stand in
+ * for the strong bidi classes (L, R and AL). Digits, punctuation, spaces,
+ * marks, emoji and variation selectors do not match.
  */
-function createDirectionRegExp(exclude: string, include: string): RegExp {
-  return new RegExp('^[^' + exclude + ']*[' + include + ']');
-}
+export const STRONG_DIRECTION_REGEX = /[\p{L}\u061C\u200E\u200F]/u;
 
-export const RTL_REGEX = createDirectionRegExp(LTR, RTL);
-export const LTR_REGEX = createDirectionRegExp(RTL, LTR);
+/**
+ * Matches a character in a block that Unicode reserves for right-to-left
+ * scripts (their default Bidi_Class is R or AL), or RLM. ALM is in the first
+ * block. Every letter in these blocks is RTL, so this also covers scripts
+ * added in later Unicode versions, and a code point range never fails to parse
+ * on an older engine, as an unknown script name in `\p{Script=...}` does.
+ */
+export const RTL_REGEX =
+  /[\u0590-\u08FF\uFB1D-\uFDFF\uFE70-\uFEFF\u200F\u{10800}-\u{10FFF}\u{1E800}-\u{1EFFF}]/u;
 
 /** Maps {@link TextFormatType} string names to their bitmask values. */
 export const TEXT_TYPE_TO_FORMAT: Record<TextFormatType | string, number> = {

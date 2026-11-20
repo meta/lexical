@@ -51,7 +51,7 @@ export default defineConfig({
         48: '/icon/48.png',
       },
       name: 'Lexical Developer Tools',
-      permissions: ['tabs', 'storage'],
+      permissions: ['storage'],
       version: version + `.${buildVersion}`,
       web_accessible_resources: [
         {

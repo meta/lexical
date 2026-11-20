@@ -23,7 +23,7 @@ describe('stackblitz doc url audits', () => {
           const contents = fs.readFileSync(fn, 'utf8');
           for (const [, githubPath] of contents.matchAll(STACKBLITZ_RE)) {
             expect(githubPath).toMatch(
-              /^facebook\/lexical\/tree\/main\/examples\//,
+              /^meta\/lexical\/tree\/main\/examples\//,
             );
           }
         }),

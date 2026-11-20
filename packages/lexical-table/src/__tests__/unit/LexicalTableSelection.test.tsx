@@ -19,6 +19,7 @@ import {
   $isTableNode,
   $isTableRowNode,
   $isTableSelection,
+  type TableCellNode,
   type TableMapType,
   type TableNode,
   type TableSelection,
@@ -511,6 +512,125 @@ describe('repeated select-all inside a table cell', () => {
           ['', ''],
         ]);
       });
+    });
+  });
+});
+
+describe('table selection plain text with a nested table (#9755)', () => {
+  initializeUnitTest(testEnv => {
+    function $createCell(text: string, nested?: TableNode) {
+      const cell = $createTableCellNode().append(
+        $createParagraphNode().append($createTextNode(text)),
+      );
+      return nested ? cell.append(nested) : cell;
+    }
+
+    function $createTableOf(...rows: TableCellNode[][]) {
+      const table = $createTableNode().append(
+        ...rows.map(cells => $createTableRowNode().append(...cells)),
+      );
+      $getRoot().clear().append(table);
+      return table;
+    }
+
+    function $textOf(table: TableNode, anchor: number, focus: number) {
+      const cells = table.getChildren().flatMap(row => {
+        assert($isTableRowNode(row));
+        return row.getChildren().filter($isTableCellNode);
+      });
+      return $createTableSelectionFrom(
+        table,
+        cells[anchor],
+        cells[focus],
+      ).getTextContent();
+    }
+
+    function expectText(
+      $build: () => [TableNode, number, number],
+      expected: string,
+    ) {
+      testEnv.editor.update(
+        () => {
+          const [table, anchor, focus] = $build();
+          expect($textOf(table, anchor, focus)).toBe(expected);
+        },
+        {discrete: true},
+      );
+    }
+
+    const $inner = () => $createTableOf([$createCell('INNER')]);
+
+    test('has the nested text once and keeps the cells on their rows', () => {
+      expectText(
+        () => [
+          $createTableOf(
+            [$createCell('A', $inner()), $createCell('B')],
+            [$createCell('C'), $createCell('D')],
+          ),
+          0,
+          3,
+        ],
+        'A\n\nINNER\tB\nC\tD\n',
+      );
+    });
+
+    test('has the nested text once when the nested table is in the last cell', () => {
+      expectText(
+        () => [
+          $createTableOf(
+            [$createCell('A'), $createCell('B')],
+            [$createCell('C'), $createCell('D', $inner())],
+          ),
+          0,
+          3,
+        ],
+        'A\tB\nC\tD\n\nINNER\n',
+      );
+    });
+
+    test('has the nested text once when a table is nested two levels deep', () => {
+      expectText(
+        () => [
+          $createTableOf(
+            [
+              $createCell('A', $createTableOf([$createCell('MID', $inner())])),
+              $createCell('B'),
+            ],
+            [$createCell('C'), $createCell('D')],
+          ),
+          0,
+          3,
+        ],
+        'A\n\nMID\n\nINNER\tB\nC\tD\n',
+      );
+    });
+
+    test('leaves the nested text out when the selection does not hold its cell', () => {
+      expectText(
+        () => [
+          $createTableOf(
+            [$createCell('A', $inner()), $createCell('B')],
+            [$createCell('C'), $createCell('D')],
+          ),
+          2,
+          3,
+        ],
+        'C\tD\n',
+      );
+    });
+
+    test('has the text of a selection made inside the nested table', () => {
+      testEnv.editor.update(
+        () => {
+          const cell = $createCell('INNER');
+          const inner = $createTableOf([cell]);
+          $createTableOf([$createCell('A', inner)]);
+          expect(
+            $createTableSelectionFrom(inner, cell, cell).getTextContent(),
+          ).toBe('INNER\n');
+        },
+        {discrete: true},
+      );
     });
   });
 });
