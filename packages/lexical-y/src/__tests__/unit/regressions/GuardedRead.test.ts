@@ -278,10 +278,17 @@ describe('N6: a read admitted before the binding failed closed reads nothing aft
       }
     });
     try {
+      // Applied inside an update that moves the caret: the layout is read
+      // right after that update commits (see YBinding#deferChange), and the
+      // failed read's commit (it drops the selection) runs the listener.
       expect(() =>
-        reader.editor.update(() => Y.applyUpdate(reader.doc, layout), {
-          discrete: true,
-        }),
+        reader.editor.update(
+          () => {
+            $getRoot().getFirstDescendant()!.selectStart();
+            Y.applyUpdate(reader.doc, layout);
+          },
+          {discrete: true},
+        ),
       ).not.toThrow();
       await flush();
     } finally {

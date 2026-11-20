@@ -53,6 +53,7 @@ describe('@lexical/y on a server', () => {
       },
     });
     const binding = new YBinding(editor, doc, {
+      onStatus: null,
       schemaVersion: 1,
       selfCheck: true,
     });

@@ -13,7 +13,7 @@
 // "fg", starting where B's bold ends. A's write ends the run's value right
 // after its end, and C's opener has the same neighbours; Yjs orders the two
 // by client id, so with A's id above C's, "fg" loses C's bold on every
-// client. No text is lost. `test.fails` marks the orders that lose it.
+// client. No text is lost. `test` marks the orders that lose it.
 import {$getRoot, $setSelection, type TextNode} from 'lexical';
 import {expect, test} from 'vitest';
 
@@ -75,20 +75,17 @@ const race = async (how: 'remove' | 'type', ids: number[], gc: boolean) => {
 for (const how of ['remove', 'type'] as const) {
   for (const ids of IDS) {
     for (const gc of [false, true]) {
-      // ids are [A, B, C]
-      const loses = ids[0] > ids[2];
+      // ids are [A, B, C] (C's bold used to be lost when A's id was the
+      // higher: fixed by paired runs, layout 3).
       const name = `A ${how === 'remove' ? 'unbolds part of the run' : 'types plain text in the run'} (ids ${ids}, gc ${gc ? 'on' : 'off'})`;
       test(`no text is lost when C bolds after B's run and ${name}`, async () => {
         expect((await race(how, ids, gc)).text).toBe(
           how === 'remove' ? 'abcdefgh' : 'abcXdefgh',
         );
       });
-      (loses ? test.fails : test)(
-        `C's bold after B's run stays when ${name}`,
-        async () => {
-          expect((await race(how, ids, gc)).fgBold).toBe(true);
-        },
-      );
+      test(`C's bold after B's run stays when ${name}`, async () => {
+        expect((await race(how, ids, gc)).fgBold).toBe(true);
+      });
     }
   }
 }

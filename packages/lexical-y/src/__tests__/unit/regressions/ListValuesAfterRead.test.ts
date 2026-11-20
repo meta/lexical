@@ -118,7 +118,7 @@ const AppExtension = defineExtension({
   nodes: () => [CalloutNode, ComponentNode, SlotBodyNode],
 });
 
-const config = {extensions: [AppExtension], schemaVersion: 1};
+const config = {extensions: [AppExtension], onWarn: null, schemaVersion: 1};
 
 const $p = (text: string) =>
   $createParagraphNode().append($createTextNode(text));
@@ -271,7 +271,11 @@ function bind(seed: Uint8Array, how: Bind) {
     cleanups.push(() => built.dispose());
     editor = built;
     root = mount(editor);
-    binding = new YBinding(editor, doc, {schemaVersion: 1, selfCheck: true});
+    binding = new YBinding(editor, doc, {
+      onStatus: null,
+      schemaVersion: 1,
+      selfCheck: true,
+    });
     cleanups.push(binding.start());
     binding.initialize();
   } else {
@@ -282,6 +286,7 @@ function bind(seed: Uint8Array, how: Bind) {
           AppExtension,
           configExtension(YCollabExtension, {
             doc,
+            onYStatus: null,
             schemaVersion: 1,
             selfCheck: true,
             synced: how === 'extension',
@@ -395,6 +400,7 @@ describe('a remote change that turns the binding read only', () => {
           AppExtension,
           configExtension(YCollabExtension, {
             doc: docB,
+            onYStatus: null,
             schemaVersion: 1,
             synced: true,
           }),

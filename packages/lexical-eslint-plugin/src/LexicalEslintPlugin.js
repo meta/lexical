@@ -10,13 +10,14 @@
 
 import {noDocumentInDomMethods} from './rules/no-document-in-dom-methods.js';
 import {rulesOfLexical} from './rules/rules-of-lexical.js';
+import {yCollabStatus} from './rules/y-collab-status.js';
 import {SOURCE_VERSION} from './version.js';
 
 /**
  * @typedef {import('eslint').Rule.RuleModule} RuleModule
- * @typedef {{plugins: {'@lexical': Plugin}; rules: {'@lexical/rules-of-lexical': 'warn' | 'error' | 'off'}}} FlatConfig
+ * @typedef {{plugins: {'@lexical': Plugin}; rules: {'@lexical/rules-of-lexical': 'warn' | 'error' | 'off'; '@lexical/y-collab-status': 'warn' | 'error' | 'off'}}} FlatConfig
  * @typedef {{meta: {name: string; version: string}; rules: Rules; configs: Configs}} Plugin
- * @typedef {{'no-document-in-dom-methods': RuleModule; 'rules-of-lexical': RuleModule}} Rules
+ * @typedef {{'no-document-in-dom-methods': RuleModule; 'rules-of-lexical': RuleModule; 'y-collab-status': RuleModule}} Rules
  * @typedef {{all: FlatConfig; recommended: FlatConfig; 'flat/all': FlatConfig; 'flat/recommended': FlatConfig}} Configs
  */
 
@@ -67,6 +68,8 @@ function createConfigs(pluginMeta, pluginRules) {
     },
     rules: {
       '@lexical/rules-of-lexical': 'warn',
+      // Fires only on configExtension(YCollabExtension, {doc, ...}).
+      '@lexical/y-collab-status': 'error',
     },
   };
   // Flat configs (ESLint 9+). `flat/all` and `flat/recommended` are the
@@ -89,6 +92,7 @@ export const meta = createMeta();
 export const rules = {
   'no-document-in-dom-methods': noDocumentInDomMethods,
   'rules-of-lexical': rulesOfLexical,
+  'y-collab-status': yCollabStatus,
 };
 
 export const configs = createConfigs(meta, rules);

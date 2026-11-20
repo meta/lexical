@@ -1446,9 +1446,10 @@ export default function ToolbarPlugin({
                 </DropDownItem>
                 <DropDownItem
                   onClick={() => {
-                    const dateTime = new Date();
-                    dateTime.setHours(0, 0, 0, 0);
-                    dispatchToolbarCommand(INSERT_DATETIME_COMMAND, {dateTime});
+                    dispatchToolbarCommand(INSERT_DATETIME_COMMAND, {
+                      allDay: true,
+                      dateTime: new Date(),
+                    });
                   }}
                   className="item">
                   <i className="icon calendar" />

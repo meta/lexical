@@ -532,7 +532,20 @@ function $createNodesFromDOM(
     }
 
     if (transformOutput.forChild != null) {
-      forChildMap.set(node.nodeName, transformOutput.forChild);
+      // Keep the conversions of every enclosing element. Keyed by tag name,
+      // a <span> inside a <span> would otherwise replace its parent's, and
+      // the text would lose the formats the outer span set.
+      const forChild = transformOutput.forChild;
+      const enclosingForChild = forChildMap.get(node.nodeName);
+      forChildMap.set(
+        node.nodeName,
+        enclosingForChild
+          ? (lexicalNode, parentNode) => {
+              const result = enclosingForChild(lexicalNode, parentNode);
+              return result ? forChild(result, parentNode) : result;
+            }
+          : forChild,
+      );
     }
   }
 

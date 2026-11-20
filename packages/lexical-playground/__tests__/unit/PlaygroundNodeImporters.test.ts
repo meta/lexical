@@ -169,12 +169,14 @@ describe('Playground node importers (DOMImportExtension round-trip)', () => {
   });
 
   it('DateTimeNode', () => {
+    const dateTime = new Date('2026-05-29T12:34:56.789Z');
     expectRoundTrip(
       DateTimeExtension,
-      () => $createDateTimeNode(new Date('2026-05-29T00:00:00.000Z')),
+      () => $createDateTimeNode(dateTime),
       () => {
         const node = $findFirst($isDateTimeNode);
         assert($isDateTimeNode(node), 'expected a DateTimeNode');
+        expect(node.getDateTime().getTime()).toBe(dateTime.getTime());
       },
     );
   });

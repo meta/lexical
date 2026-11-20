@@ -64,7 +64,7 @@ function client(id: number, state?: Uint8Array, dom = false) {
   if (state !== undefined) {
     Y.applyUpdate(doc, state, 'load');
   }
-  const binding = new YBinding(editor, doc, {schemaVersion: 1});
+  const binding = new YBinding(editor, doc, {onStatus: null, schemaVersion: 1});
   const stop = binding.start();
   return {binding, doc, editor, root, stop};
 }

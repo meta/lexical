@@ -27,8 +27,10 @@ import {
 import {
   characterAt,
   characterBefore,
+  flankingBefore,
   getDelimiterRunEdge,
   getEmphasisSides,
+  isVariationSelector,
   unescapeText,
 } from './utils';
 
@@ -97,7 +99,7 @@ function characterBeyondRun(
       ? characterAt(text, edge)
       : outside
     : edge > 0
-      ? characterBefore(text, edge)
+      ? flankingBefore(text, edge, outside)
       : outside;
 }
 
@@ -108,7 +110,7 @@ function characterBeyondRun(
  * first, imports the text before each match and then the text inside it,
  * until there are no more transformers to apply.
  */
-export function importTextTransformers(
+export function $importTextTransformers(
   textNode: TextNode,
   textFormatTransformersIndex: TextFormatTransformersIndex,
   textMatchTransformers: TextMatchTransformer[],
@@ -124,7 +126,7 @@ export function importTextTransformers(
   const deferred: Deferred[] = [];
   let rest: TextRest | null = {after, before, node: textNode, scan: null};
   while (rest !== null) {
-    rest = importOutermost(
+    rest = $importOutermost(
       rest,
       textFormatTransformersIndex,
       textMatchTransformers,
@@ -133,8 +135,12 @@ export function importTextTransformers(
   }
   for (let i = deferred.length - 1; i >= 0; i--) {
     const {outside, inside, matched} = deferred[i];
-    importTextPart(outside, textFormatTransformersIndex, textMatchTransformers);
-    importTextPart(inside, textFormatTransformersIndex, textMatchTransformers);
+    $importTextPart(
+      outside,
+      textFormatTransformersIndex,
+      textMatchTransformers,
+    );
+    $importTextPart(inside, textFormatTransformersIndex, textMatchTransformers);
     if (
       !canContainTransformableMarkdown(inside.node) &&
       canContainTransformableMarkdown(matched) &&
@@ -156,13 +162,13 @@ interface TextPart {
   after: string | undefined;
 }
 
-function importTextPart(
+function $importTextPart(
   {node, before, after}: TextPart,
   textFormatTransformersIndex: TextFormatTransformersIndex,
   textMatchTransformers: TextMatchTransformer[],
 ) {
   if (canContainTransformableMarkdown(node)) {
-    importTextTransformers(
+    $importTextTransformers(
       node,
       textFormatTransformersIndex,
       textMatchTransformers,
@@ -201,12 +207,142 @@ interface TextRest {
   scan: TextScan | null;
 }
 
+// Each transformer's importRegExp, sticky and with the `d` flag, or `null`
+// where the browser has no `d` flag.
+const indexedCopies = new WeakMap<RegExp, RegExp | null>();
+
+/** `regExp`, sticky and with the `d` flag, made once. */
+function withIndicesOf(regExp: RegExp): RegExp | null {
+  let copy = indexedCopies.get(regExp);
+  if (copy === undefined) {
+    const own = regExp.flags.replace(/[dgy]/g, '');
+    copy = null;
+    try {
+      copy = new RegExp(regExp.source, own + 'dy');
+    } catch {
+      // No `d` flag before ES2022.
+    }
+    indexedCopies.set(regExp, copy);
+  }
+  return copy;
+}
+
+/**
+ * Where the first group of `match` (the whole match among them) within
+ * `startIndex` and `endIndex` that holds `content`, as it is or with its
+ * escapes and references read, starts, or -1, from the indices `match`
+ * has. Nothing tells which of two groups that hold it the transformer read
+ * it from.
+ */
+function findContentGroup(
+  match: RegExpMatchArray,
+  startIndex: number,
+  endIndex: number,
+  content: string,
+): number {
+  const indices = match.indices!;
+  for (let i = 0; i < match.length; i++) {
+    const range = indices[i];
+    // Reading escapes and references only shortens a group.
+    if (
+      range !== undefined &&
+      range[0] >= startIndex &&
+      range[1] <= endIndex &&
+      (match[i] === content ||
+        (match[i]!.length > content.length &&
+          unescapeText(match[i]!) === content))
+    ) {
+      return range[0];
+    }
+  }
+  return -1;
+}
+
+/**
+ * The text match `found` at `startIndex` of `text`, with where its groups
+ * stand, or `null` where the browser has no `d` flag.
+ */
+function matchWithIndices(
+  found: RegExpMatchArray,
+  regExp: RegExp,
+  text: string,
+  startIndex: number,
+): RegExpMatchArray | null {
+  if (found.indices) {
+    return found;
+  }
+  const withIndices = withIndicesOf(regExp);
+  if (withIndices === null) {
+    return null;
+  }
+  withIndices.lastIndex = startIndex;
+  const match = withIndices.exec(text);
+  // The same match, which with getEndIndex is not all of the syntax.
+  return match && match[0] === found[0] ? match : null;
+}
+
+/**
+ * What lies before the text that a text match leaves to import, when that
+ * text starts with a variation selector, which varies it: the character
+ * before the first group of the match (the whole match among them) that holds
+ * the text as it is or with its escapes and references read, or else before
+ * the text where the match holds it as it is, or else the match's first
+ * character. `before` is what lies before `text`.
+ */
+function $characterBeforeContent(
+  text: string,
+  {
+    startIndex,
+    endIndex,
+    match: found,
+    transformer,
+  }: {
+    startIndex: number;
+    endIndex: number;
+    match: RegExpMatchArray;
+    transformer: TextMatchTransformer;
+  },
+  node: TextNode | undefined,
+  before: string | undefined,
+): string | undefined {
+  const content = node ? node.getTextContent() : '';
+  if (!isVariationSelector(content[0])) {
+    return undefined;
+  }
+  const match = matchWithIndices(
+    found,
+    transformer.importRegExp!,
+    text,
+    startIndex,
+  );
+  let index = match
+    ? findContentGroup(match, startIndex, endIndex, content)
+    : -1;
+  if (index === -1) {
+    // Without the `d` flag, or where no group holds the text: the text in the
+    // match after its start, or else at it.
+    const syntax = text.slice(startIndex, endIndex);
+    const at = syntax.indexOf(content, 1);
+    index =
+      at !== -1
+        ? startIndex + at
+        : syntax.startsWith(content)
+          ? startIndex
+          : -1;
+  }
+  return index === -1
+    ? characterAt(text, startIndex)
+    : index === 0
+      ? before
+      : characterBefore(text, index);
+}
+
 /**
  * Applies the outermost transformer in `textNode`, adds the import of the
  * text before and inside its match to `deferred`, and returns the text after
  * it, for the caller to import next.
  */
-function importOutermost(
+function $importOutermost(
   {node: textNode, before, after, scan: previousScan}: TextRest,
   textFormatTransformersIndex: TextFormatTransformersIndex,
   textMatchTransformers: TextMatchTransformer[],
@@ -328,14 +464,19 @@ function importOutermost(
     if (textAfter !== null && textAfter !== rest) {
       return {after: undefined, before: undefined, node: nodeAfter, scan: null};
     }
-    const restBefore = characterBeyondRun(
-      text,
-      endIndex,
-      -1,
-      before,
-      delimiters,
-      isTextMatch,
-    );
+    const restBefore =
+      isTextMatch && isVariationSelector(rest[0])
+        ? // A variation selector that starts the rest varies the end of the
+          // match, such as a link's `)`.
+          flankingBefore(text, endIndex, before)
+        : characterBeyondRun(
+            text,
+            endIndex,
+            -1,
+            before,
+            delimiters,
+            isTextMatch,
+          );
     // The scan read a run at the start of the rest beside the end of the
     // match. Read beside the edge of a line instead, it can only change the
     // pair it opens, since it has nothing before it in the rest to close.
@@ -349,7 +490,11 @@ function importOutermost(
       isTextMatch &&
       restBefore === undefined &&
       delimiters.has(rest[0]) &&
-      readsOtherwiseBesideEdge(rest, characterBefore(text, endIndex), after)
+      readsOtherwiseBesideEdge(
+        rest,
+        flankingBefore(text, endIndex, before),
+        after,
+      )
     ) {
       isReusable = findPairAtEdge(formats, rest, textFormatTransformersIndex);
     }
@@ -377,9 +522,14 @@ function importOutermost(
     // define and the tag does not cut it; otherwise beside the edge of a
     // line, as the rule of 3 would measure a cut run without the part the
     // tag took. A code span's content is not read for emphasis.
-    const beside = (char: string) =>
-      !isCodeSpan && SPEC_MARKERS.includes(char) && char !== tag[0]
-        ? tag[0]
+    // A variation selector that starts the content varies the tag.
+    // The tag's character beside the content: its last of the opening tag,
+    // its first of the closing one.
+    const beside = (char: string, isStart: boolean) =>
+      !isCodeSpan &&
+      ((SPEC_MARKERS.includes(char) && char !== tag[0]) ||
+        (isStart && isVariationSelector(char)))
+        ? tag[isStart ? tag.length - 1 : 0]
         : undefined;
     return importAround(
       result,
@@ -387,8 +537,8 @@ function importOutermost(
       startIndex,
       endIndex,
       {
-        after: beside(text[endIndex - tag.length - 1]),
-        before: beside(text[startIndex + tag.length]),
+        after: beside(text[endIndex - tag.length - 1], false),
+        before: beside(text[startIndex + tag.length], true),
         node: result.transformedNode,
       },
       undefined,
@@ -409,7 +559,18 @@ function importOutermost(
       result.textAfter,
       foundTextMatch.startIndex,
       foundTextMatch.endIndex,
-      {after: undefined, before: undefined, node: result.transformedNode},
+      {
+        after: undefined,
+        // A variation selector that starts the content varies the syntax
+        // before it, such as a link's `[`.
+        before: $characterBeforeContent(
+          text,
+          foundTextMatch,
+          result.transformedNode,
+          before,
+        ),
+        node: result.transformedNode,
+      },
       result.transformedNode === undefined ? result.matchedNode : undefined,
     );
   }
