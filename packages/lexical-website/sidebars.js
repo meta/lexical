@@ -135,6 +135,8 @@ const sidebars = {
     {
       items: [
         'collaboration/react',
+        'collaboration/y',
+        'collaboration/y-server',
         'collaboration/comments',
         'collaboration/block-ids',
         'collaboration/faq',
@@ -143,6 +145,7 @@ const sidebars = {
       type: 'category',
     },
     'testing',
+    'upgrading',
     'faq',
     'maintainers-guide',
   ],

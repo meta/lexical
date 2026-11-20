@@ -15,9 +15,9 @@ import {$setBlocksType} from '@lexical/selection';
 import {
   $createParagraphNode,
   $createTextNode,
+  $deepCopy,
   $getRoot,
   $getSelection,
-  type ElementNode,
   INSERT_PARAGRAPH_COMMAND,
 } from 'lexical';
 import {afterEach, describe, expect, test} from 'vitest';
@@ -25,7 +25,6 @@ import {afterEach, describe, expect, test} from 'vitest';
 import {
   $block,
   $caretAt,
-  $deepCopy,
   $enter,
   $join,
   $type,
@@ -373,7 +372,7 @@ describe.each([1, 2] as const)('BlockIdExtension with @lexical/yjs v%s', v => {
     ]);
     b.update(() => {
       // Enter at the end of the first item.
-      $block(0).getFirstChildOrThrow<ElementNode>().selectEnd();
+      $block(0).getFirstChildOrThrow().selectEnd();
       b.editor.dispatchCommand(INSERT_PARAGRAPH_COMMAND, undefined);
     });
     net.sync();

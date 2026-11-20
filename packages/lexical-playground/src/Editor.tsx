@@ -46,6 +46,7 @@ export default function Editor(): JSX.Element {
     settings: {
       isCollab,
       useCollabV2,
+      useCollabY,
       isCharLimit,
       hasFitNestedTables,
       isCharLimitUtf8,
@@ -135,7 +136,9 @@ export default function Editor(): JSX.Element {
         <AutoEmbedPlugin />
         <MentionsPlugin />
         <SpeechToTextPlugin />
-        {!(isCollab && useCollabV2) && (
+        {/* Comments sync through a Yjs 13 document of their own (collab
+            v1). Collab v2 and collab Y do not sync them, so they are off there. */}
+        {!(isCollab && (useCollabV2 || useCollabY)) && (
           <CommentPlugin
             providerFactory={isCollab ? createWebsocketProvider : undefined}
           />
@@ -200,6 +203,7 @@ export default function Editor(): JSX.Element {
         <ActionsPlugin
           shouldPreserveNewLinesInMarkdown={shouldPreserveNewLinesInMarkdown}
           useCollabV2={useCollabV2}
+          useCollabY={isCollab && isRichText && useCollabY}
         />
       </div>
       {showTreeView && <TreeViewPlugin />}

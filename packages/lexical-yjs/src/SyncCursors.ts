@@ -1094,11 +1094,33 @@ export function syncLexicalSelectionToYjs(
   prevSelection: null | BaseSelection,
   nextSelection: null | BaseSelection,
 ): void {
+  const setLocalState = selectionAwarenessUpdate(
+    binding,
+    provider,
+    prevSelection,
+    nextSelection,
+  );
+  if (setLocalState !== null) {
+    setLocalState();
+  }
+}
+
+/**
+ * The awareness update syncLexicalSelectionToYjs makes, computed in the
+ * current read and returned to be applied after it: awareness listeners,
+ * which setLocalState calls synchronously, then run outside the read.
+ */
+export function selectionAwarenessUpdate(
+  binding: AnyBinding,
+  provider: Provider,
+  prevSelection: null | BaseSelection,
+  nextSelection: null | BaseSelection,
+): null | (() => void) {
   const awareness = provider.awareness;
   const localState = awareness.getLocalState();
 
   if (localState === null) {
-    return;
+    return null;
   }
 
   const {
@@ -1117,7 +1139,7 @@ export function syncLexicalSelectionToYjs(
     (currentAnchorPos !== null && !nextSelection.is(prevSelection))
   ) {
     if (prevSelection === null) {
-      return;
+      return null;
     }
   }
 
@@ -1163,14 +1185,16 @@ export function syncLexicalSelectionToYjs(
     shouldUpdatePosition(currentAnchorPos, anchorPos) ||
     shouldUpdatePosition(currentFocusPos, focusPos)
   ) {
-    awareness.setLocalState({
-      ...localState,
-      anchorPos,
-      awarenessData,
-      color,
-      focusPos,
-      focusing,
-      name,
-    });
+    return () =>
+      awareness.setLocalState({
+        ...localState,
+        anchorPos,
+        awarenessData,
+        color,
+        focusPos,
+        focusing,
+        name,
+      });
   }
+  return null;
 }

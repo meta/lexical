@@ -18,7 +18,7 @@ import {
 } from 'lexical';
 import {describe, expect, test} from 'vitest';
 
-// Reproduction for https://github.com/facebook/lexical/issues/7876
+// Reproduction for https://github.com/meta/lexical/issues/7876
 //
 // `editor.setEditorState(parsedState)` historically avoided dirtying nodes,
 // so user-registered transforms did not run against text parsed from JSON.

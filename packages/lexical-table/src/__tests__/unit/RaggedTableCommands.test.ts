@@ -18,6 +18,7 @@ import {
   $insertTableColumnAtSelection,
   $insertTableRowAtSelection,
   $isTableNode,
+  $isTableRowNode,
   $mergeCells,
   $padTableRows,
   $unmergeCell,
@@ -35,6 +36,7 @@ import {
   defineExtension,
   type ElementNode,
 } from 'lexical';
+import {$assertNodeType} from 'lexical/src/__tests__/utils';
 import {describe, expect, onTestFinished, test} from 'vitest';
 
 // Not exported from the package; reached by pasting a table into a table.
@@ -109,8 +111,12 @@ const $widths = () =>
 // Text of each row's cells, in document order.
 const $texts = () =>
   $table()
-    .getChildren<TableRowNode>()
-    .map(row => row.getChildren().map(cell => cell.getTextContent()));
+    .getChildren()
+    .map(row =>
+      $assertNodeType(row, $isTableRowNode)
+        .getChildren()
+        .map(cell => cell.getTextContent()),
+    );
 
 describe('table commands on a ragged table', () => {
   test('insert column after the last column of a full row', () => {

@@ -1799,7 +1799,10 @@ describe('$toggleLink(null) with a selection touching a link boundary', () => {
   }
 
   function $describeParagraph(): Layout {
-    const paragraph = $getRoot().getFirstChildOrThrow<ParagraphNode>();
+    const paragraph = $assertNodeType(
+      $getRoot().getFirstChildOrThrow(),
+      $isParagraphNode,
+    );
     return paragraph
       .getChildren()
       .map(child =>

@@ -154,6 +154,24 @@ describe('CoreImportExtension', () => {
     });
   });
 
+  test.each([
+    'bdi',
+    'bdo',
+    'big',
+    'data',
+    'dfn',
+    'font',
+    'nobr',
+    'small',
+    'strike',
+  ])('keeps the spaces around an inline <%s>', tag => {
+    using editor = buildEditor();
+    importInto(editor, `<p>is <${tag}>old</${tag}> now</p>`);
+    editor.read(() => {
+      expect($getRoot().getTextContent()).toBe('is old now');
+    });
+  });
+
   test('<br> creates a LineBreakNode', () => {
     using editor = buildEditor();
     importInto(editor, '<p>a<br>b</p>');

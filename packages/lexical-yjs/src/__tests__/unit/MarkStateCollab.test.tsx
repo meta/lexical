@@ -39,6 +39,7 @@ import {
   type TextNode,
   UNDO_COMMAND,
 } from 'lexical';
+import {$assertNodeType} from 'lexical/src/__tests__/utils';
 import * as React from 'react';
 import {act} from 'react';
 import {createRoot, type Root} from 'react-dom/client';
@@ -288,7 +289,7 @@ function registry(client: Client): Record<string, string[]> {
 }
 
 function $paragraph(): ElementNode {
-  return $getRoot().getFirstChildOrThrow<ElementNode>();
+  return $assertNodeType($getRoot().getFirstChildOrThrow(), $isElementNode);
 }
 
 function $locate(offset: number, preferNext: boolean): [TextNode, number] {
@@ -738,19 +739,24 @@ describe('MarkStateExtension with collaboration: known limitations', () => {
         });
         await ctx.offline();
         await ctx.a.update(() => {
-          const first = $paragraph().getFirstChildOrThrow<TextNode>();
-          const second = $getRoot()
-            .getLastChildOrThrow<ElementNode>()
-            .getFirstChildOrThrow<TextNode>();
+          const first = $paragraph().getFirstChildOrThrow();
+          const second = $assertNodeType(
+            $getRoot().getLastChildOrThrow(),
+            $isElementNode,
+          ).getFirstChildOrThrow();
           const selection = $createRangeSelection();
           selection.anchor.set(first.getKey(), 16, 'text');
           selection.focus.set(second.getKey(), 6, 'text');
           $addMarkID('c1', selection);
         });
         await ctx.b.update(() => {
-          $getRoot()
-            .getLastChildOrThrow<ElementNode>()
-            .getFirstChildOrThrow<TextNode>()
+          $assertNodeType(
+            $assertNodeType(
+              $getRoot().getLastChildOrThrow(),
+              $isElementNode,
+            ).getFirstChildOrThrow(),
+            $isTextNode,
+          )
             .select(0, 0)
             .deleteCharacter(true);
         });

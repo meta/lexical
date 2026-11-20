@@ -18,6 +18,15 @@ Breaking change / Refactor / Feature / Bug Fix / Documentation Update / Chore
 
 Closes #<!-- issue number -->
 
+## Changeset
+<!--
+A changeset in `.changeset/` is required for user-facing changes (run `pnpm run changeset:new`);
+it becomes this change's CHANGELOG.md entry. Breaking changes use [breaking] with `minor`
+and a "Migration:" paragraph. See "Changesets" in CONTRIBUTING.md.
+Tests, website, playground, example and tooling changes need none.
+-->
+*The changeset you added, or why none is needed*
+
 ## Test plan
 
 ### Before

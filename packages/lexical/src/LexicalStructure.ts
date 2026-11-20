@@ -42,6 +42,7 @@ import {
 import {$insertSibling} from './caret/LexicalCaretTree';
 import {$removeNode} from './LexicalNode';
 import {StateConfig} from './LexicalNodeState';
+import {internalGetActiveEditor} from './LexicalUpdates';
 import {
   $copyNode,
   isSynthesizedIsInline,
@@ -348,6 +349,18 @@ function isInlineChild(node: LexicalNode): boolean {
   }
 }
 
+/**
+ * @internal For Lexical's own code; not public API.
+ *
+ * Whether the node structure normalization treats `node` as inline content
+ * (what a holder of `'inline'` keeps in its line): text, line breaks, inline
+ * elements and decorators, and the character limit's `OverflowNode`, which
+ * is inline content although its `isInline()` is false.
+ */
+export function INTERNAL_isInlineContent(node: LexicalNode): boolean {
+  return isInlineChild(node);
+}
+
 /** A leaf the normalization never removes and that sits in a line. */
 function isInlineLeaf(node: LexicalNode): boolean {
   return (
@@ -518,6 +531,12 @@ class Normalization {
   changed = false;
   /** Whether every descendant is visited, not only those in `path`. */
   full = false;
+  /**
+   * Whether this is `INTERNAL_$normalizeNodeStructure`'s normalization of
+   * what code changed without transforms, rather than the transform's of an
+   * update (see liftsFromStructure).
+   */
+  explicit = false;
   /**
    * The roots and shadow roots whose inline children are all wrapped, as
    * core's own shadow root transform wraps them every time it runs (on the
@@ -905,7 +924,9 @@ function $rebuild(
     }
     $append(target, piece.content);
     piece.holder = target;
-    preceding.push(...piece.content);
+    for (const node of piece.content) {
+      preceding.push(node);
+    }
     placed.push(target);
     holders.push(target);
   }
@@ -941,20 +962,47 @@ function $rebuild(
 }
 
 /**
+ * The holder's hook for a child its declared `children` allow that must
+ * still be lifted out, given what else the holder holds: a list item lifts a
+ * nested list that is not all it holds (see `ListItemNode`). Since the answer
+ * depends on the siblings and not on the child alone, a holder that has the
+ * hook checks all its children whenever it is visited.
+ */
+function liftsFromStructure(
+  holder: ElementNode,
+):
+  | null
+  | ((this: ElementNode, child: LexicalNode, explicit: boolean) => boolean) {
+  const hook = (
+    holder as unknown as {
+      INTERNAL_$liftsFromStructure?: (
+        child: LexicalNode,
+        explicit: boolean,
+      ) => boolean;
+    }
+  ).INTERNAL_$liftsFromStructure;
+  return typeof hook === 'function' ? hook : null;
+}
+
+/**
  * What a holder of inline content does with each child: keeps it, joins it
  * (a plain paragraph, not in an inline element), or lifts it out (any other
- * block). Disallowed inline content with nowhere to go (a misdeclared class)
- * is kept, never dropped.
+ * block, or an allowed child the holder's hook lifts). Disallowed inline
+ * content with nowhere to go (a misdeclared class) is kept, never dropped.
  */
 function inlineRuleKinds(
   holder: ElementNode,
   rule: NodeChildrenConfig,
   children: readonly LexicalNode[],
+  explicit: boolean,
 ): ('keep' | 'join' | 'lift')[] {
   const inlineHolder = holder.isInline();
+  const lifts = liftsFromStructure(holder);
   return children.map(c =>
     allows(rule, c)
-      ? 'keep'
+      ? lifts !== null && lifts.call(holder, c, explicit)
+        ? 'lift'
+        : 'keep'
       : !inlineHolder && isJoinableParagraph(rule, c)
         ? 'join'
         : isInlineChild(c)
@@ -1054,7 +1102,7 @@ function $applyInlineRule(
 ): ElementNode[] {
   const inlineHolder = holder.isInline();
   const children = holder.getChildren();
-  const kinds = inlineRuleKinds(holder, rule, children);
+  const kinds = inlineRuleKinds(holder, rule, children, ctx.explicit);
   if (kinds.every(k => k === 'keep')) {
     return [holder];
   }
@@ -1091,7 +1139,9 @@ function $applyInlineRule(
           segment,
         });
       }
-      segment.content.push(...content);
+      for (const node of content) {
+        segment.content.push(node);
+      }
       last = 'line';
       continue;
     }
@@ -1242,12 +1292,17 @@ const instanceRuleInputsCache = /* @__PURE__ */ new WeakMap<
  * Whether the children of `holder` must all be checked against its rule:
  * the normalization is `full`, or the holder was never visited in its current
  * or committed version, or what its rule depends on (whether it is a root or
- * shadow root, whether it is inline) changed since. Otherwise only the
- * children to visit can break the rule: every other child was allowed by the
- * same rule after the previous pass, and whether a child is allowed depends
- * on the child alone, which writes it when it changes.
+ * shadow root, whether it is inline) changed since, or the holder has a hook
+ * that lifts allowed children (see {@link liftsFromStructure}). Otherwise only
+ * the children to visit can break the rule: every other child was allowed by
+ * the same rule after the previous pass, and whether a child is allowed
+ * depends on the child alone, which writes it when it changes.
  */
 function $checksAllChildren(holder: ElementNode, ctx: Normalization): boolean {
+  if (liftsFromStructure(holder) !== null) {
+    // Whether a child is allowed depends on its siblings too.
+    return true;
+  }
   if (
     $isRootNode(holder) ||
     !hasInstanceRuleInputs(holder.constructor as Klass<LexicalNode>)
@@ -1296,7 +1351,9 @@ function $applyRules(
     return null;
   }
   if (rule === 'inline' || rule.includes('inline')) {
-    return inlineRuleKinds(holder, rule, children).every(k => k === 'keep')
+    return inlineRuleKinds(holder, rule, children, ctx.explicit).every(
+      k => k === 'keep',
+    )
       ? null
       : $applyInlineRule(holder, rule, ctx);
   }
@@ -1607,6 +1664,7 @@ export function INTERNAL_$normalizeNodeStructure(node: LexicalNode): void {
   }
   const ctx = new Normalization();
   ctx.full = true;
+  ctx.explicit = true;
   const parent = node.getParent();
   $normalize(ctx, () => {
     if (parent === null || $isRootOrShadowRoot(node)) {
@@ -1771,6 +1829,54 @@ export function INTERNAL_isNodeStructureEnforced(
 ): boolean {
   return (
     structureRegistrations !== undefined && structureRegistrations.has(editor)
+  );
+}
+
+/** Whether there is an active editor and it enforces declared structure. */
+function $isStructureEnforcedOnActiveEditor(): boolean {
+  const editor = internalGetActiveEditor();
+  return editor !== null && INTERNAL_isNodeStructureEnforced(editor);
+}
+
+/**
+ * Lets `$isBlockContainer` narrow without excluding: an element that is not a
+ * block container is still an element.
+ */
+declare const BlockContainerBrand: unique symbol;
+
+/**
+ * @experimental node-structure
+ *
+ * Whether structural commands treat `node` as a container of blocks: the
+ * root, a shadow root, or, in an editor that enforces declared node
+ * structure (`NodeStructureExtension` enabled, `registerNodeStructure`, or a
+ * `@lexical/y` binding, which always enforces it), a block element whose
+ * class declares `children: 'block'` (a callout, a box).
+ *
+ * The commands that convert, wrap, split or insert blocks (`$insertList`,
+ * Enter in an empty list item, `$wrapNodes`, `insertNodes`,
+ * `$insertNodeToNearestRoot`, `$insertNodeToNearestRootAtCaret` unless
+ * given `rootMode: 'root'`, the markdown shortcuts) stop at a container:
+ * they act on the blocks inside it and do not replace or split the container
+ * itself; in an empty declared container, `$setBlocksType` puts the new
+ * block in it. Unlike
+ * a shadow root, a declared container is not a selection boundary:
+ * select-all, the arrow keys, and Backspace or Delete at its edges treat it
+ * like any other element. With no active editor (a bare
+ * `editorState.read()`), only the root and shadow roots are containers.
+ */
+export function $isBlockContainer(
+  node: LexicalNode | null | undefined,
+): node is ElementNode & {readonly [BlockContainerBrand]: never} {
+  if (!$isElementNode(node)) {
+    return false;
+  }
+  return (
+    $isRootOrShadowRoot(node) ||
+    (cachedNodeStructure(node.constructor as Klass<LexicalNode>).children ===
+      'block' &&
+      !node.isInline() &&
+      $isStructureEnforcedOnActiveEditor())
   );
 }
 

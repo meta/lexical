@@ -264,8 +264,10 @@ export function getBaseOptions(editor: LexicalEditor, showModal: ShowModal) {
       keywords: ['date', 'calendar', 'time'],
       onSelect: () => {
         const dateTime = new Date();
-        dateTime.setHours(0, 0, 0, 0); // Set time to midnight
-        editor.dispatchCommand(INSERT_DATETIME_COMMAND, {dateTime});
+        editor.dispatchCommand(INSERT_DATETIME_COMMAND, {
+          allDay: true,
+          dateTime,
+        });
       },
     }),
     new ComponentPickerOption('Today', {
@@ -273,8 +275,10 @@ export function getBaseOptions(editor: LexicalEditor, showModal: ShowModal) {
       keywords: ['date', 'calendar', 'time', 'today'],
       onSelect: () => {
         const dateTime = new Date();
-        dateTime.setHours(0, 0, 0, 0); // Set time to midnight
-        editor.dispatchCommand(INSERT_DATETIME_COMMAND, {dateTime});
+        editor.dispatchCommand(INSERT_DATETIME_COMMAND, {
+          allDay: true,
+          dateTime,
+        });
       },
     }),
     new ComponentPickerOption('Tomorrow', {
@@ -283,8 +287,10 @@ export function getBaseOptions(editor: LexicalEditor, showModal: ShowModal) {
       onSelect: () => {
         const dateTime = new Date();
         dateTime.setDate(dateTime.getDate() + 1);
-        dateTime.setHours(0, 0, 0, 0); // Set time to midnight
-        editor.dispatchCommand(INSERT_DATETIME_COMMAND, {dateTime});
+        editor.dispatchCommand(INSERT_DATETIME_COMMAND, {
+          allDay: true,
+          dateTime,
+        });
       },
     }),
     new ComponentPickerOption('Yesterday', {
@@ -293,8 +299,10 @@ export function getBaseOptions(editor: LexicalEditor, showModal: ShowModal) {
       onSelect: () => {
         const dateTime = new Date();
         dateTime.setDate(dateTime.getDate() - 1);
-        dateTime.setHours(0, 0, 0, 0); // Set time to midnight
-        editor.dispatchCommand(INSERT_DATETIME_COMMAND, {dateTime});
+        editor.dispatchCommand(INSERT_DATETIME_COMMAND, {
+          allDay: true,
+          dateTime,
+        });
       },
     }),
     new ComponentPickerOption('Equation', {

@@ -14,6 +14,7 @@ import {
 } from '@lexical/list';
 import {useLexicalComposerContext} from '@lexical/react/LexicalComposerContext';
 import {useExtensionSignalValue} from '@lexical/react/useExtensionSignalValue';
+import {INSERT_TABLE_COMMAND} from '@lexical/table';
 import {
   FORMAT_TEXT_COMMAND,
   type LexicalEditor,
@@ -34,6 +35,11 @@ import {
   type BlockType,
   ToolbarStateExtension,
 } from '../extensions/ToolbarStateExtension';
+import {
+  applyTableAction,
+  TABLE_ACTIONS,
+  type TableAction,
+} from './tableActions';
 
 const BLOCK_TYPES: readonly {label: string; value: BlockType}[] = [
   {label: 'Paragraph', value: 'paragraph'},
@@ -50,6 +56,7 @@ const INSERT_TYPES = [
   {label: 'Collapsible section', value: 'details'},
   {label: 'Alert', value: 'alert'},
   {label: 'Footnote', value: 'footnote'},
+  {label: 'Table', value: 'table'},
 ] as const;
 
 type InsertType = (typeof INSERT_TYPES)[number]['value'];
@@ -67,6 +74,14 @@ function applyInsert(editor: LexicalEditor, type: InsertType): void {
       return;
     case 'footnote':
       editor.dispatchCommand(INSERT_FOOTNOTE_COMMAND);
+      return;
+    case 'table':
+      // GFM has a header row, not a header column.
+      editor.dispatchCommand(INSERT_TABLE_COMMAND, {
+        columns: '2',
+        includeHeaders: {columns: false, rows: true},
+        rows: '2',
+      });
       return;
   }
 }
@@ -199,6 +214,21 @@ export function ToolbarPlugin() {
         </option>
         {INSERT_TYPES.map(({label, value}) => (
           <option key={value} value={value}>
+            {label}
+          </option>
+        ))}
+      </select>
+      <select
+        className={selectClass}
+        value="-"
+        disabled={!isEditable}
+        onChange={e => applyTableAction(editor, e.target.value as TableAction)}
+        aria-label="Table">
+        <option value="-" hidden={true}>
+          Table
+        </option>
+        {TABLE_ACTIONS.map(({label, value}) => (
+          <option key={label} value={value}>
             {label}
           </option>
         ))}

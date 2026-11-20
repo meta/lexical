@@ -63,6 +63,7 @@ import {
   $create,
   $createParagraphNode,
   $createTextNode,
+  $deepCopy,
   $getRoot,
   $getSelection,
   $getState,
@@ -86,11 +87,10 @@ import {
   PASTE_TAG,
   REDO_COMMAND,
   type SerializedEditorState,
-  type SerializedElementNode,
   type SerializedLexicalNode,
-  type TextNode,
   UNDO_COMMAND,
 } from 'lexical';
+import {$assertNodeType} from 'lexical/src/__tests__/utils';
 import {assert, describe, expect, test, vi} from 'vitest';
 
 import {
@@ -232,18 +232,6 @@ function ids(editor: LexicalEditor): (string | null)[] {
 
 function $paragraph(text: string): ElementNode {
   return $createParagraphNode().append($createTextNode(text));
-}
-
-/** A deep copy that keeps NodeState, as a Lexical-JSON paste does. */
-function $deepCopy<T extends LexicalNode>(node: T): T {
-  const serialize = (n: LexicalNode): SerializedLexicalNode => {
-    const json = n.exportJSON();
-    if ($isElementNode(n)) {
-      (json as SerializedElementNode).children = n.getChildren().map(serialize);
-    }
-    return json;
-  };
-  return $parseSerializedNode(serialize(node)) as T;
 }
 
 function $nth(index: number): ElementNode {
@@ -1090,7 +1078,10 @@ describe('BlockIdExtension: split and merge', () => {
     expect(ids(editor)).toEqual(['b3']);
     expect(items()).toEqual(['one:b1', 'two:b2']);
     update(editor, () => {
-      const item = $nth(0).getFirstChildOrThrow<ElementNode>();
+      const item = $assertNodeType(
+        $nth(0).getFirstChildOrThrow(),
+        $isElementNode,
+      );
       const text = item.getFirstDescendant();
       assert($isTextNode(text));
       text.select(offset, offset);
@@ -1925,8 +1916,13 @@ describe('BlockIdExtension: the index finds every identified block', () => {
     expectAllIndexed(editor);
     // Typing in an item keeps it that way.
     update(editor, () => {
-      const item = $nth(1).getFirstChildOrThrow<ElementNode>();
-      item.getFirstChildOrThrow<TextNode>().setTextContent('one!');
+      const item = $assertNodeType(
+        $nth(1).getFirstChildOrThrow(),
+        $isElementNode,
+      );
+      $assertNodeType(item.getFirstChildOrThrow(), $isTextNode).setTextContent(
+        'one!',
+      );
     });
     expectAllIndexed(editor);
   });
@@ -1981,8 +1977,13 @@ describe('BlockIdExtension: the index finds every identified block', () => {
       $getRoot().append($paragraph('before'), list, $paragraph('after'));
     });
     update(editor, () => {
-      const item = $nth(1).getFirstChildOrThrow<ElementNode>();
-      item.getFirstChildOrThrow<TextNode>().setTextContent('item!');
+      const item = $assertNodeType(
+        $nth(1).getFirstChildOrThrow(),
+        $isElementNode,
+      );
+      $assertNodeType(item.getFirstChildOrThrow(), $isTextNode).setTextContent(
+        'item!',
+      );
     });
     const originalKey = editor.read(() => $nth(1).getKey());
     update(editor, () => {
@@ -2052,19 +2053,23 @@ describe('BlockIdExtension: ids left on blocks that are not identified', () => {
     });
     const id = editor.read(() => $getBlockId($nth(2)))!;
     update(editor, () => {
-      const cell = $nth(0)
-        .getFirstChildOrThrow<ElementNode>()
-        .getFirstChildOrThrow<ElementNode>();
+      const row = $assertNodeType(
+        $nth(0).getFirstChildOrThrow(),
+        $isElementNode,
+      );
+      const cell = $assertNodeType(
+        row.getFirstChildOrThrow(),
+        $isTableCellNode,
+      );
       cell.append($nth(2));
     });
     return id;
   }
 
   function $nestedTable(): ElementNode {
-    const cell = $nth(0)
-      .getFirstChildOrThrow<ElementNode>()
-      .getFirstChildOrThrow<ElementNode>();
-    return cell.getLastChildOrThrow<ElementNode>();
+    const row = $assertNodeType($nth(0).getFirstChildOrThrow(), $isElementNode);
+    const cell = $assertNodeType(row.getFirstChildOrThrow(), $isTableCellNode);
+    return $assertNodeType(cell.getLastChildOrThrow(), $isElementNode);
   }
 
   test('the id stays in NodeState but is not indexed, and comes back with the block', () => {
@@ -2369,8 +2374,14 @@ describe('BlockIdExtension: more predicates and nesting', () => {
         null;
       update(editor, () => {
         const list = $nth(0);
-        const first = list.getFirstChildOrThrow<ElementNode>();
-        const last = list.getLastChildOrThrow<ElementNode>();
+        const first = $assertNodeType(
+          list.getFirstChildOrThrow(),
+          $isElementNode,
+        );
+        const last = $assertNodeType(
+          list.getLastChildOrThrow(),
+          $isElementNode,
+        );
         const selection = first.select(0, 0);
         selection.focus.set(last.getKey(), last.getChildrenSize(), 'element');
         copied = $generateJSONFromSelectedNodes(editor, $getSelection());
@@ -2379,7 +2390,7 @@ describe('BlockIdExtension: more predicates and nesting', () => {
         }
       });
       update(editor, () => {
-        $getRoot().getLastChildOrThrow<ElementNode>().selectEnd();
+        $getRoot().getLastChildOrThrow().selectEnd();
         const selection = $getSelection();
         assert($isRangeSelection(selection));
         $insertGeneratedNodes(

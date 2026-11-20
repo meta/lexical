@@ -1,0 +1,27 @@
+{
+  "$schema": "https://unpkg.com/@changesets/config@4.0.1/schema.json",
+  "access": "public",
+  "baseBranch": "main",
+  "changelog": "./changelog.cjs",
+  "commit": false,
+  "fixed": [
+    [
+      "lexical",
+      "@lexical/*",
+      "!@lexical/devtools",
+      "!@lexical/eslint-plugin-internal",
+      "!@lexical/website",
+      "!@lexical/dev-*"
+    ]
+  ],
+  "format": false,
+  "ignore": [
+    "lexical-playground",
+    "@lexical/devtools",
+    "@lexical/eslint-plugin-internal",
+    "@lexical/website",
+    "@lexical/dev-*"
+  ],
+  "linked": [],
+  "updateInternalDependencies": "patch"
+}

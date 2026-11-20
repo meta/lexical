@@ -302,7 +302,7 @@ describe(`LexicalCollaborationPlugin`, () => {
     };
   }
 
-  // https://github.com/facebook/lexical/issues/7110
+  // https://github.com/meta/lexical/issues/7110
   test(`the bootstrapped initialEditorState can not be undone`, async () => {
     const {editor, readText} = await renderBootstrapped($appendInitialContent);
     expect(readText()).toBe('Initial content');
@@ -386,7 +386,7 @@ describe(`LexicalCollaborationPlugin`, () => {
     });
     expect(readText()).not.toBe('typed after the failure');
   });
-  // https://github.com/facebook/lexical/issues/7136
+  // https://github.com/meta/lexical/issues/7136
   test(`provider is replaced when providerFactory changes`, () => {
     const doc = new Y.Doc();
     const providerA = createTestProvider();

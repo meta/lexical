@@ -40,11 +40,14 @@ import {$createLinkNode, $isAutoLinkNode, $isLinkNode} from '@lexical/link';
 import {
   $createListItemNode,
   $createListNode,
+  $getTaskListItemChecked,
   $isListItemNode,
   $isListNode,
+  $setTaskListItemChecked,
 } from '@lexical/list';
 import {
   $createHeadingNode,
+  $createQuoteContainerNode,
   $createQuoteNode,
   $isHeadingNode,
   $isQuoteNode,
@@ -52,7 +55,7 @@ import {
 import {
   $createLineBreakNode,
   $createParagraphNode,
-  $createTextNode,
+  $generateNodesFromRawText,
   $getEditor,
   $getState,
   $isDecoratorNode,
@@ -131,7 +134,7 @@ function $createParagraphBreakNode(): LineBreakNode {
 }
 
 /** Reads the first source character of `node` (an inline delimiter, if any). */
-function inlineMarker(
+export function inlineMarker(
   ctx: MdastImportContext,
   node: {position?: {start: {offset?: number}}},
 ): string | undefined {
@@ -192,6 +195,10 @@ export const $importBlockquote: MdastImportHandler<Blockquote> = (
   ctx,
 ) => {
   const quote = $createQuoteNode();
+  if (quote.isShadowRoot()) {
+    // QuoteNode is replaced by QuoteContainerNode, which holds blocks.
+    return $append(quote, $importBlockChildren(node, ctx));
+  }
   const children: LexicalNode[] = [];
   for (const child of node.children) {
     if (child.type === 'paragraph') {
@@ -257,17 +264,33 @@ export const $importShadowRootBlockquote: MdastImportHandler<Blockquote> = (
     $importBlockChildren(node, ctx),
   );
 
-/** Maps an mdast `list` node to the Lexical {@link ListType} it represents. */
+/**
+ * Opt-in replacement for {@link $importBlockquote} that imports the quote as a
+ * `QuoteContainerNode`, a quote that holds blocks, so structured blockquotes
+ * (several paragraphs, nested lists, code, nested quotes) round-trip. See
+ * `MdastQuoteContainerExtension`.
+ *
+ * @experimental
+ */
+export const $importQuoteContainerBlockquote: MdastImportHandler<Blockquote> = (
+  node,
+  ctx,
+) => $append($createQuoteContainerNode(), $importBlockChildren(node, ctx));
+
+/**
+ * Maps an mdast `list` node to the Lexical {@link ListType} it represents.
+ * GFM decides per item whether it is a task, so only an unordered list whose
+ * items are all tasks is a check list. Any other list keeps its kind, and its
+ * task items become task list items (see `$setTaskListItemChecked`).
+ */
 export function $listTypeFromMdast(node: List): ListType {
   if (node.ordered) {
     return 'number';
   }
-  for (const child of node.children) {
-    if (child.type === 'listItem' && child.checked != null) {
-      return 'check';
-    }
-  }
-  return 'bullet';
+  return node.children.length > 0 &&
+    node.children.every(child => child.checked != null)
+    ? 'check'
+    : 'bullet';
 }
 
 export const $importList: MdastImportHandler<List> = (node, ctx) => {
@@ -298,10 +321,19 @@ export const $importList: MdastImportHandler<List> = (node, ctx) => {
       }
     }
   }
-  return $append(
-    list,
-    node.children.flatMap(child => ctx.importNode(child)),
-  );
+  const imported = node.children.map(child => ctx.importNode(child));
+  $append(list, imported.flat());
+  if (listType !== 'check') {
+    // Outside a check list a task item keeps its checkbox as a task list item
+    // marker (`checked` only means something in a check list).
+    node.children.forEach((child, index) => {
+      const item = imported[index][0];
+      if (child.checked != null && $isListItemNode(item)) {
+        $setTaskListItemChecked(item, child.checked);
+      }
+    });
+  }
+  return list;
 };
 
 export const $importListItem: MdastImportHandler<ListItem> = (node, ctx) => {
@@ -346,7 +378,9 @@ export const $importCode: MdastImportHandler<Code> = (node, ctx) => {
     $setState(code, codeMetaState, node.meta);
   }
   if (node.value) {
-    $append(code, [$createTextNode(node.value)]);
+    // The shape the editor writes in a code block: a LineBreakNode per line
+    // feed and a TabNode per tab, between TextNodes.
+    $append(code, $generateNodesFromRawText(node.value));
   }
   return code;
 };
@@ -615,13 +649,20 @@ function $exportListNode(node: ListNode, ctx: MdastExportContext): List {
       continue;
     }
     const item: ListItem = {
-      checked: listType === 'check' ? (child.getChecked() ?? false) : null,
+      // Defined for every item of a check list, and for a task item of a
+      // bullet or number list.
+      checked: $getTaskListItemChecked(child) ?? null,
       children: ctx.exportBlocks(child),
       spread: false,
       type: 'listItem',
     };
     list.children.push(item);
     previousItem = item;
+  }
+  // The GFM task list writer only adds a box after a `.` delimiter, so an
+  // ordered list with task items is written with `.` to keep its boxes.
+  if (list.ordered && list.children.some(item => item.checked != null)) {
+    list.data = {mdastBulletOrdered: '.'};
   }
   return list;
 }
@@ -635,7 +676,10 @@ export const $exportList: MdastExportHandler = (node, ctx) => {
 
 /**
  * Wraps a plain string in the mdast phrasing nodes implied by a Lexical text
- * format bitmask (code span innermost, then emphasis, strong, strikethrough).
+ * format bitmask (code span innermost, then strong, emphasis, strikethrough:
+ * emphasis around strong is how CommonMark reads `***x***`, which
+ * mdast-util-to-markdown writes back as `***x***` when both markers are
+ * `*`).
  * The emphasis/strong *delimiter* (`*` vs `_`) is a document-level to-markdown
  * option (see the exporter) rather than per-node, because mixing delimiters in
  * one document desyncs to-markdown's character escaping.
@@ -646,11 +690,11 @@ export function phrasingFromFormattedText(
 ): PhrasingContent {
   let content: PhrasingContent =
     format & FORMAT_CODE ? {type: 'inlineCode', value} : {type: 'text', value};
-  if (format & FORMAT_ITALIC) {
-    content = {children: [content], type: 'emphasis'};
-  }
   if (format & FORMAT_BOLD) {
     content = {children: [content], type: 'strong'};
+  }
+  if (format & FORMAT_ITALIC) {
+    content = {children: [content], type: 'emphasis'};
   }
   if (format & FORMAT_STRIKETHROUGH) {
     content = {children: [content], type: 'delete'};
@@ -667,18 +711,18 @@ export interface TextRun {
 /**
  * Emphasis-family format bits eligible for cross-run grouping, in tie-break
  * order matching the single-run nesting of {@link phrasingFromFormattedText}
- * (strong outside emphasis).
+ * (emphasis outside strong).
  */
 const EMPHASIS_FORMATS: readonly [number, 'strong' | 'emphasis'][] = [
-  [FORMAT_BOLD, 'strong'],
   [FORMAT_ITALIC, 'emphasis'],
+  [FORMAT_BOLD, 'strong'],
 ];
 
 /**
  * Converts a segment of strikethrough-free (or strikethrough-stripped) runs
  * into nested emphasis/strong phrasing. At each position the wrapper is
  * chosen greedily: the format bit shared by the longest stretch of upcoming
- * runs becomes the outer container (ties fall back to strong-outside-emphasis,
+ * runs becomes the outer container (ties fall back to emphasis-outside-strong,
  * matching the single-run nesting), and the covered runs recurse with that
  * bit cleared. Overlap is not always fully expressible as nesting — the
  * format that extends furthest keeps a single pair of delimiters and the

@@ -80,7 +80,7 @@ In some cases, it may be better to attach an event handler directly to the under
 ```js
 const registeredElements: WeakSet<HTMLElement> = new WeakSet();
 const removeMutationListener = editor.registerMutationListener(nodeType, (mutations) => {
-    editor.getEditorState().read(() => {
+    editor.read('latest', () => {
         for (const [key, mutation] of mutations) {
             const element: null | HTMLElement = editor.getElementByKey(key);
             if (

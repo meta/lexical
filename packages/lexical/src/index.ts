@@ -191,6 +191,7 @@ export type {
   CompactSerializedEditorState,
   EditorState,
   EditorStateReadOptions,
+  EditorStateToJSONOptions,
   ParsableSerializedEditorState,
   SerializedEditorState,
 } from './LexicalEditorState';
@@ -364,8 +365,10 @@ export {
 } from './LexicalSlot';
 export type {DeclaredNodeStructure} from './LexicalStructure';
 export {
+  $isBlockContainer,
   getDeclaredNodeStructure,
   INTERNAL_$normalizeNodeStructure,
+  INTERNAL_isInlineContent,
   INTERNAL_isNodeStructureEnforced,
   INTERNAL_registerNodeStructure,
 } from './LexicalStructure';
@@ -374,7 +377,9 @@ export {
   $flushSyncAfterUpdate,
   $fullReconcile,
   $parseSerializedNode,
+  INTERNAL_getActiveEditorState,
   isCurrentlyReadOnlyMode,
+  isDispatchingCommitListeners,
 } from './LexicalUpdates';
 export {
   $addUpdateTag,
@@ -384,6 +389,7 @@ export {
   $copyNode,
   $create,
   $createChildrenArray,
+  $deepCopy,
   $findMatchingParent,
   $getAdjacentNode,
   $getDocument,
@@ -400,6 +406,7 @@ export {
   $hasAncestor,
   $hasUpdateTag,
   $isElementDOMSlot,
+  $isEventFromEmbeddedInput,
   $isInlineElementOrDecoratorNode,
   $isLeafNode,
   $isRootOrShadowRoot,
@@ -445,6 +452,7 @@ export {
   getStaticNodeConfig,
   getTextDirection,
   INTERNAL_$isBlock,
+  INTERNAL_$withExportMemo,
   isBlockDomNode,
   isDocumentFragment,
   isDOMCapturingSelection,
@@ -479,6 +487,7 @@ export {
   toggleTextFormatType,
   unmountSlotContainer,
 } from './LexicalUtils';
+export {LexicalWarning} from './LexicalWarning';
 export {ArtificialNode__DO_NOT_USE} from './nodes/ArtificialNode';
 export {$isDecoratorNode, DecoratorNode} from './nodes/LexicalDecoratorNode';
 export type {
@@ -514,6 +523,8 @@ export {
   $createTextNode,
   $isInlineFormattable,
   $isTextNode,
+  INTERNAL_$recordTextMove,
+  INTERNAL_$recordTextRetype,
   TextNode,
 } from './nodes/LexicalTextNode';
 
@@ -523,6 +534,7 @@ export {
   COMPOSITION_END_TAG,
   COMPOSITION_START_TAG,
   CUT_TAG,
+  DEFER_COMPOSITION_MERGE_TAG,
   HISTORIC_TAG,
   HISTORY_MERGE_TAG,
   HISTORY_PUSH_TAG,

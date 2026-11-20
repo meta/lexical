@@ -6,7 +6,7 @@
  *
  */
 
-import type {ElementNode, Klass, LexicalNode} from 'lexical';
+import type {BaseSelection, ElementNode, Klass, LexicalNode} from 'lexical';
 import type {
   BlockContent,
   Nodes as MdastNode,
@@ -16,6 +16,29 @@ import type {
 import type {Extension as FromMarkdownExtension} from 'mdast-util-from-markdown';
 import type {Options as ToMarkdownExtension} from 'mdast-util-to-markdown';
 import type {Extension as MicromarkExtension} from 'micromark-util-types';
+
+/**
+ * How emphasis markers read the punctuation beside them.
+ *
+ * - `'strict-commonmark'` follows CommonMark 0.31.2 and GFM, as micromark
+ *   reads them: a marker between a letter and punctuation, such as the
+ *   closing `**` of `**你好。**世界`, does not open or close, so CJK text
+ *   needs a space or a character reference there. micromark reads a
+ *   character outside the Basic Multilingual Plane, such as an emoji, as a
+ *   letter where CommonMark reads punctuation.
+ * - `'cjk-friendly'` follows the CommonMark CJK-friendly amendment
+ *   (https://github.com/tats-u/markdown-cjk-friendly), as
+ *   `micromark-extension-cjk-friendly` does: it reads markers as CommonMark does
+ *   everywhere except beside Chinese, Japanese and Korean characters and
+ *   punctuation, where they open and close as a writer of those languages
+ *   expects. A variation selector before a marker reads as the character it
+ *   follows, but after whitespace as itself, as
+ *   `micromark-extension-cjk-friendly` reads it, and after a U+0000 (which
+ *   micromark reads as U+FFFD) as that U+FFFD, as `markdown-it-cjk-friendly`
+ *   reads it.
+ * @experimental
+ */
+export type MdastPunctuationMode = 'cjk-friendly' | 'strict-commonmark';
 
 export type {
   FromMarkdownExtension,
@@ -156,13 +179,19 @@ export interface MdastExportContext {
   exportBlocks(source: ElementNode | readonly LexicalNode[]): BlockContent[];
   /**
    * Whether `node` belongs in the current export: always `true` for a
-   * whole-document export; during a selection export, `true` when the node
-   * or any descendant is selected. The `exportChildren`/`exportInline`/
-   * `exportBlocks` walks apply this automatically — handlers only need it
-   * when they iterate children manually (e.g. list items, table rows) to
-   * skip structural children the selection does not reach.
+   * whole-document export; during a selection export, `true` when the node or
+   * any descendant (named slots included) is selected. The
+   * `exportChildren`/`exportInline`/`exportBlocks` walks apply this
+   * automatically — handlers only need it when they iterate children manually
+   * (e.g. list items, table rows) to skip structural children the selection
+   * does not reach.
    */
   isIncluded(node: LexicalNode): boolean;
+  /**
+   * The selection this export is limited to, or `null` for a
+   * whole-document export (including one run during a selection export).
+   */
+  readonly selection: BaseSelection | null;
 }
 
 /**
@@ -219,6 +248,8 @@ export interface CompiledMdast {
   micromarkExtensions: MicromarkExtension[];
   mdastExtensions: FromMarkdownExtension[];
   toMarkdownExtensions: ToMarkdownExtension[];
+  /** Which readers export writes emphasis for; see {@link MdastConfig}. */
+  exportPunctuation?: MdastPunctuationMode;
   /** mdast inline `type`s eligible for streaming shortcut materialization. */
   inlineShortcutTypes: Set<string>;
   /** Characters that can close an inline construct and trigger a re-scan. */

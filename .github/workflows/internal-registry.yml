@@ -13,7 +13,7 @@ permissions: {}
 
 jobs:
   dependency-check:
-    if: github.repository == 'facebook/lexical'
+    if: github.repository == 'meta/lexical'
     runs-on: ubuntu-latest
     permissions:
       contents: read

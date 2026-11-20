@@ -48,11 +48,11 @@ The Safari extension is no longer published: the Mac App Store listing has been 
 
 Production (`latest`) npm releases submit Chrome and Firefox extensions for review from the released commit, with build version `0`. Update store screenshots/videos before releases that change the UI.
 
-For extension-only releases or retries, run [Publish DevTools extension to stores](https://github.com/facebook/lexical/actions/workflows/devtools-extension-publish.yml) on the release tag. Increase "Build version" for repeated uploads of the same Lexical version (`<version>.<build_version>`), and wait for pending Chrome reviews to finish. Store submissions can fail independently; retry this workflow without republishing npm packages.
+For extension-only releases or retries, run [Publish DevTools extension to stores](https://github.com/meta/lexical/actions/workflows/devtools-extension-publish.yml) on the release tag. Increase "Build version" for repeated uploads of the same Lexical version (`<version>.<build_version>`), and wait for pending Chrome reviews to finish. Store submissions can fail independently; retry this workflow without republishing npm packages.
 
 ### Store credentials
 
-Chrome publishes through the Chrome Web Store API with a [service account](https://console.cloud.google.com/iam-admin/serviceaccounts?project=lexical-devtools) from the `lexical-devtools` Google Cloud project, linked to the listing's publisher under **Service account** in the [Developer Dashboard Settings page](https://chrome.google.com/webstore/devconsole/f0fd8a71-2d57-4015-b897-d9e628e2e143/settings). Configure these [repository settings](https://github.com/facebook/lexical/settings/variables/actions):
+Chrome publishes through the Chrome Web Store API with a [service account](https://console.cloud.google.com/iam-admin/serviceaccounts?project=lexical-devtools) from the `lexical-devtools` Google Cloud project, linked to the listing's publisher under **Service account** in the [Developer Dashboard Settings page](https://chrome.google.com/webstore/devconsole/f0fd8a71-2d57-4015-b897-d9e628e2e143/settings). Configure these [repository settings](https://github.com/meta/lexical/settings/variables/actions):
 
 | Setting | Type | Value |
 | --- | --- | --- |
