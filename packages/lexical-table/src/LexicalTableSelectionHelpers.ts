@@ -900,6 +900,33 @@ export function applyTableHandlers(
     );
   }
 
+  // A selection with one end in the table and the other outside it takes the
+  // whole table: its end in the table moves to the table's outer edge. Returns
+  // whether it did.
+  const $selectAroundTable = (
+    selection: RangeSelection | TableSelection,
+  ): boolean => {
+    const isAnchorInside = tableNode.isParentOf(selection.anchor.getNode());
+    const isFocusInside = tableNode.isParentOf(selection.focus.getNode());
+    if (isAnchorInside === isFocusInside) {
+      return false;
+    }
+    const tablePoint = isAnchorInside ? 'anchor' : 'focus';
+    const outerPoint = isAnchorInside ? 'focus' : 'anchor';
+    // Preserve the outer point
+    const {key, offset, type} = selection[outerPoint];
+    // Expand the selection around the table
+    const newSelection =
+      tableNode[
+        selection[tablePoint].isBefore(selection[outerPoint])
+          ? 'selectPrevious'
+          : 'selectNext'
+      ]();
+    // Restore the outer point of the selection
+    newSelection[outerPoint].set(key, offset, type);
+    return true;
+  };
+
   const $deleteCellHandler = (
     event: KeyboardEvent | ClipboardEvent | null,
   ): boolean => {
@@ -908,26 +935,10 @@ export function applyTableHandlers(
       return false;
     }
 
-    // If the selection is inside the table but should remove the whole table
-    // we expand the selection so that both the anchor and focus are outside
-    // the table and the editor's command listener will handle the delete
-    const isAnchorInside = tableNode.isParentOf(selection.anchor.getNode());
-    const isFocusInside = tableNode.isParentOf(selection.focus.getNode());
-    if (isAnchorInside !== isFocusInside) {
-      const tablePoint = isAnchorInside ? 'anchor' : 'focus';
-      const outerPoint = isAnchorInside ? 'focus' : 'anchor';
-      // Preserve the outer point
-      const {key, offset, type} = selection[outerPoint];
-      // Expand the selection around the table
-      const newSelection =
-        tableNode[
-          selection[tablePoint].isBefore(selection[outerPoint])
-            ? 'selectPrevious'
-            : 'selectNext'
-        ]();
-      // Restore the outer point of the selection
-      newSelection[outerPoint].set(key, offset, type);
-      // Let the base implementation handle the rest
+    // A selection that should remove the whole table takes it, so that both
+    // ends are outside the table and the editor's command listener handles
+    // the delete
+    if ($selectAroundTable(selection)) {
       return false;
     }
 
@@ -967,12 +978,14 @@ export function applyTableHandlers(
           if (!($isTableSelection(selection) || $isRangeSelection(selection))) {
             return false;
           }
-          // A range with neither end in this table is the editor's to cut, as
-          // it would be with no table in the document
+          // A range that isn't wholly in this table is the editor's to cut, as
+          // it would be with no table in the document. One with an end in the
+          // table takes the whole table first, so the editor copies the nodes
+          // it removes.
           if (
             $isRangeSelection(selection) &&
-            !tableNode.isParentOf(selection.anchor.getNode()) &&
-            !tableNode.isParentOf(selection.focus.getNode())
+            ($selectAroundTable(selection) ||
+              !tableNode.isParentOf(selection.anchor.getNode()))
           ) {
             return false;
           }

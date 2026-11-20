@@ -26,6 +26,7 @@ import {
   $setSelection,
   COMMAND_PRIORITY_LOW,
   CUT_COMMAND,
+  CUT_TAG,
   type LexicalEditorWithDispose,
   type LexicalNode,
 } from 'lexical';
@@ -66,26 +67,40 @@ function flush(): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, 0));
 }
 
-/** Cuts the selection, and returns the text/plain it copied and whether a LOW-priority cut listener ran. */
-async function cut(
-  editor: LexicalEditorWithDispose,
-): Promise<{copied: string; lowListenerRan: boolean}> {
+/**
+ * Cuts the selection, and returns the text/plain it copied, how many times it
+ * wrote text/plain, whether a LOW-priority cut listener ran, and whether an
+ * update was tagged as a cut, which @lexical/history keeps as its own entry.
+ */
+async function cut(editor: LexicalEditorWithDispose): Promise<{
+  copied: string;
+  lowListenerRan: boolean;
+  plainTextWrites: number;
+  tagged: boolean;
+}> {
   const lowListener = vi.fn(() => false);
-  const unregister = editor.registerCommand(
-    CUT_COMMAND,
-    lowListener,
-    COMMAND_PRIORITY_LOW,
-  );
+  let tagged = false;
+  const unregister = [
+    editor.registerCommand(CUT_COMMAND, lowListener, COMMAND_PRIORITY_LOW),
+    editor.registerUpdateListener(({tags}) => {
+      tagged ||= tags.has(CUT_TAG);
+    }),
+  ];
   const clipboardData = new DataTransfer();
+  const setData = vi.spyOn(clipboardData, 'setData');
   editor.dispatchCommand(
     CUT_COMMAND,
     new ClipboardEvent('cut', {clipboardData}),
   );
   await flush();
-  unregister();
+  unregister.forEach(f => f());
   return {
     copied: clipboardData.getData('text/plain'),
     lowListenerRan: lowListener.mock.calls.length > 0,
+    plainTextWrites: setData.mock.calls.filter(
+      ([type]) => type === 'text/plain',
+    ).length,
+    tagged,
   };
 }
 
@@ -124,9 +139,10 @@ function $firstTable() {
   );
 }
 
-// A table answers the cuts that concern it: a table selection, or a range with
-// an end in the table. A range with neither end in it is the editor's own, as
-// it would be with no table in the document (#9281).
+// A table answers the cuts that are wholly its own: a table selection, or a
+// range in it. A range with an end outside it is the editor's, as it would be
+// with no table in the document (#9281), and a range with one end in the table
+// takes the whole table first.
 describe('the cuts a table answers (#9281)', () => {
   test.for([{withTable: false}, {withTable: true}])(
     'select all over a heading, a table and a paragraph leaves an empty paragraph (withTable: $withTable)',
@@ -142,10 +158,41 @@ describe('the cuts a table answers (#9281)', () => {
         () => $selectAll(),
       );
 
-      const {lowListenerRan} = await cut(editor);
+      const {lowListenerRan, tagged} = await cut(editor);
 
       expect(readOutline(editor)).toEqual([['paragraph', []]]);
       expect(lowListenerRan).toBe(true);
+      expect(tagged).toBe(true);
+    },
+  );
+
+  test.for([
+    {
+      $build: () => [
+        $createHeadingNode('h1').append($createTextNode('Title')),
+        $table(),
+      ],
+      document: 'a heading and a table',
+    },
+    {
+      $build: () => [
+        $table(),
+        $createParagraphNode().append($createTextNode('x y')),
+      ],
+      document: 'a table and a paragraph',
+    },
+  ])(
+    'select all over $document leaves an empty paragraph',
+    async ({$build}) => {
+      using editor = createEditor();
+      setUp(editor, $build, () => $selectAll());
+
+      const {lowListenerRan, plainTextWrites, tagged} = await cut(editor);
+
+      expect(readOutline(editor)).toEqual([['paragraph', []]]);
+      expect(plainTextWrites).toBe(1);
+      expect(lowListenerRan).toBe(true);
+      expect(tagged).toBe(true);
     },
   );
 
@@ -167,10 +214,13 @@ describe('the cuts a table answers (#9281)', () => {
           ),
       );
 
-      const {copied, lowListenerRan} = await cut(editor);
+      const {copied, lowListenerRan, plainTextWrites, tagged} =
+        await cut(editor);
 
       expect(copied).toBe('x');
+      expect(plainTextWrites).toBe(1);
       expect(lowListenerRan).toBe(true);
+      expect(tagged).toBe(true);
       expect(
         editor.read(() => $getRoot().getFirstChildOrThrow().getTextContent()),
       ).toBe(' y');
@@ -220,31 +270,88 @@ describe('the cuts a table answers (#9281)', () => {
     ).toBe('');
   });
 
-  test('a range from outside the table into a cell is the table’s', async () => {
+  test.for([
+    {
+      from: 'outside',
+      outline: [['paragraph', ['text:x after']]],
+      range: 'from before the table into a cell',
+    },
+    {
+      from: 'cell',
+      outline: [['paragraph', ['text:x yter']]],
+      range: 'from a cell to after the table',
+    },
+  ] as const)(
+    'a range $range takes the whole table, and the editor cuts it',
+    async ({from, outline: expected}) => {
+      using editor = createEditor();
+      setUp(
+        editor,
+        () => [
+          $createParagraphNode().append($createTextNode('x y')),
+          $table(),
+          $createParagraphNode().append($createTextNode('after')),
+        ],
+        () => {
+          const cellText = $assertNodeType(
+            $firstTable().getFirstDescendant(),
+            $isTextNode,
+          );
+          if (from === 'outside') {
+            const selection = $assertNodeType(
+              $getRoot().getFirstDescendant(),
+              $isTextNode,
+            ).select(2, 2);
+            selection.focus.set(cellText.getKey(), 1, 'text');
+          } else {
+            const after = $assertNodeType(
+              $getRoot().getLastDescendant(),
+              $isTextNode,
+            );
+            cellText.select(1, 1).focus.set(after.getKey(), 2, 'text');
+          }
+        },
+      );
+
+      const {copied, lowListenerRan, plainTextWrites, tagged} =
+        await cut(editor);
+
+      expect(readOutline(editor)).toEqual(expected);
+      expect(copied).toContain('ab');
+      expect(plainTextWrites).toBe(1);
+      expect(lowListenerRan).toBe(true);
+      expect(tagged).toBe(true);
+    },
+  );
+
+  test('a range from a cell of one table into a cell of another takes both tables', async () => {
     using editor = createEditor();
     setUp(
       editor,
       () => [
         $createParagraphNode().append($createTextNode('x y')),
         $table(),
+        $createParagraphNode().append($createTextNode('between')),
+        $table(),
         $createParagraphNode().append($createTextNode('after')),
       ],
       () => {
-        const selection = $assertNodeType(
-          $getRoot().getFirstDescendant(),
-          $isTextNode,
-        ).select(2, 2);
-        const cellText = $assertNodeType(
-          $firstTable().getFirstDescendant(),
-          $isTextNode,
-        );
-        selection.focus.set(cellText.getKey(), 1, 'text');
+        const [first, second] = $getRoot()
+          .getChildren()
+          .filter($isTableNode)
+          .map(table =>
+            $assertNodeType(table.getFirstDescendant(), $isTextNode),
+          );
+        first.select(1, 1).focus.set(second.getKey(), 1, 'text');
       },
     );
 
-    const {lowListenerRan} = await cut(editor);
+    const {copied, lowListenerRan, plainTextWrites, tagged} = await cut(editor);
 
-    expect(lowListenerRan).toBe(false);
-    expect(readOutline(editor)).toEqual([['paragraph', ['text:x after']]]);
+    expect(readOutline(editor)).toEqual([['paragraph', ['text:x yafter']]]);
+    expect(copied).toContain('between');
+    expect(plainTextWrites).toBe(1);
+    expect(lowListenerRan).toBe(true);
+    expect(tagged).toBe(true);
   });
 });
