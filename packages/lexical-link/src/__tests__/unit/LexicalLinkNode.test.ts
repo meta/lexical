@@ -960,6 +960,79 @@ describe('LexicalLinkNode tests', () => {
         children.forEach(child => expect($isTextNode(child)).toBe(true));
       });
     });
+
+    // https://github.com/facebook/lexical/issues/5305
+    test.each([
+      ['inside a word', '. Try typing in ', 8],
+      ['at the end of the text', 'Link text', 9],
+      ['at the start of the text', 'Link text', 0],
+    ])(
+      '$toggleLink does nothing for a collapsed selection %s',
+      async (_, text, offset) => {
+        const {editor} = testEnv;
+        await editor.update(() => {
+          const p = $createParagraphNode();
+          const textNode = $createTextNode(text);
+          p.append(textNode);
+          $getRoot().clear().append(p);
+          textNode.select(offset, offset);
+          $toggleLink('https://lexical.dev/');
+
+          expect(p.getChildren().map(node => node.getType())).toEqual(['text']);
+          expect(p.getTextContent()).toBe(text);
+        });
+      },
+    );
+
+    test('$toggleLink does nothing for a collapsed selection in an empty paragraph', async () => {
+      const {editor} = testEnv;
+      await editor.update(() => {
+        const p = $createParagraphNode();
+        $getRoot().clear().append(p);
+        p.select();
+        $toggleLink('https://lexical.dev/');
+
+        expect(p.getChildrenSize()).toBe(0);
+      });
+    });
+
+    test('$toggleLink does nothing for a collapsed selection inside an autolink', async () => {
+      const {editor} = testEnv;
+      await editor.update(() => {
+        const p = $createParagraphNode();
+        const textNode = $createTextNode('https://lexical.dev');
+        const autoLinkNode = $createAutoLinkNode('https://lexical.dev');
+        p.append(autoLinkNode.append(textNode));
+        $getRoot().clear().append(p);
+        textNode.select(4, 4);
+        $toggleLink('https://facebook.com/');
+
+        expect(p.getChildren()).toEqual([autoLinkNode]);
+        expect(autoLinkNode.getURL()).toBe('https://lexical.dev');
+        expect(autoLinkNode.getTextContent()).toBe('https://lexical.dev');
+      });
+    });
+
+    test('$toggleLink updates the link around a collapsed selection', async () => {
+      const {editor} = testEnv;
+      await editor.update(() => {
+        const p = $createParagraphNode();
+        const textNode = $createTextNode('Link text');
+        const linkNode = $createLinkNode('https://lexical.dev/');
+        p.append($createTextNode('Before '), linkNode.append(textNode));
+        $getRoot().clear().append(p);
+        textNode.select(4, 4);
+        $toggleLink('https://facebook.com/', {title: 'Facebook'});
+
+        expect(p.getChildren().map(node => node.getType())).toEqual([
+          'text',
+          'link',
+        ]);
+        expect(linkNode.getURL()).toBe('https://facebook.com/');
+        expect(linkNode.getTitle()).toBe('Facebook');
+        expect(linkNode.getTextContent()).toBe('Link text');
+      });
+    });
   });
 });
 
