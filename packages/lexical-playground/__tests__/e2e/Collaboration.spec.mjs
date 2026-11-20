@@ -117,7 +117,6 @@ test.describe('Collaboration', () => {
             class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__listItemUnchecked"
             role="checkbox"
             tabindex="-1"
-            value="1"
             aria-checked="false">
             <span data-lexical-text="true">a</span>
           </li>
@@ -125,7 +124,6 @@ test.describe('Collaboration', () => {
             class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__listItemUnchecked"
             role="checkbox"
             tabindex="-1"
-            value="2"
             aria-checked="false">
             <span data-lexical-text="true">b</span>
           </li>
@@ -133,7 +131,6 @@ test.describe('Collaboration', () => {
             class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__listItemUnchecked"
             role="checkbox"
             tabindex="-1"
-            value="3"
             aria-checked="false">
             <br data-lexical-managed-linebreak="true" />
           </li>

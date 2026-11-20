@@ -312,7 +312,7 @@ export class ListItemNode extends ElementNode {
   ) {
     $updateListItemChecked(dom, this, prevNode);
 
-    dom.value = this.__value;
+    $updateListItemValueDOM(dom, this);
     $setListItemThemeClassNames(dom, config.theme, this);
     const prevStyle = prevNode ? prevNode.__style : '';
     const nextStyle = this.__style;
@@ -336,6 +336,8 @@ export class ListItemNode extends ElementNode {
 
   exportDOM(editor: LexicalEditor): DOMExportOutput {
     const element = this.createDOM(editor._config);
+    // Exported HTML keeps every item's value, so pasted lists number as before.
+    (element as HTMLLIElement).value = this.__value;
 
     const formatType = this.getFormatType();
     if (formatType) {
@@ -961,4 +963,32 @@ export function $isListItemNode(
   node: LexicalNode | null | undefined,
 ): node is ListItemNode {
   return node instanceof ListItemNode;
+}
+
+/**
+ * Writes `li.value` only where the item's number differs from the one the
+ * browser draws from the list's own count: the `<ol start>` for the first
+ * item, otherwise the previous item's number plus one. Every item still shows
+ * its `__value`; bullet and check items never carry a `value`.
+ *
+ * Setting `HTMLLIElement.value` invalidates the whole list's ordinal cache in
+ * Blink, and inserting an item renumbers (and reconciles) every item after it,
+ * so writing it on every item made an insert near the top of an n-item list
+ * O(n^2).
+ */
+function $updateListItemValueDOM(dom: HTMLLIElement, node: ListItemNode): void {
+  const parent = node.getParent();
+  if ($isListNode(parent) && parent.getListType() === 'number') {
+    const prev = node.getPreviousSibling();
+    const shown = $isListItemNode(prev)
+      ? prev.getValue() + 1
+      : parent.getStart();
+    if (node.__value !== shown) {
+      dom.value = node.__value;
+      return;
+    }
+  }
+  if (dom.hasAttribute('value')) {
+    dom.removeAttribute('value');
+  }
 }
