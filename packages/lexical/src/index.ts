@@ -389,6 +389,7 @@ export {
   $copyNode,
   $create,
   $createChildrenArray,
+  $deepCopy,
   $findMatchingParent,
   $getAdjacentNode,
   $getDocument,

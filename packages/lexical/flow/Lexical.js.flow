@@ -1364,6 +1364,7 @@ declare export function $setFormatFromDOM<T extends ElementNode>(
 declare export function $cloneWithProperties<T extends LexicalNode>(node: T): T;
 declare export function $cloneWithPropertiesEphemeral<T extends LexicalNode>(node: T): T;
 declare export function $copyNode<T extends LexicalNode>(node: T, skipReset?: boolean): T;
+declare export function $deepCopy<T extends LexicalNode>(node: T): T;
 declare export function $getDocument(): Document;
 declare export function $getEditor(): LexicalEditor;
 /** @internal */
