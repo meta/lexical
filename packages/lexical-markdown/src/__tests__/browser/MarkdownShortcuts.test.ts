@@ -56,6 +56,24 @@ function setup() {
   return root;
 }
 
+function paste(root: HTMLElement, text: string) {
+  const clipboardData = new DataTransfer();
+  clipboardData.setData('text/plain', text);
+  const event = new ClipboardEvent('paste', {bubbles: true, cancelable: true});
+  // Firefox does not expose data passed to the ClipboardEvent constructor.
+  Object.defineProperty(event, 'clipboardData', {value: clipboardData});
+  root.dispatchEvent(event);
+  if (!event.defaultPrevented) {
+    const input = new InputEvent('beforeinput', {
+      bubbles: true,
+      cancelable: true,
+      inputType: 'insertFromPaste',
+    });
+    Object.defineProperty(input, 'dataTransfer', {value: clipboardData});
+    root.dispatchEvent(input);
+  }
+}
+
 const cases = [
   {
     html: '<h3 dir="auto"><br data-lexical-managed-linebreak="true" /></h3>',
@@ -256,17 +274,17 @@ describe('native multi-character Markdown input', () => {
 
   test('leaves pasted Markdown literal', async () => {
     const root = setup();
-    const clipboardData = new DataTransfer();
-    clipboardData.setData('text/plain', '**bold**');
-    root.dispatchEvent(
-      new ClipboardEvent('paste', {
-        bubbles: true,
-        cancelable: true,
-        clipboardData,
-      }),
-    );
+    paste(root, '**bold**');
     await expect.poll(() => root.textContent).toBe('**bold**');
     expect(root.querySelector('strong')).toBeNull();
+  });
+
+  test('leaves a pasted single-character trigger literal', async () => {
+    const root = setup();
+    await userEvent.keyboard('#');
+    paste(root, ' ');
+    await expect.poll(() => root.textContent).toBe('# ');
+    expect(root.querySelector('h1')).toBeNull();
   });
 
   test.each([undefined, PASTE_TAG, HISTORIC_TAG, COLLABORATION_TAG])(
