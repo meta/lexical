@@ -250,7 +250,7 @@ const OPS: [string, Fixture, () => void, Outcome][] = [
       $setSelection(null);
       item.replace($createListItemNode(), true);
     },
-    'refused',
+    'written',
   ],
   [
     'remove the inline container composed in',
