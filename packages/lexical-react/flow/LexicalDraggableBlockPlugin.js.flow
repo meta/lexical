@@ -11,6 +11,7 @@ import * as React from 'react';
 
 type Props = Readonly<{
   anchorElem?: ?HTMLElement,
+  autoScroll?: boolean,
   menuRef: React.RefObject<?HTMLElement>,
   targetLineRef: React.RefObject<?HTMLElement>,
   menuComponent: React.Node,
