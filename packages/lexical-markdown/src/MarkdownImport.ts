@@ -9,6 +9,7 @@
 import {$isListItemNode, $isListNode, type ListItemNode} from '@lexical/list';
 import {$isQuoteContainerNode, $isQuoteNode} from '@lexical/rich-text';
 import {
+  $copyNode,
   $createParagraphNode,
   $createTabNode,
   $createTextNode,
@@ -306,8 +307,10 @@ function $normalizeMarkdownTextNode(textNode: TextNode): void {
   if (!text.includes('\t')) {
     return;
   }
-  const format = textNode.getFormat();
-  const style = textNode.getStyle();
+  // Copy the node without resetting it, so each part keeps its format, style,
+  // mode, detail and NodeState, as the parts of `splitText` do.
+  const $createPart = (partText: string) =>
+    $copyNode(textNode, true).setTextContent(partText);
   const nodes: LexicalNode[] = [];
   let start = 0;
   for (
@@ -316,19 +319,13 @@ function $normalizeMarkdownTextNode(textNode: TextNode): void {
     index = text.indexOf('\t', index + 1)
   ) {
     if (index > start) {
-      nodes.push(
-        $createTextNode(text.slice(start, index))
-          .setFormat(format)
-          .setStyle(style),
-      );
+      nodes.push($createPart(text.slice(start, index)));
     }
     nodes.push($createTabNode());
     start = index + 1;
   }
   if (start < text.length) {
-    nodes.push(
-      $createTextNode(text.slice(start)).setFormat(format).setStyle(style),
-    );
+    nodes.push($createPart(text.slice(start)));
   }
   textNode.getParentOrThrow().splice(textNode.getIndexWithinParent(), 1, nodes);
 }
