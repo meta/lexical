@@ -400,6 +400,37 @@ describe('HTML', () => {
     expect(editor.read(() => $getRoot().getTextContent())).toBe('is old now');
   });
 
+  test.each([
+    ['<div><p>a </p><TAG>b</TAG></div>', ['a', 'b']],
+    ['<div><TAG>a</TAG><p> b</p></div>', ['a', 'b']],
+    ['<div>a <TAG><div>b</div></TAG> c</div>', ['a', 'b', 'c']],
+  ])(
+    '$generateNodesFromDOM trims a space at a block boundary next to an inline <font> or <span>: %s',
+    (template, expected) => {
+      for (const tag of ['font', 'span']) {
+        const editor = createHeadlessEditor();
+        const dom = new DOMParser().parseFromString(
+          template.replace(/TAG/g, tag),
+          'text/html',
+        );
+        editor.update(
+          () => {
+            const nodes = $generateNodesFromDOM(editor, dom);
+            $insertGeneratedNodes(editor, nodes, $getRoot().select(0));
+          },
+          {discrete: true},
+        );
+        expect(
+          editor.read(() =>
+            $getRoot()
+              .getAllTextNodes()
+              .map(node => node.getTextContent()),
+          ),
+        ).toEqual(expected);
+      }
+    },
+  );
+
   test('$generateNodesFromDOM breaks the line at an empty block between two inline <font>s, as between two <span>s', () => {
     const lines = (html: string) => {
       const editor = createHeadlessEditor();
