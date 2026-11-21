@@ -16,11 +16,11 @@ import {
   COMMAND_PRIORITY_BEFORE_EDITOR,
   defineExtension,
   DELETE_CHARACTER_COMMAND,
+  type ElementNode,
   HISTORIC_TAG,
   HISTORY_MERGE_TAG,
   HISTORY_PUSH_TAG,
   type LexicalEditor,
-  type LexicalNode,
   mergeRegister,
   safeCast,
   shallowMergeConfig,
@@ -51,6 +51,14 @@ export const DEFAULT_TEXT_SUBSTITUTIONS: Readonly<Record<string, string>> = {
 export interface TextSubstitutionConfig {
   /** Set to `true` to disable this extension. */
   disabled: boolean;
+  /**
+   * Predicates that exclude a text node's parent from substitution.
+   * Each predicate receives the parent element node and returns `true`
+   * to skip substitution inside it. Defaults to a single predicate
+   * that excludes code blocks. Add your own to exclude other parents,
+   * following the `excludeParents` setting in AutoLinkExtension.
+   */
+  excludeParents: ((parent: ElementNode) => boolean)[];
   /**
    * Additional substitutions, or overrides for the defaults in
    * {@link DEFAULT_TEXT_SUBSTITUTIONS}. Keys are the alias as typed and
@@ -145,53 +153,34 @@ function buildSubstitutionMatcher(
 }
 
 /**
- * Whether the node is a code block node. `$isCodeNode` from
- * `@lexical/code` cannot be used here: both `@lexical/code` and
- * `@lexical/code-core` depend on `@lexical/extension`, so importing it
- * would be circular. Instead, walk the node's class hierarchy for a
- * static `getType()` of `'code'`, which also matches a subclass that
- * overrides `getType()` with its own type string — the case a plain
- * `getType()` check misses.
+ * The default `excludeParents` predicate: code block nodes carry a
+ * `__language` property, so a single property lookup identifies them
+ * and their subclasses. This replaces a class hierarchy walk, which
+ * was too much work to run on every keystroke, and it avoids importing
+ * `$isCodeNode` (circular: both `@lexical/code` and `@lexical/code-core`
+ * depend on `@lexical/extension`).
  */
-function $isCodeBlock(node: LexicalNode | null | undefined): boolean {
-  let ctor: unknown;
-  if (node !== null && node !== undefined) {
-    ctor = node.constructor;
-  }
-  while (typeof ctor === 'function') {
-    const getType = (ctor as {getType?: unknown}).getType;
-    if (typeof getType === 'function') {
-      try {
-        if (getType.call(ctor) === 'code') {
-          return true;
-        }
-      } catch {
-        // The base LexicalNode.getType() throws for abstract classes
-        // (ElementNode and the like), which have no concrete type:
-        // keep walking up the hierarchy.
-      }
-    }
-    ctor = Object.getPrototypeOf(ctor);
-  }
-  return false;
-}
-
-function $isSubstitutableNode(node: TextNode): boolean {
-  const parent = node.getParent();
-  if (parent !== null && $isCodeBlock(parent)) {
-    return false;
-  }
-  // Inline code formatting is left alone: substitutions are a prose
-  // feature, and code text must stay verbatim.
-  return !node.hasFormat('code');
+function isCodeBlockParent(parent: ElementNode): boolean {
+  return '__language' in parent;
 }
 
 function registerTextSubstitution(
   editor: LexicalEditor,
   substitutions: Readonly<Record<string, string | null>>,
+  excludeParents: ((parent: ElementNode) => boolean)[],
 ) {
   const matcher = buildSubstitutionMatcher(substitutions);
   let lastSubstitution: SubstitutionRecord | null = null;
+
+  function $isSubstitutableNode(node: TextNode): boolean {
+    const parent = node.getParent();
+    if (parent !== null && excludeParents.some(pred => pred(parent))) {
+      return false;
+    }
+    // Inline code formatting is left alone: substitutions are a prose
+    // feature, and code text must stay verbatim.
+    return !node.hasFormat('code');
+  }
 
   return mergeRegister(
     editor.registerUpdateListener(
@@ -456,6 +445,11 @@ function registerTextSubstitution(
  * Substitutions only fire at the end of a text node, so typing `--` in
  * the middle of an existing sentence does not substitute.
  *
+ * By default, substitutions do not fire inside code blocks. Pass
+ * {@link TextSubstitutionConfig.excludeParents} to skip substitution
+ * inside other parents, following the `excludeParents` setting in
+ * AutoLinkExtension.
+ *
  * Known interactions: typing `---` cannot trigger a horizontal-rule
  * markdown shortcut alongside this extension, because `--` is replaced
  * with `—` before the third `-` is typed. A chained substitution
@@ -474,6 +468,7 @@ export const TextSubstitutionExtension = defineExtension({
   },
   config: safeCast<TextSubstitutionConfig>({
     disabled: false,
+    excludeParents: [isCodeBlockParent],
     substitutions: DEFAULT_TEXT_SUBSTITUTIONS,
   }),
   mergeConfig(config, overrides) {
@@ -493,16 +488,26 @@ export const TextSubstitutionExtension = defineExtension({
       }
       merged.substitutions = substitutions;
     }
+    if (Array.isArray(overrides.excludeParents)) {
+      merged.excludeParents = [
+        ...config.excludeParents,
+        ...overrides.excludeParents,
+      ];
+    }
     return merged;
   },
   name: '@lexical/extension/TextSubstitution',
   register(editor, config, state) {
-    const {disabled, substitutions} = state.getOutput();
+    const {disabled, excludeParents, substitutions} = state.getOutput();
     return effect(() => {
       if (disabled.value) {
         return undefined;
       }
-      return registerTextSubstitution(editor, substitutions.value);
+      return registerTextSubstitution(
+        editor,
+        substitutions.value,
+        excludeParents.value,
+      );
     });
   },
 });

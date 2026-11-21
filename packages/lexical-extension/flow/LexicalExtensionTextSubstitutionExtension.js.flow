@@ -8,6 +8,7 @@
  */
 
 import type {LexicalExtension} from 'lexical';
+import {ElementNode} from 'lexical';
 import type {NamedSignalsOutput} from '@lexical/extension/namedSignals';
 
 declare export var DEFAULT_TEXT_SUBSTITUTIONS: Readonly<{
@@ -16,7 +17,8 @@ declare export var DEFAULT_TEXT_SUBSTITUTIONS: Readonly<{
 
 export type TextSubstitutionConfig = {
   disabled: boolean,
-  substitutions: Readonly<{[string]: string}>,
+  excludeParents: ((parent: ElementNode) => boolean)[],
+  substitutions: Readonly<{[string]: string | null}>,
 };
 
 declare export var TextSubstitutionExtension: LexicalExtension<

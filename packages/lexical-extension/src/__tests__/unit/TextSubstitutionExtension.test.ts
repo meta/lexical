@@ -245,8 +245,8 @@ describe('TextSubstitutionExtension', () => {
   });
 
   test('does not substitute inside a code block subclass with its own type', async () => {
-    // A CodeNode subclass that overrides its type: a plain getType()
-    // check would miss it, so substitutions must stay off here too.
+    // A CodeNode subclass that overrides its type: it still carries the
+    // __language property, so substitutions must stay off here too.
     class MyCodeNode extends CodeNode {
       $config() {
         return this.config('my-code', {extends: CodeNode});
@@ -277,6 +277,26 @@ describe('TextSubstitutionExtension', () => {
     );
     await typeText(editor, '--');
     expect(getText(editor)).toBe('x--');
+  });
+
+  test('excludeParents skips substitution inside a matching parent', async () => {
+    using editor = buildEditorFromExtensions(
+      defineExtension({
+        $initialEditorState: () => {
+          const paragraph = $createParagraphNode();
+          $getRoot().append(paragraph);
+          paragraph.selectEnd();
+        },
+        dependencies: [
+          configExtension(TextSubstitutionExtension, {
+            excludeParents: [parent => parent.getType() === 'paragraph'],
+          }),
+        ],
+        name: 'text-substitution-exclude-parents-test',
+      }),
+    );
+    await typeText(editor, '--');
+    expect(getText(editor)).toBe('--');
   });
 
   test('an alias with regex characters matches literally, not as a pattern', async () => {
