@@ -651,6 +651,7 @@ function setTargetLine(
   const {
     top: targetBlockElemTop,
     left: targetBlockElemLeft,
+    right: targetBlockElemRight,
     height: targetBlockElemHeight,
   } = targetBlockElem.getBoundingClientRect();
   const {
@@ -676,10 +677,16 @@ function setTargetLine(
     targetBlockElemLeft - anchorLeft - SPACE,
   );
 
+  // A nested target sits in a container that can be narrower than the editor
+  // (the content of a collapsible, a layout column), so its line ends at the
+  // target's own right edge instead of running past the container.
+  let right = anchorWidth - (TEXT_BOX_HORIZONTAL_PADDING - SPACE);
+  if (isNested) {
+    right = Math.min(right, targetBlockElemRight - anchorLeft + SPACE);
+  }
+
   targetLineElem.style.transform = `translate(${left}px, ${top}px)`;
-  targetLineElem.style.width = `${
-    anchorWidth - left - (TEXT_BOX_HORIZONTAL_PADDING - SPACE)
-  }px`;
+  targetLineElem.style.width = `${right - left}px`;
   targetLineElem.style.opacity = '.4';
 }
 

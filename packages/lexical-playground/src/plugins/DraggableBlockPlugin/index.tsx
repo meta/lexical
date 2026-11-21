@@ -37,6 +37,7 @@ import {
 import * as ReactDOM from 'react-dom';
 
 import useModal from '../../hooks/useModal';
+import {$isCardNode} from '../CardExtension/CardNode';
 import {$isCollapsibleContainerNode} from '../CollapsibleExtension/CollapsibleContainerNode';
 import {$isCollapsibleContentNode} from '../CollapsibleExtension/CollapsibleContentNode';
 import {$isCollapsibleTitleNode} from '../CollapsibleExtension/CollapsibleTitleNode';
@@ -48,6 +49,7 @@ import {
 } from '../ComponentPickerPlugin';
 import {$isPageContentNode} from '../PagesExtension/PageContentNode';
 import {$isPageNode} from '../PagesExtension/PageNode';
+import {$isReviewNode} from '../ReviewExtension/ReviewNode';
 
 const DRAGGABLE_BLOCK_MENU_CLASSNAME = 'draggable-block-menu';
 
@@ -58,12 +60,19 @@ type PickerState = {
 
 /**
  * A collapsible is dragged as a whole from its title, and the blocks of its
- * content are dragged on their own. In pages mode the blocks of a page are
+ * content are dragged on their own. A card and a review are shadow roots that
+ * hold body blocks next to their slots, so they work the same way: the whole
+ * node is dragged from its handle, and its body blocks are dragged on their
+ * own. In pages mode the blocks of a page are
  * dragged on their own; the content of a page never leaves its page.
  * Everything else keeps the default.
  */
 function $getBlockBehavior(node: LexicalNode): DraggableBlockBehavior | null {
-  if ($isCollapsibleContainerNode(node)) {
+  if (
+    $isCollapsibleContainerNode(node) ||
+    $isCardNode(node) ||
+    $isReviewNode(node)
+  ) {
     return 'draggable';
   }
   if ($isCollapsibleTitleNode(node)) {

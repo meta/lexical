@@ -252,6 +252,50 @@ test.describe('DraggableBlock', () => {
       await expect(content).toHaveText(['Inside two', 'Second', 'Inside one']);
     });
 
+    test('The body blocks of a card and of a review are dragged on their own', async ({
+      page,
+    }) => {
+      await focusEditor(page);
+      await page.keyboard.type('/card');
+      await page.waitForSelector('.typeahead-popover');
+      await page.keyboard.press('Enter');
+      await page.click('.lexical-card-node > p');
+      await page.keyboard.type('Card one');
+      await page.keyboard.press('Enter');
+      await page.keyboard.type('Card two');
+
+      const cardBody = page.locator('.lexical-card-node > p');
+      await mouseMoveToSelector(page, 'p:has-text("Card one")');
+      await dragDraggableMenuTo(
+        page,
+        'p:has-text("Card two")',
+        'middle',
+        'end',
+      );
+      await expect(cardBody).toHaveText(['Card two', 'Card one']);
+
+      await page.click('div[contenteditable="true"] > p:last-child');
+      await page.keyboard.type('/review');
+      await page.waitForSelector('.typeahead-popover');
+      await page.keyboard.press('Enter');
+      const reviewBody = page.locator(
+        '.lexical-review-body .lexical-review-children > p',
+      );
+      await reviewBody.first().click();
+      await page.keyboard.type('Review one');
+      await page.keyboard.press('Enter');
+      await page.keyboard.type('Review two');
+
+      await mouseMoveToSelector(page, 'p:has-text("Review one")');
+      await dragDraggableMenuTo(
+        page,
+        'p:has-text("Review two")',
+        'middle',
+        'end',
+      );
+      await expect(reviewBody).toHaveText(['Review two', 'Review one']);
+    });
+
     test('The "+" button on a list item adds the new block next to the list', async ({
       page,
     }) => {

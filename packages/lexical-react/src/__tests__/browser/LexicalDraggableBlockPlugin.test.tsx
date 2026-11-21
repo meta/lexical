@@ -48,6 +48,8 @@ import {describe, expect, onTestFinished, test} from 'vitest';
 
 const MENU_CLASS = 'draggable-block-menu';
 const TARGET_LINE_CLASS = 'draggable-block-target-line';
+/** The gap the plugin keeps between the drop line and the block it marks. */
+const SPACE = 4;
 
 type Structure = string | [string, ...Structure[]];
 
@@ -352,6 +354,13 @@ function targetLineLeft({anchorElem}: Harness): number {
   const match = /translate\((-?[\d.]+)px/.exec(line.style.transform);
   expect(match).not.toBeNull();
   return parseFloat(match![1]);
+}
+
+function targetLineRight(harness: Harness): number {
+  const line = harness.anchorElem.querySelector<HTMLElement>(
+    `.${TARGET_LINE_CLASS}`,
+  )!;
+  return targetLineLeft(harness) + parseFloat(line.style.width);
 }
 
 describe('DraggableBlockPlugin_EXPERIMENTAL with lists', () => {
@@ -968,6 +977,57 @@ describe('DraggableBlockPlugin_EXPERIMENTAL with $getBlockBehavior', () => {
       ['test-section', 'Title', ['test-region', 'Body two', 'Body one']],
       'After',
     ]);
+  });
+
+  test('the drop line of a nested target ends where its container ends', () => {
+    const harness = render($sectionBehavior);
+    const {anchorElem, editor} = harness;
+    populateSection(editor);
+    // A body narrower than the editor, like the content of a collapsible or
+    // a layout column.
+    const region = elementWithClass(editor, 'test-region');
+    region.style.width = '200px';
+
+    const from = elementWithText(editor, 'Before');
+    hover(harness, from);
+    const handle = anchorElem.querySelector<HTMLElement>(`.${MENU_CLASS}`)!;
+    const dataTransfer = new DataTransfer();
+    act(() => {
+      handle.dispatchEvent(
+        new DragEvent('dragstart', {bubbles: true, dataTransfer}),
+      );
+    });
+    const rootElement = editor.getRootElement()!;
+    function dragOver(elem: HTMLElement) {
+      const rect = elem.getBoundingClientRect();
+      act(() => {
+        rootElement.dispatchEvent(
+          new DragEvent('dragover', {
+            bubbles: true,
+            cancelable: true,
+            clientX: rect.left + 5,
+            clientY: rect.bottom - 1,
+            dataTransfer,
+          }),
+        );
+      });
+    }
+
+    const anchorLeft = anchorElem.getBoundingClientRect().left;
+    dragOver(elementWithText(editor, 'Body one'));
+    expect(targetLineRight(harness)).toBeLessThanOrEqual(
+      region.getBoundingClientRect().right - anchorLeft + SPACE,
+    );
+
+    // A top-level target keeps the full-width line.
+    dragOver(elementWithText(editor, 'After'));
+    expect(targetLineRight(harness)).toBeGreaterThan(
+      region.getBoundingClientRect().right - anchorLeft + SPACE,
+    );
+
+    act(() => {
+      handle.dispatchEvent(new DragEvent('dragend', {bubbles: true}));
+    });
   });
 
   test('moves blocks into and out of a transparent shadow root', () => {
