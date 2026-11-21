@@ -54,7 +54,10 @@ function bind(
   if (init !== undefined) {
     editor.update(init, {discrete: true});
   }
-  const binding = new YBinding(editor, doc as never, {schemaVersion: 1});
+  const binding = new YBinding(editor, doc as never, {
+    onStatus: null,
+    schemaVersion: 1,
+  });
   bindings.push(binding);
   binding.start();
   if (init !== undefined) {

@@ -46,7 +46,7 @@
     "collab": "cross-env HOST=localhost PORT=1234 pnpm exec y-websocket",
     "collab:y": "cross-env HOST=localhost PORT=1235 node packages/lexical-playground/scripts/collab-y-server.mjs",
     "vitest": "vitest",
-    "test-unit": "vitest --project unit --project scripts-unit --no-watch",
+    "test-unit": "vitest --project unit --project unit-size --project scripts-unit --no-watch",
     "test-unit-watch": "vitest --project unit --project scripts-unit",
     "test-browser": "vitest --project browser --no-watch",
     "test-browser-watch": "vitest --project browser",

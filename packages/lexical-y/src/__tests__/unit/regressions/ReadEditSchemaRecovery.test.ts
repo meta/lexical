@@ -90,6 +90,7 @@ for (const gc of [false, true])
           a.binding.dispose();
           upgraded = new YBinding(a.editor, a.doc, {
             captureTimeout: 0,
+            onStatus: null,
             schemaVersion: 2,
             selfCheck: true,
           });

@@ -608,8 +608,8 @@ export function registerMarkdownShortcuts(
         // fire its transform.
         const isCompositionEnd = tags.has(COMPOSITION_END_TAG);
 
-        const selection = editorState.read($getSelection);
-        const prevSelection = prevEditorState.read($getSelection);
+        const selection = editor.read(editorState, $getSelection);
+        const prevSelection = editor.read(prevEditorState, $getSelection);
 
         // We expect selection to be a collapsed range and not match previous one (as we want
         // to trigger transforms only as user types)
@@ -634,8 +634,8 @@ export function registerMarkdownShortcuts(
         if (
           !isCompositionEnd &&
           anchorOffset !== 1 &&
-          editorState.read(() => $getOffsetInParent(selection.anchor)) >
-            prevEditorState.read(() =>
+          editor.read(editorState, () => $getOffsetInParent(selection.anchor)) >
+            editor.read(prevEditorState, () =>
               $getOffsetInParent(prevSelection.anchor),
             ) +
               1
@@ -644,9 +644,9 @@ export function registerMarkdownShortcuts(
         }
 
         if (isCompositionEnd) {
-          const closeChar = editorState.read(() => anchorNode.getTextContent())[
-            anchorOffset - 1
-          ];
+          const closeChar = editor.read(editorState, () =>
+            anchorNode.getTextContent(),
+          )[anchorOffset - 1];
           if (!compositionEndTriggerChars.has(closeChar)) {
             return;
           }

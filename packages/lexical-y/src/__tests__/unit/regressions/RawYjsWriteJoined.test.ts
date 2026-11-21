@@ -58,6 +58,7 @@ function bind(
   );
   const binding = new YBinding(editor, doc, {
     captureTimeout: 0,
+    onStatus: null,
     schemaVersion: 1,
   });
   binding.start();

@@ -565,7 +565,10 @@ describe('named slots', () => {
       SLOT_NODES.filter(k => k !== SlotBodyNode),
       codes,
     );
-    const binding = new YBinding(editor, doc, {schemaVersion: 1});
+    const binding = new YBinding(editor, doc, {
+      onStatus: null,
+      schemaVersion: 1,
+    });
     binding.start();
     binding.initialize();
     expect(binding.status).toBe('readonly');
@@ -743,6 +746,7 @@ describe('named slots with BlockIdExtension and MarkStateExtension', () => {
         dependencies: [
           configExtension(YCollabExtension, {
             doc,
+            onYStatus: null,
             schemaVersion: 1,
             selfCheck: true,
           }),

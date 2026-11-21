@@ -70,6 +70,7 @@ class Peer {
           configExtension(TableExtension, {hasHorizontalScroll: false}),
           configExtension(YCollabExtension, {
             doc: this.doc,
+            onYStatus: null,
             schemaVersion: 1,
             synced: true,
           }),

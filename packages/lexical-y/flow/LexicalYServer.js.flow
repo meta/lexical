@@ -9,7 +9,6 @@
 
 import type {Doc} from '@y/y';
 import type {
-  ClientIDRange,
   YClientSession,
   YDoc,
   YDocOptions,
@@ -54,24 +53,36 @@ export type YPrepareRoomOptions = {
   readonly roots?: ReadonlyArray<string>,
   readonly gc?: boolean,
   readonly to?: number,
-  readonly clientIDRange?: ClientIDRange,
   readonly clientID?: (input: YMigrationStepInput) => number,
   ...
 };
 
-export type YPreparedRoom = {
-  readonly changed: boolean,
-  readonly state: Uint8Array,
-  readonly generation: string,
-  readonly base: {
-    readonly generation: string,
-    readonly state: Uint8Array,
-    ...
-  } | null,
-  readonly pending: Uint8Array | null,
-  readonly receipt: YMigrationReceipt,
-  ...
-};
+// A union on `changed`: what to store is reached only after narrowing, as
+// one object (`write`), its pending material in it.
+export type YPreparedRoom =
+  | {
+      readonly changed: false,
+      readonly state: Uint8Array,
+      readonly generation: string,
+      readonly receipt: YMigrationReceipt,
+      ...
+    }
+  | {
+      readonly changed: true,
+      readonly write: {
+        readonly state: Uint8Array,
+        readonly generation: string,
+        readonly base: {
+          readonly generation: string,
+          readonly state: Uint8Array,
+          ...
+        },
+        readonly pending: Uint8Array | null,
+        ...
+      },
+      readonly receipt: YMigrationReceipt,
+      ...
+    };
 
 declare export function prepareYRoom(
   stored: Uint8Array,

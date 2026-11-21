@@ -364,6 +364,15 @@ Always access node properties/methods within read/update context. Nodes automati
     tests (jsdom/Node), but browser tests should clean up with
     `onTestFinished(() => editor.dispose())` instead — `editor.dispose()` is a plain method
     available on the result of `buildEditorFromExtensions`.
+- **Size tests** - Vitest, located in `packages/**/__tests__/size/**/*.test.ts`
+  (the `unit-size` project, part of `pnpm run test-unit` but not of the watch
+  script). They run in the `forks` pool, so each file runs on a child
+  process's main thread, whose argument limit (roughly 100,000 to 125,000 on
+  Node, depending on stack depth) is the one
+  production code runs under; a worker thread takes 4x that. Put a test here
+  when it needs a document past that limit (a list of content spread into a
+  call's arguments throws only there). Keep each file to one case so the
+  project runs them in parallel.
 - **E2E tests** - Playwright, located in `packages/lexical-playground/__tests__/e2e/**/*.spec.{ts,mjs}`
 - E2E tests require the playground dev server running
 - Use `pnpm run debug-test-e2e-chromium` to debug E2E tests with browser UI

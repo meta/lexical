@@ -97,7 +97,7 @@ for (const gc of [false, true]) {
         $setSelection(null);
       });
       await t.sync();
-      expect(t.a.doc.get('lexical-y').getAttr('lexical-y:3')).toBe(true);
+      expect(t.a.doc.get('lexical-y').getAttr('lexical-y:4')).toBe(true);
       // The next write is a paired run too.
       t.a.update(() => {
         const ab = $getRoot().getAllTextNodes()[0] as TextNode;

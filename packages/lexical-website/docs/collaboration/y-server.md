@@ -29,6 +29,7 @@ import {
   $createTextNode,
   $getEditor,
   $getRoot,
+  type LexicalWarning,
 } from 'lexical';
 
 // The clients' extensions: the server must register every node type the
@@ -36,7 +37,13 @@ import {
 // change what is written, such as `BlockIdExtension`, so that it writes
 // what a client would. `schemaVersion` is the version of the app's
 // schema this server's code has, as on the clients (required).
-const config = {extensions: [AppNodesExtension], schemaVersion: 3};
+// `onWarn` is required too: seedYState and readYState return warnings
+// nowhere else (null logs them outside production only).
+const config = {
+  extensions: [AppNodesExtension],
+  onWarn: (warning: LexicalWarning) => log.warn(warning),
+  schemaVersion: 3,
+};
 
 // Who the server's edits are by: one writer per agent or integration,
 // created once per process (see Writers below).
@@ -69,9 +76,11 @@ const json = readYState(next, config, () =>
 
 Each function takes a config with the editor's `extensions` (or `nodes`),
 a required `schemaVersion` (the version of the app's schema this code has,
-see [Versioning your schema](./y.md#versioning-your-schema)), and
-optionally `root` (default `'lexical-y'`), `clientIDRange` (see
-[Servers](./y.md#servers)), `onWarn` and `selfCheck`. `editYState` also
+see [Versioning your schema](./y.md#versioning-your-schema)), a required
+`onWarn` (a handler, or `null` to log warnings outside production only:
+`seedYState` and `readYState` return them nowhere else, and some say content
+was not stored as the editor had it), and optionally `root` (default
+`'lexical-y'`) and `selfCheck`. `editYState` also
 takes options with a required `writer` (see [Writers](#writers)).
 
 A seed records its config's `schemaVersion`, and so does an edit that
@@ -176,7 +185,7 @@ type) throws a `TypeError` that says what to pass.
 
 Warnings never refuse an edit, and the functions never throw for one. Each
 warning is a `LexicalWarning` (see [Warnings](./y.md#warnings)), returned in
-`editYState`'s `warnings` and passed to `config.onWarn` (default:
+`editYState`'s `warnings` and passed to `config.onWarn` (`null`:
 `console.warn` outside production; a handler that throws does not refuse
 the edit). Their codes are the binding's, plus three exported from
 `@lexical/y/headless` (the `YHeadlessWarningCode` type lists them all):
@@ -246,7 +255,6 @@ warning's `data.reason` says why:
 | --- | --- | --- |
 | `'stale-state'` | The state was read before the writer's last update to the document, or that update was never stored. | Run the writer's edits one after another, each on a state that holds its last update, and store every update it returns. |
 | `'busy'` | `editYState` was called with the writer from inside another call with it (its `$edit`, `transact` or `onWarn`). | Run a writer's edits one after another. |
-| `'range'` | The writer's client id does not fit `clientIDRange: 'uint32'`. | Use the same `clientIDRange` in every config the writer edits a document with. |
 | `'foreign-writes'` | Something else wrote under the writer's client id: an app assigned `result.clientID` to a `Y.Doc`. The writer stops using that id. | Never assign a writer's client id to a document. |
 
 A state that holds none of the writer's client ids (another document, or
@@ -784,7 +792,8 @@ import {createYDoc, seedYState} from '@lexical/y/headless';
 import {applyUpdate, encodeStateAsUpdate} from '@y/y';
 import {$getRoot, $parseSerializedNode} from 'lexical';
 
-// `old`: the old editor's `getEditorState().toJSON()`.
+// `old`: the old editor's
+// `editor.read('latest', () => editor.getEditorState().toJSON())`.
 const seed = seedYState(config, () => {
   for (const child of old.root.children) {
     $getRoot().append($parseSerializedNode(child));
@@ -841,8 +850,10 @@ client's document with `createYDoc` from `@lexical/y`.
 3. **Migrate a copy:** `prepareYRoom(state, {incarnation, roots})` (it runs
    every published step, imported statically with `@lexical/y/server`; pass
    `steps` to run your own list).
-   When no served root is below `MIN_LAYOUT` (the default target) it
-   returns `changed: false` and the stored bytes: store nothing. A root at
+   The result is a union on `changed`. When no served root is below
+   `MIN_LAYOUT` (the default target) it is `changed: false` with the stored
+   bytes (`state`): store nothing. Otherwise everything to store is in
+   `write`, reached after narrowing on `changed`. A root at
    or above the target needs no step, even one above this release's
    `LAYOUT_VERSION` (a rollback from a newer release, or a server upgraded
    after its clients): it stays as it is. A root below the target is
@@ -855,10 +866,10 @@ client's document with `createYDoc` from `@lexical/y`.
    `@lexical/y/migrate` exports, which `@lexical/y/server` uses), store
    nothing, keep the room stuck (it applies nothing), and alert (with the
    error's `cause` when it has one: the error a step threw, with its stack).
-4. **Commit atomically**, compare-and-set on the version read:
-   `{state, generation}` of the result, the immutable base of the old
+4. **Commit atomically**, compare-and-set on the version read, all of
+   `write`: `{state, generation}`, the immutable base of the old
    generation (`base.state` under `base.generation`, never overwritten), and,
-   when the result has pending material, its quarantine record:
+   when `write.pending` is not null, its quarantine record:
    `createYQuarantineRecord({kind: 'pending', stored: state, pending, source,
    receivedAt})` (`stored` and `pending` are reserved for this form: it is
    taken only for kind `'pending'` with both present as bytes, and a record

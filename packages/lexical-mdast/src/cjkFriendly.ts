@@ -348,7 +348,8 @@ export function cjkFriendlyEmphasis(): Extension {
           return inside;
         }
         const token = effects.exit('attentionSequence');
-        // Another marker beside the run, such as `~`, flanks as space.
+        // Another marker beside the run, such as `~`, is punctuation, but a
+        // `*` run also closes right after it and opens right before it.
         [token._open, token._close] = getRunFlanking(
           marker,
           before,

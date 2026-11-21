@@ -147,6 +147,7 @@ function $marked(value: Value): string[] {
 
 const CONFIG = {
   extensions: [RichTextExtension, MarkStateExtension],
+  onWarn: null,
   schemaVersion: 1,
 };
 
@@ -171,6 +172,7 @@ function clients(gc: boolean, ids: number[]) {
           configExtension(YCollabExtension, {
             captureTimeout: 0,
             doc,
+            onYStatus: null,
             schemaVersion: 1,
             synced: true,
           }),
@@ -283,17 +285,12 @@ const REMOVALS: Removal[] = [
 /**
  * Where the removal took part of the word, the author's undo left the rest
  * of the word with the value the removal restated after that part (D64,
- * #9560). Layout 3: paired runs end the restored value where it ended, for
- * text formats, styles and comments. Still pinned as test.fails: a NodeState
- * value, whose restore runs two characters past the word.
+ * #9560). Paired runs end the restored value where it ended: for text
+ * formats, styles and comments from layout 3 on, and for a NodeState value
+ * from layout 4 on (D120; its cells were pinned as test.fails before: the
+ * restore ran two characters past the word).
  */
-function testOnMain(name: string, fn: () => void) {
-  const fails =
-    name.startsWith('NodeState') &&
-    name.includes('its author undoes it first') &&
-    name.includes('part of the word');
-  (fails ? test.fails : test)(name, fn);
-}
+const testOnMain = test;
 
 describe('an undo that brings back a value ends its run where it ended (#9623)', () => {
   for (const gc of [false, true]) {

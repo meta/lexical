@@ -37,7 +37,11 @@ import {expect, test} from 'vitest';
 import {createYCollabConfig, createYDoc, YCollabExtension} from '../../..';
 import {seedYState} from '../../../headless';
 
-const CONFIG = {extensions: [RichTextExtension], schemaVersion: 1};
+const CONFIG = {
+  extensions: [RichTextExtension],
+  onWarn: null,
+  schemaVersion: 1,
+};
 const KEYS = ['b', 'i', 's'] as const;
 const FMT: Record<string, TextFormatType> = {
   b: 'bold',
@@ -170,6 +174,7 @@ function runRW(spec: any, mode: string, gcOn: boolean, mixed = false) {
             captureTimeout: 2 ** 30,
             doc,
             layoutUpgrade: null,
+            onYStatus: null,
             schemaVersion: 1,
             synced: true,
           }),

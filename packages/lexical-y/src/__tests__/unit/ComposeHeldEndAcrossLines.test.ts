@@ -25,7 +25,10 @@ import {
 } from 'lexical';
 import {expect, test} from 'vitest';
 
-import {readLayout3Formats, writeLayout3Formats} from '../../internal/Layout3';
+import {
+  readLayout4Formats,
+  writeLayout4Formats,
+} from '../../migrate/3to4/frozen/layout4';
 import {expectConverged, freshReader, setup} from '../utils/harness';
 
 for (const gc of [false, true]) {
@@ -54,13 +57,13 @@ for (const gc of [false, true]) {
         .join('');
       const from = flat.indexOf('one');
       const to = flat.indexOf('two') + 2;
-      const values = readLayout3Formats(root).map((m, i) => {
+      const values = readLayout4Formats(root).map((m, i) => {
         const value = new Map(m);
         if (i >= from && i < to) value.set('p:style', 'color: blue;');
         return value;
       });
       t.b.doc.transact(
-        tr => writeLayout3Formats(tr, root, values),
+        tr => writeLayout4Formats(tr, root, values),
         'canonical',
       );
       let end: Y.Item | null = null;

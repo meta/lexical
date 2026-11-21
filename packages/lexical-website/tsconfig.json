@@ -374,6 +374,8 @@
       "@lexical/y/migrate": ["../lexical-y/src/migrate.ts"],
       "@lexical/y/migrate/1to2": ["../lexical-y/src/migrate/1to2.ts"],
       "@lexical/y/migrate/2to3": ["../lexical-y/src/migrate/2to3.ts"],
+      "@lexical/y/migrate/3to4": ["../lexical-y/src/migrate/3to4.ts"],
+      "@lexical/y/offline": ["../lexical-y/src/offline.ts"],
       "@lexical/y/server": ["../lexical-y/src/server.ts"],
       "@lexical/yjs": ["../lexical-yjs/src/index.ts"]
     }

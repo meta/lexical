@@ -10,7 +10,8 @@
 
 // The 2to3 step's frozen copy of the layout 3 writer
 // (migrate/2to3/frozen/layout3.ts) passes the live writer's pinned cells
-// (Layout3.test.ts): the covered-key predicate equals the binding's, it
+// (Layout4.test.ts, of the 3to4 step's copy): the covered-key predicate is
+// layout 3's (the binding's but for flat NodeState, which layout 4 covers), it
 // reproduces the values read by its own fold and the binding's, it writes
 // the golden bytes, a second call gives the same layout, and it refuses bad
 // input before writing.
@@ -113,7 +114,7 @@ function coreRead(container: Y.Node): Record<string, unknown>[] {
       for (const [k, v] of formats) {
         if (
           !isShadowKey(k) &&
-          covered(k) &&
+          isCoveredKey(k) &&
           v !== null &&
           !(Array.isArray(v) && v.length === 0)
         ) {
@@ -155,7 +156,7 @@ const layout = (container: Y.Node) => {
 };
 
 describe('the frozen writeLayout3Formats (2to3)', () => {
-  test('the covered-key predicate equals the binding’s', () => {
+  test('the covered-key predicate is layout 3’s: the binding’s, but for flat NodeState', () => {
     for (const key of [
       't',
       'k',
@@ -168,8 +169,12 @@ describe('the frozen writeLayout3Formats (2to3)', () => {
       'x:y',
       'lexical-y:3',
     ]) {
-      expect(isCoveredKey(key)).toBe(covered(key));
+      // Layout 4 covers flat NodeState too (D120); layout 3 did not.
+      expect(isCoveredKey(key), key).toBe(
+        key === 's:flat' ? false : covered(key),
+      );
     }
+    expect(covered('s:flat')).toBe(true);
   });
 
   test('reproduces the values, read by its own fold and by the binding’s', () => {

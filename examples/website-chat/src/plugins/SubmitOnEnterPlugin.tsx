@@ -33,9 +33,11 @@ export function SubmitOnEnterPlugin({onSubmit}: SubmitOnEnterPluginProps) {
         if (event !== null) {
           event.preventDefault();
         }
-        const hasContent = editor
-          .getEditorState()
-          .read(() => $getRoot().getTextContent().trim() !== '');
+        // The committed state, which is also what onSubmit receives.
+        const hasContent = editor.read(
+          'latest',
+          () => $getRoot().getTextContent().trim() !== '',
+        );
         if (hasContent) {
           onSubmit(editor.getEditorState());
           editor.dispatchCommand(CLEAR_EDITOR_COMMAND, undefined);

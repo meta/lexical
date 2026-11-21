@@ -76,7 +76,9 @@ import {
   $wrapperAttrs,
   type Attrs,
   BLOCK_PREFIX,
+  canStoreAs,
   decodeFormatValue,
+  deriveStorageKind,
   eachOuterLevel,
   equalValue,
   FIELD_PREFIX,
@@ -122,18 +124,18 @@ import {
   wrappersFromAttrs,
   type WrapperValue,
 } from './Schema';
+import {copyStart, Folder, frontierOf, shownAttrs} from './Seen';
 import {
-  copyStart,
-  Folder,
-  frontierOf,
+  heldRuns,
   isGoneIn,
   isHeld,
+  isHiddenIn,
   isShownEndIn,
   isShownIn,
-  prevLiveEnd,
-  shownAttrs,
+  prevShownEnd,
   shownText,
-} from './Seen';
+  wasShownBefore,
+} from './Shown';
 import {$holds, $readSlots, $replaceStored, SLOT_PREFIX} from './Slots';
 import {
   type CS,
@@ -270,7 +272,7 @@ function parseRange(
     // (its marker deleted by the unread change) reads its attributes from
     // that deleted marker, so as a paragraph until the change is read, and
     // unit start formats still fold in the raw lane.
-    if (isGoneIn(view, it) || !it.countable || isHeld(it, hidden)) {
+    if (!it.countable || isHiddenIn(view, it, hidden)) {
       continue;
     }
     if (isEndItem(it)) {
@@ -1266,24 +1268,11 @@ export class Reader {
   }
 
   /**
-   * Whether item `p` showed before the change being read: live and neither
-   * held back nor inserted by the change, or deleted by the change or kept
-   * by the hold (an item deleted before that the hold does not keep shows
-   * nowhere, though an undo manager may keep it findable).
+   * Whether item `p` showed before the change being read (see
+   * wasShownBefore).
    */
   private shownBefore(p: Item): boolean {
-    const change = this.change;
-    const hidden = this.state.hidden;
-    if (isHeld(p, hidden)) {
-      return false;
-    }
-    if (p.deleted) {
-      return (
-        (hidden !== null && hidden.keeps(p)) ||
-        (change !== null && change.deleteSet.hasId(p.id))
-      );
-    }
-    return change === null || !change.insertSet.hasId(p.id);
+    return wasShownBefore(p, this.state.hidden, this.change);
   }
 
   /**
@@ -1337,7 +1326,7 @@ export class Reader {
     const hidden = this.state.hidden;
     const view = this.view;
     const start =
-      unit.end === null ? null : prevLiveEnd(view, unit.end, hidden);
+      unit.end === null ? null : prevShownEnd(view, unit.end, hidden);
     if (start === null || !items.has(start) || start.deleted) {
       return null;
     }
@@ -1636,7 +1625,7 @@ export class Reader {
       this.$derivedFor(u.cs, group),
       this.attrChanged.has(u),
     );
-    const left = prevLiveEnd(this.view, u.end, hidden);
+    const left = prevShownEnd(this.view, u.end, hidden);
     const first = left === null ? u.cs.y._start : left.right;
     // The line being composed reads as it shows (see Reader#held); every
     // other line, and what this one hands on (below), as stored.
@@ -2425,7 +2414,7 @@ export class Reader {
       return existing.getLatest();
     }
     const json = lineJSON(attrs, derived, type as string);
-    return this.$readStored(
+    const line = this.$readStored(
       type as string,
       () =>
         $parseSerializedNode(
@@ -2441,6 +2430,34 @@ export class Reader {
           ) as unknown as SerializedLexicalNode,
         ) as ElementNode,
     );
+    this.$noteReplacedLine(type as string, line);
+    return line;
+  }
+
+  /**
+   * A line of a stored `type` that this editor built as another class (a
+   * node replacement) which cannot be stored as a line: the binding could
+   * not write edits to it (its content would be written as another kind's,
+   * which the document does not hold), so the binding goes read only (see
+   * State#replacedStorage). The class is the one built, whatever the
+   * replacement declares (`withKlass`, a chain, or `with` alone).
+   */
+  private $noteReplacedLine(type: string, line: LexicalNode): void {
+    const built = line.getType();
+    if (built === type || this.state.replacedStorage.has(type)) {
+      return;
+    }
+    const klass = line.constructor as Klass<LexicalNode>;
+    if (canStoreAs(klass, 'line')) {
+      return;
+    }
+    this.state.replacedStorage.set(type, {
+      declared: {kind: deriveStorageKind(klass)},
+      reason: 'declaration-changed',
+      replacement: built,
+      stored: {kind: 'line'},
+      type,
+    });
   }
 
   /**
@@ -2901,7 +2918,7 @@ export class Reader {
     }
     let pos = 0;
     let shown = 0;
-    for (const [len, isHidden] of hidden.runs(it)) {
+    for (const [len, isHidden] of heldRuns(it, hidden)) {
       if (offset < pos + len) {
         return isHidden ? -1 : shown + offset - pos;
       }
@@ -3138,7 +3155,7 @@ export class Reader {
         if (end < text.length) {
           parts.push({...piece, text: text.slice(end)});
         }
-        pieces.splice(k, 1, ...parts);
+        spliceAll(pieces, k, 1, parts);
         composedPlaced = true;
         break;
       }
@@ -4472,7 +4489,7 @@ function attrsAtItems(
         ) {
           continue;
         }
-        const left = prevLiveEnd(view, unit.end!, hidden);
+        const left = prevShownEnd(view, unit.end!, hidden);
         start = unit.start;
         folded = frontierOf(view, unit.start, left, unit.cs.y, null);
         from = left === null ? unit.cs.y._start : left.right;
@@ -4501,7 +4518,7 @@ function attrsAtItems(
  * U+001F), a value other than what its stored format attributes `tattrs`
  * give it: a reader's comparison of stored attributes leaves member entries
  * that are not `true` out, so a node that kept one from an earlier read (an
- * array a raw writer stored, read as a value before the layout 3 record) is
+ * array a raw writer stored, read as a value before the layout record) is
  * built again. It compares the node with what is stored there.
  */
 function $coveredStateDiffers(node: LexicalNode, tattrs: Attrs): boolean {

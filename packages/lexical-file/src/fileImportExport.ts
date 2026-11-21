@@ -29,19 +29,24 @@ export interface SerializedDocument {
 /**
  * Generates a SerializedDocument from the given EditorState
  * @param editorState - the EditorState to serialize
- * @param config - An object that optionally contains source and lastSaved.
- * source defaults to Lexical and lastSaved defaults to the current time in
- * epoch milliseconds.
+ * @param config - An object that optionally contains source, lastSaved and
+ * editor. source defaults to Lexical and lastSaved defaults to the current time
+ * in epoch milliseconds. editor, the editor that editorState belongs to, is
+ * active while its nodes are exported, so their exportJSON can call
+ * $getEditor().
  */
 export function serializedDocumentFromEditorState(
   editorState: EditorState,
   config: Readonly<{
     source?: string;
     lastSaved?: number;
+    editor?: LexicalEditor;
   }> = Object.freeze({}),
 ): SerializedDocument {
   return {
-    editorState: editorState.toJSON(),
+    // Without an editor, toJSON uses the editor of an enclosing read or
+    // update, if any.
+    editorState: editorState.toJSON({editor: config.editor}),
     lastSaved: config.lastSaved || Date.now(),
     source: config.source || 'Lexical',
     version,
@@ -118,6 +123,7 @@ export function exportFile(
     editor.getEditorState(),
     {
       ...config,
+      editor,
       lastSaved: now.getTime(),
     },
   );

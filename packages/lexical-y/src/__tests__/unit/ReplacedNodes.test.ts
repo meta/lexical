@@ -214,6 +214,7 @@ test('a keystroke in a large document with a root element does not walk the node
       dependencies: [
         configExtension(YCollabExtension, {
           doc: createYDoc(),
+          onYStatus: null,
           schemaVersion: 1,
         }),
         configExtension(BlockIdExtension, {generateId: () => `b${++k}`}),

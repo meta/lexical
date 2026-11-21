@@ -21,6 +21,7 @@ import {LAYOUT_VERSION} from '../../..';
 import {migrateYDoc, recordedLayout} from '../../../internal/Runner';
 import {migrateYState} from '../../../migrate';
 import {createYDoc, prepareYRoom} from '../../../server';
+import {flat, flatRoom} from '../../utils/migrateResults';
 import {rawDoc, SEED, STAMP} from '../../utils/migrateSteps';
 
 describe.each([false, true])('a root at or above the target, gc %s', gc => {
@@ -29,7 +30,9 @@ describe.each([false, true])('a root at or above the target, gc %s', gc => {
   test('migrateYState and migrateYDoc: unchanged, no step, the same bytes', () => {
     const state = rawDoc(ABOVE);
     for (const to of [SEED, SEED + 1, LAYOUT_VERSION, ABOVE]) {
-      const result = migrateYState(state, [STAMP], {gc, to});
+      const result = flat(
+        migrateYState(state, [STAMP], {gc, pending: 'return', to}),
+      );
       expect(result.update).toBeNull();
       expect(result.pending).toBeNull();
       expect(Buffer.from(result.state)).toEqual(Buffer.from(state));
@@ -43,12 +46,14 @@ describe.each([false, true])('a root at or above the target, gc %s', gc => {
 
   test('prepareYRoom on a room a newer release migrated: changed false, the stored bytes', () => {
     const state = rawDoc(ABOVE);
-    const room = prepareYRoom(state, {
-      gc,
-      incarnation: 'inc-1',
-      steps: [],
-      to: LAYOUT_VERSION,
-    });
+    const room = flatRoom(
+      prepareYRoom(state, {
+        gc,
+        incarnation: 'inc-1',
+        steps: [],
+        to: LAYOUT_VERSION,
+      }),
+    );
     expect(room.changed).toBe(false);
     expect(room.state).toBe(state);
     expect(room.base).toBeNull();
@@ -57,10 +62,18 @@ describe.each([false, true])('a root at or above the target, gc %s', gc => {
   test('a root below the target without a chain is still refused (missing-step), one at it is not', () => {
     const below = createYDoc(rawDoc(SEED), {gc});
     expect(() =>
-      migrateYState(Y.encodeStateAsUpdate(below), [], {gc, to: SEED + 1}),
+      migrateYState(Y.encodeStateAsUpdate(below), [], {
+        gc,
+        pending: 'return',
+        to: SEED + 1,
+      }),
     ).toThrow(expect.objectContaining({code: 'missing-step'}));
     expect(
-      migrateYState(Y.encodeStateAsUpdate(below), [], {gc, to: SEED}).update,
+      migrateYState(Y.encodeStateAsUpdate(below), [], {
+        gc,
+        pending: 'return',
+        to: SEED,
+      }).update,
     ).toBeNull();
     below.destroy();
   });

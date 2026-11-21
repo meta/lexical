@@ -191,6 +191,7 @@ export type {
   CompactSerializedEditorState,
   EditorState,
   EditorStateReadOptions,
+  EditorStateToJSONOptions,
   ParsableSerializedEditorState,
   SerializedEditorState,
 } from './LexicalEditorState';
@@ -388,6 +389,7 @@ export {
   $copyNode,
   $create,
   $createChildrenArray,
+  $deepCopy,
   $findMatchingParent,
   $getAdjacentNode,
   $getDocument,

@@ -12,6 +12,7 @@ import type {TextEditLog} from './TextEdits';
 
 import {findIndexSS, Item, Node as YNode} from '@y/y';
 import {
+  $getEditor,
   $getNodeByKey,
   $getRoot,
   $getSlot,
@@ -25,6 +26,7 @@ import {
   type EditorState,
   type ElementNode,
   INTERNAL_getActiveEditorState,
+  type LexicalEditor,
   type LexicalNode,
   type NodeKey,
 } from 'lexical';
@@ -33,6 +35,14 @@ import {insertionFree, type Recipient} from './InsertionFree';
 import {TYPE_KEY} from './Schema';
 import {shownAttrs} from './Seen';
 import {Roles} from './State';
+
+/**
+ * Reads `prev`, the editor's state before an update, with the active editor
+ * still active, so that node methods it calls can use $getEditor() (#9934).
+ */
+export function $readPrev<T>(prev: EditorState, fn: () => T): T {
+  return $getEditor().read(prev, fn);
+}
 
 /**
  * Before a write runs while a composition's hold holds a collaborator's
@@ -69,7 +79,9 @@ export function $endangeredBy(
     return role === 'root' || role === 'container' || role === 'leaf';
   };
   for (let i = 0; i < keys.length; i++) {
-    const was = prev.read(() => $frameOf(keys[i], storedIn(prevRoles), common));
+    const was = $readPrev(prev, () =>
+      $frameOf(keys[i], storedIn(prevRoles), common),
+    );
     if (was === null) {
       continue;
     }
@@ -102,7 +114,7 @@ export function $endangeredBy(
       }
       return null;
     };
-    const lineWas = prev.read(() => lineOf(prevRoles));
+    const lineWas = $readPrev(prev, () => lineOf(prevRoles));
     const lineNow = lineOf(nextRoles);
     if (
       $frameOf(key, storedIn(nextRoles), common) !== was ||
@@ -122,14 +134,14 @@ export function $endangeredBy(
   // out into a node that was there before (a line split, Enter, makes the
   // node its text goes to, and keeps its held items where they are, see
   // Hidden#starts).
-  const ownerKeys = ownerTextKeys(prev, owner);
+  const ownerKeys = ownerTextKeys($getEditor(), prev, owner);
   const textMoved = ownerKeys.some((key, i) => {
     const n = $getNodeByKey(key);
     if (n === null || !n.isAttached()) {
       // An empty text node removed takes no text with it; one merged into
       // the owner's text next to it (normalization joining two text nodes
       // of the owner, what an IME's steps split) stays in the owner.
-      const was = prev.read(() => $getNodeByKey(key)!.getTextContent());
+      const was = $readPrev(prev, () => $getNodeByKey(key)!.getTextContent());
       return (
         was !== '' &&
         ![ownerKeys[i - 1], ownerKeys[i + 1]].some((other, side) => {
@@ -144,7 +156,7 @@ export function $endangeredBy(
           ) {
             return false;
           }
-          const otherWas = prev.read(() =>
+          const otherWas = $readPrev(prev, () =>
             $getNodeByKey(other)!.getTextContent(),
           );
           return (
@@ -160,7 +172,7 @@ export function $endangeredBy(
     const parent = n.getParent();
     return (
       parent !== null &&
-      prev.read(() => {
+      $readPrev(prev, () => {
         const p = $getNodeByKey(parent.getKey());
         return p !== null && p.isAttached();
       })
@@ -180,9 +192,9 @@ export type HeldDecision = {
    * The update re-types the text of the line composed in, which the hold
    * shows as a block its shared counterpart no longer is (see
    * $reshapesRestyledLine): that line is not written, and is read again as
-   * stored, where its transforms run again and only what agrees with the
-   * update is written (see Writer#heldResult); the rest of the update is
-   * written (see Writer#skippedLine).
+   * stored, where its transforms run again as the author's own edit, written
+   * where it stays in that line, in place (see YBinding#heldIds); the rest
+   * of the update is written (see Writer#skippedLine).
    */
   quiet: boolean;
   /**
@@ -230,7 +242,7 @@ export function $heldDecision(
   // The shared node a text node's characters are stored in: the nearest
   // container around it.
   const storedIn = (key: NodeKey): YNode | null =>
-    prev.read(() => {
+    $readPrev(prev, () => {
       for (let n = $getNodeByKey(key); n !== null; n = n.getParent()) {
         const cs = state.csByKey.get(n.getKey());
         if (cs !== undefined) {
@@ -275,7 +287,7 @@ function $gainsText(
   ) {
     return true;
   }
-  const before = prev.read(() => $getRoot().getTextContent());
+  const before = $readPrev(prev, () => $getRoot().getTextContent());
   const after = $getRoot().getTextContent();
   let i = 0;
   for (let j = 0; j < before.length && i < after.length; j++) {
@@ -311,7 +323,7 @@ function $showsRestyled(
   const info = state.editor._nodes.get(
     typeof attr === 'string' ? attr : 'paragraph',
   );
-  return prev.read(() => {
+  return $readPrev(prev, () => {
     const node = $getNodeByKey(owner);
     return (
       node !== null && (info === undefined || !(node instanceof info.klass))
@@ -331,11 +343,12 @@ function $showsRestyled(
  * stored, and written, its nodes (code highlight tokens, which drop formats
  * and join NodeState) would land on text that storage keeps outside that
  * type. That line is not written: it is read again as stored and the hold
- * ends, and Lexical's transforms then run on it again as stored, of which
- * only what agrees with what the update made of each character is written
- * (a hashtag again in a heading; nothing of a code highlighter's in a
- * paragraph, nor in a block a collaborator made a code block, see
- * Writer#heldResult); the rest of the update is written. An edit that
+ * ends, and Lexical's transforms then run on it again as stored, as the
+ * author's own edit, and what they change in that line, in place, is
+ * written (a hashtag again in a heading; the highlighter's tokens in a block
+ * a collaborator made a code block; nothing where they would restructure
+ * the document or change another block, see Writer#heldIds,
+ * YBinding#heldIds); the rest of the update is written. An edit that
  * keeps the type of every node holding the line's characters (a format
  * applied to part of a word, which splits its node; a link around a word)
  * is not one, nor is one that changes the line's text (typing, a
@@ -370,7 +383,7 @@ function $reshapesRestyledLine(
           text: node.getTextContent(),
         }
       : null;
-  const was = prev.read(() => shape($getNodeByKey(owner)));
+  const was = $readPrev(prev, () => shape($getNodeByKey(owner)));
   const now = shape($getNodeByKey(owner));
   if (
     was === null ||
@@ -383,7 +396,8 @@ function $reshapesRestyledLine(
   const types = (node: LexicalNode | null) =>
     $isElementNode(node) ? leafTypeRuns(node) : '';
   return (
-    prev.read(() => types($getNodeByKey(owner))) !== types($getNodeByKey(owner))
+    $readPrev(prev, () => types($getNodeByKey(owner))) !==
+    types($getNodeByKey(owner))
   );
 }
 
@@ -608,7 +622,7 @@ export function $insertsCharacters(
   const verdict = insertionFree(
     texts(prevMap),
     nextTexts,
-    () => prev.read(order),
+    () => $readPrev(prev, order),
     () =>
       order()
         .filter(k => !parts.has(k))
@@ -648,7 +662,7 @@ export function $insertsCharacters(
       // update's record says it merged into a kept node, which its text went
       // to (without a record, none).
       const out = new Map<NodeKey, Recipient | null>();
-      const theirs = prev.read(() => {
+      const theirs = $readPrev(prev, () => {
         const keys = new Set<NodeKey>();
         for (const key of moving) {
           const node = $getNodeByKey(key);
@@ -915,7 +929,7 @@ function $frameOf(
  * holds that same node now.
  */
 function $slotsKeep(prev: EditorState, key: NodeKey): boolean {
-  const slots = prev.read(() => {
+  const slots = $readPrev(prev, () => {
     const out: [NodeKey, string, NodeKey][] = [];
     for (let n = $getNodeByKey(key); n !== null && !$isRootNode(n); ) {
       const parent: LexicalNode | null = n.getParent();
@@ -947,8 +961,12 @@ function $slotsKeep(prev: EditorState, key: NodeKey): boolean {
  * The text nodes and line breaks node `key` held in `prev`, in document
  * order.
  */
-export function ownerTextKeys(prev: EditorState, key: NodeKey): NodeKey[] {
-  return prev.read(() => {
+export function ownerTextKeys(
+  editor: LexicalEditor,
+  prev: EditorState,
+  key: NodeKey,
+): NodeKey[] {
+  return editor.read(prev, () => {
     const out: NodeKey[] = [];
     const walk = (el: ElementNode) => {
       for (const child of el.getChildren()) {

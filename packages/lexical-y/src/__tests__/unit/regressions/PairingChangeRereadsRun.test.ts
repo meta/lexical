@@ -80,7 +80,7 @@ for (const gc of [false, true]) {
         {gc, ids, prepare: prepareMarkState},
       );
       const {b, c} = t;
-      expect(root(b).getAttr('lexical-y:3')).toBe(true);
+      expect(root(b).getAttr('lexical-y:4')).toBe(true);
       // A raw writer bolds "two three / four" with plain values.
       b.doc.transact(() => root(b).format(7, 12, {'f:bold': true}));
       await t.sync();

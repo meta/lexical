@@ -45,9 +45,10 @@ import {
   UNDO_COMMAND,
 } from 'lexical';
 import {$assertNodeType} from 'lexical/src/__tests__/utils';
-import {describe, expect, it} from 'vitest';
+import {assert, describe, expect, it} from 'vitest';
 
 import {
+  $convertFromMarkdownString,
   $convertToMarkdownString,
   MdastCommonMarkExtension,
   MdastExtension,
@@ -189,6 +190,60 @@ describe('@lexical/mdast streaming shortcuts', () => {
     });
   });
 
+  describe('a task marker typed in a list that has task items', () => {
+    /** Imports `markdown`, puts the caret at the start or end of the first item. */
+    function importList(markdown: string, at: 'start' | 'end') {
+      const editor = createEditor();
+      editor.update(
+        () => {
+          $convertFromMarkdownString(markdown);
+          const list = $assertNodeType($getRoot().getFirstChild(), $isListNode);
+          const item = $assertNodeType(list.getFirstChild(), $isListItemNode);
+          if (at === 'start') {
+            item.selectStart();
+          } else {
+            item.selectEnd();
+          }
+        },
+        {discrete: true},
+      );
+      return editor;
+    }
+
+    it('[x] on a new line keeps the ticks of the other task items', () => {
+      using editor = importList('- plain\n- [x] done', 'end');
+      // A new line after `plain`, as Enter makes it.
+      editor.update(
+        () => {
+          const selection = $getSelection();
+          assert($isRangeSelection(selection));
+          selection.insertParagraph();
+        },
+        {discrete: true},
+      );
+      type(editor, ['[', 'x', ']', ' ', 'new']);
+      expect(editor.read(() => $convertToMarkdownString())).toBe(
+        '- [ ] plain\n- [x] new\n- [x] done',
+      );
+    });
+
+    it('[ ] at the start of a plain item keeps the ticks of the other task items', () => {
+      using editor = importList('- plain\n- [x] done', 'start');
+      type(editor, ['[', ' ', ']', ' ']);
+      expect(editor.read(() => $convertToMarkdownString())).toBe(
+        '- [ ] plain\n- [x] done',
+      );
+    });
+
+    it('[x] at the start of an unchecked task item checks it', () => {
+      using editor = importList('- [ ] todo\n- plain', 'start');
+      type(editor, ['[', 'x', ']', ' ']);
+      expect(editor.read(() => $convertToMarkdownString())).toBe(
+        '- [x] todo\n- [ ] plain',
+      );
+    });
+  });
+
   // `> ## H2` imports as a QuoteNode holding a HeadingNode, so typing the
   // same markers has to build the same tree instead of leaving the marker as
   // literal text inside the quote.
@@ -309,6 +364,37 @@ describe('@lexical/mdast streaming shortcuts', () => {
       expect(inlineFormats(editor).some(f => f !== 0)).toBe(true);
     });
 
+    // CommonMark reads `__init__` as a bold "init", but in a sentence it is
+    // a name, like Python's `__init__`, so typed it stays as typed, and it
+    // exports with the underscores that could open emphasis escaped.
+    it.each([
+      ['the __init__', 'the \\_\\_init\\_\\_'],
+      ['__main__', '\\_\\_main\\_\\_'],
+      ['obj.__init__', 'obj.\\_\\_init\\_\\_'],
+      ['__my_var__', '\\_\\_my_var\\_\\_'],
+    ])('a `__` run around one name leaves %s as text', (text, markdown) => {
+      using editor = createEditor();
+      type(editor, [text.slice(0, -1), text.slice(-1)]);
+      editor.read(() => {
+        expect($getRoot().getTextContent()).toBe(text);
+        expect($convertToMarkdownString().trim()).toBe(markdown);
+      });
+      expect(inlineFormats(editor).every(f => f === 0)).toBe(true);
+    });
+
+    it.each([
+      ['**init**', 'init'],
+      ['__two words__', 'two words'],
+      ['_init_', 'init'],
+    ])('%s still converts', (text, result) => {
+      using editor = createEditor();
+      type(editor, [text.slice(0, -1), text.slice(-1)]);
+      editor.read(() => {
+        expect($getRoot().getTextContent()).toBe(result);
+      });
+      expect(inlineFormats(editor).some(f => f !== 0)).toBe(true);
+    });
+
     it('*italic* applies italic', () => {
       using editor = createEditor();
       type(editor, ['*italic', '*']);
@@ -375,6 +461,37 @@ describe('@lexical/mdast streaming shortcuts', () => {
         expect(link!.getTextContent()).toBe('lexical');
       });
     });
+
+    // CommonMark opens a `*` or `~` run inside a word too, so `2*3*4` reads
+    // as emphasis on import. Typed, it is math or an identifier, so the
+    // shortcut leaves it alone; `_` runs never open inside a word anyway.
+    it.each(['2*3*', 'x*y*', 'mid*word*', 'foo**bar**', 'x~~y~~'])(
+      'a closing delimiter after a mid-word opener leaves %s as text',
+      text => {
+        using editor = createEditor();
+        type(editor, [text.slice(0, -1), text.slice(-1)]);
+        editor.read(() => {
+          expect($getRoot().getTextContent()).toBe(text);
+        });
+        expect(inlineFormats(editor).every(f => f === 0)).toBe(true);
+      },
+    );
+
+    it.each([
+      ['a *b*', 'a b'],
+      ['(*b*', '(b'],
+      ['中文*强调*', '中文强调'],
+    ])(
+      'still applies emphasis after a space, punctuation or CJK: %s',
+      (text, result) => {
+        using editor = createEditor();
+        type(editor, [text.slice(0, -1), text.slice(-1)]);
+        editor.read(() => {
+          expect($getRoot().getTextContent()).toBe(result);
+        });
+        expect(inlineFormats(editor).some(f => f !== 0)).toBe(true);
+      },
+    );
 
     it('only fires when the closing delimiter is at the caret', () => {
       using editor = createEditor();

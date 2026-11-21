@@ -13,9 +13,11 @@ import type {YLayoutMigration} from './Runner';
 
 import step1to2 from '@lexical/y/migrate/1to2';
 import step2to3 from '@lexical/y/migrate/2to3';
+import step3to4 from '@lexical/y/migrate/3to4';
 
 /** The published steps, statically imported (prepareYRoom's default). */
 export const PUBLISHED_STEPS: readonly YLayoutMigration[] = [
   step1to2,
   step2to3,
+  step3to4,
 ];

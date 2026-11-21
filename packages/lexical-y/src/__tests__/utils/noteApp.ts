@@ -57,6 +57,7 @@ export function corpusConfig(
       extensions: [noteAppExtension, MarkStateExtension],
       schemaVersion: 1,
       ...extra,
+      onWarn: extra.onWarn ?? null,
     };
   }
   return catalogHeadlessConfig(cfg, extra);

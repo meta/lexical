@@ -88,7 +88,10 @@ describe.each([false, true])('schema admission at write time, gc %s', gc => {
       const errors: Error[] = [];
       const warnings: string[] = [];
       const editor = editorOf(errors, warnings);
-      const binding = new YBinding(editor, doc, {schemaVersion: 1});
+      const binding = new YBinding(editor, doc, {
+        onStatus: null,
+        schemaVersion: 1,
+      });
       binding.start();
       binding.initialize();
       const before = textOf(doc.get('lexical-y'));
@@ -117,7 +120,10 @@ describe.each([false, true])('schema admission at write time, gc %s', gc => {
         },
         {discrete: true},
       );
-      const binding = new YBinding(editor, doc, {schemaVersion: 1});
+      const binding = new YBinding(editor, doc, {
+        onStatus: null,
+        schemaVersion: 1,
+      });
       binding.start();
       onNextTransaction(doc, () => spoil(doc.get('lexical-y')));
       binding.initialize();
@@ -136,6 +142,7 @@ describe.each([false, true])('schema admission at write time, gc %s', gc => {
       const editor = editorOf(errors, warnings);
       const binding = new YBinding(editor, doc, {
         captureTimeout: 0,
+        onStatus: null,
         schemaVersion: 1,
       });
       binding.start();
@@ -159,7 +166,10 @@ describe.each([false, true])('schema admission at write time, gc %s', gc => {
       const errors: Error[] = [];
       const warnings: string[] = [];
       const editor = editorOf(errors, warnings);
-      const binding = new YBinding(editor, doc, {schemaVersion: 2});
+      const binding = new YBinding(editor, doc, {
+        onStatus: null,
+        schemaVersion: 2,
+      });
       binding.start();
       binding.initialize();
       expect(binding.status).toBe('active');
@@ -183,7 +193,10 @@ describe.each([false, true])('schema admission at write time, gc %s', gc => {
     const errors: Error[] = [];
     const warnings: string[] = [];
     const editor = editorOf(errors, warnings);
-    const binding = new YBinding(editor, doc, {schemaVersion: 1});
+    const binding = new YBinding(editor, doc, {
+      onStatus: null,
+      schemaVersion: 1,
+    });
     binding.start();
     binding.initialize();
     const before = textOf(doc.get('lexical-y'));
@@ -220,6 +233,7 @@ describe.each([false, true])('schema admission at write time, gc %s', gc => {
       const editor = editorOf(errors, warnings);
       const binding = new YBinding(editor, doc, {
         captureTimeout: 0,
+        onStatus: null,
         schemaVersion: 1,
       });
       binding.start();
@@ -252,7 +266,10 @@ describe.each([false, true])('schema admission at write time, gc %s', gc => {
     const errors: Error[] = [];
     const warnings: string[] = [];
     const editor = editorOf(errors, warnings);
-    const binding = new YBinding(editor, doc, {schemaVersion: 1});
+    const binding = new YBinding(editor, doc, {
+      onStatus: null,
+      schemaVersion: 1,
+    });
     binding.start();
     binding.initialize();
     const peer = createYDoc(Y.encodeStateAsUpdate(doc), {gc});
@@ -304,7 +321,10 @@ describe.each([false, true])('schema admission at write time, gc %s', gc => {
       const errors: Error[] = [];
       const warnings: string[] = [];
       const editor = editorOf(errors, warnings);
-      const binding = new YBinding(editor, doc, {schemaVersion: 1});
+      const binding = new YBinding(editor, doc, {
+        onStatus: null,
+        schemaVersion: 1,
+      });
       binding.start();
       binding.initialize();
       const peer = createYDoc(Y.encodeStateAsUpdate(doc), {gc});
@@ -347,7 +367,10 @@ describe.each([false, true])('schema admission at write time, gc %s', gc => {
     const errors: Error[] = [];
     const warnings: string[] = [];
     const editor = editorOf(errors, warnings);
-    const binding = new YBinding(editor, doc, {schemaVersion: 2});
+    const binding = new YBinding(editor, doc, {
+      onStatus: null,
+      schemaVersion: 2,
+    });
     binding.start();
     binding.initialize();
     expect(
@@ -430,7 +453,10 @@ describe.each([false, true])('schema admission at write time, gc %s', gc => {
       const errors: Error[] = [];
       const warnings: string[] = [];
       const editor = editorOf(errors, warnings);
-      const binding = new YBinding(editor, doc, {schemaVersion: 2});
+      const binding = new YBinding(editor, doc, {
+        onStatus: null,
+        schemaVersion: 2,
+      });
       binding.start();
       binding.initialize();
       const peer = createYDoc(Y.encodeStateAsUpdate(doc), {gc});
@@ -489,7 +515,10 @@ describe.each([false, true])('schema admission at write time, gc %s', gc => {
     const errors: Error[] = [];
     const warnings: string[] = [];
     const editor = editorOf(errors, warnings);
-    const binding = new YBinding(editor, doc, {schemaVersion: 2});
+    const binding = new YBinding(editor, doc, {
+      onStatus: null,
+      schemaVersion: 2,
+    });
     binding.start();
     binding.initialize();
     onNextTransaction(doc, () =>
@@ -517,7 +546,10 @@ describe.each([false, true])('schema admission at write time, gc %s', gc => {
       },
       {discrete: true},
     );
-    const binding = new YBinding(editor, doc, {schemaVersion: 1});
+    const binding = new YBinding(editor, doc, {
+      onStatus: null,
+      schemaVersion: 1,
+    });
     binding.start();
     binding.initialize();
     await flush();

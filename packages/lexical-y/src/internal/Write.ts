@@ -38,24 +38,15 @@ import {
 
 import {pushAll} from './Arrays';
 import {$withoutLevelId, innerBlockIds, NO_IDS} from './BlockIds';
-import {
-  Cursor,
-  equalFormatValue,
-  type Formats,
-  isShownContent,
-  type LeftOut,
-} from './Cursor';
+import {Cursor, equalFormatValue, type Formats} from './Cursor';
 import {groupKeySig, groupSig} from './Groups';
 import {$heldDecision, type HeldDecision, ownerTextKeys} from './HoldGuard';
 import {isShadowKey} from './Ident';
 import {
-  $isLeftOutInline,
   $pushInline,
   Atoms,
-  countLive,
   type DesiredContext,
   diffAtoms,
-  diffStrings,
   hasLoneSurrogate,
   PENDING_LINE_BREAK,
   readAtoms,
@@ -107,7 +98,6 @@ import {
   ownsMember,
   ownsNodeAttr,
   RUN_END,
-  SEGMENT_KEY,
   SET_MEMBER_SEPARATOR,
   stableStringify,
   STATE_PREFIX,
@@ -129,15 +119,21 @@ import {
   deletions,
   Folder,
   frontierOf,
-  isGoneIn,
-  isShownEndIn,
   noteFolded,
-  prevLiveEnd,
   setAttrIn,
   skipsProtected,
-  unheldLength,
   withProtected,
 } from './Seen';
+import {
+  $isLeftOutInline,
+  countShown,
+  isGoneIn,
+  isHeldInPart,
+  isShownEndIn,
+  type LeftOut,
+  prevShownEnd,
+  shownLengthIn,
+} from './Shown';
 import {$writeSlots} from './Slots';
 import {
   type CS,
@@ -271,7 +267,7 @@ function $runsWithNeighbour(node: TextNode): boolean {
  * a delete empties the element (from the text removed). See
  * Writer#keepsStored.
  */
-function $holdsText(el: ElementNode): boolean {
+export function $holdsText(el: ElementNode): boolean {
   for (let c = el.getFirstChild(); c !== null; c = c.getNextSibling()) {
     if ($isTextNode(c) || ($isElementNode(c) && $holdsText(c))) {
       return true;
@@ -373,17 +369,6 @@ export type WritePlan = {
    * holds paragraphs (stored nowhere).
    */
   unwritable?: Set<NodeKey>;
-  /**
-   * The author's normalization of the lines that hold characters of a line
-   * whose re-typing was not written, once its hold has ended (see
-   * Writer#heldResult): what the update that ended the composition would
-   * have written of those characters, and the lines holding them now. Only
-   * what agrees with it is written (see Writer#$writeAgreedLine).
-   */
-  release?: {
-    lines: ReadonlySet<NodeKey>;
-    record: ReadonlyMap<string, Attrs>;
-  } | null;
 };
 
 export class Writer {
@@ -748,21 +733,12 @@ export class Writer {
           : this.neverStop ||
               (this.heldDecided !== null && this.heldDecided.inserts),
         () => {
-          const release = this.plan.release;
-          if (release !== undefined && release !== null) {
-            // Nothing but what agrees is written (the binding reads the rest
-            // of the update again).
-            for (const key of release.lines) {
-              this.$writeAgreedLine(key, release.record);
-            }
-            return;
-          }
           this.$runWrites();
           if (this.skippedLine !== null) {
             this.$writeSkippedLine(this.skippedLine);
           }
         },
-        hidden === null ? null : item => hidden.overlaps(item),
+        hidden === null ? null : item => isHeldInPart(item, hidden),
       ),
     );
   }
@@ -1170,6 +1146,7 @@ export class Writer {
               ? {key: selection.anchor.key, offset: selection.anchor.offset}
               : null,
             editor._compositionKey !== null,
+            editor,
           )
         : null;
     }
@@ -2407,7 +2384,7 @@ export class Writer {
       if (nextUnit === undefined) {
         return;
       }
-      const left = prevLiveEnd(view, unit.end, this.state.hidden);
+      const left = prevShownEnd(view, unit.end, this.state.hidden);
       // From the unit's stored start (a split half of the line being
       // composed shows another, see Hidden#starts). (Before the copy: a
       // stale start is folded again, see frontierOf.)
@@ -2702,7 +2679,7 @@ export class Writer {
       const from = own !== null && own !== left ? own.right : startItem;
       if (from !== startItem) {
         cursor.advance(
-          countLive(
+          countShown(
             this.view,
             startItem,
             from,
@@ -2715,7 +2692,7 @@ export class Writer {
       // leftOut), which it does not count (and deletes with the line, see
       // Cursor#delete).
       cursor.delete(
-        countLive(this.view, from, stop, this.state.hidden, this.leftOut),
+        countShown(this.view, from, stop, this.state.hidden, this.leftOut),
       );
     }
     if (idx + 1 < old.length) {
@@ -3077,7 +3054,7 @@ export class Writer {
       return EMPTY_FORMATS;
     }
     const unit = this.state.unitByEnd.get(item);
-    const start = prevLiveEnd(this.view, item, this.state.hidden);
+    const start = prevShownEnd(this.view, item, this.state.hidden);
     const atoms = new Atoms();
     // The stored formats after it (see readAtoms), from the unit's stored
     // start (see storedStart).
@@ -3317,7 +3294,7 @@ export class Writer {
     }
     const atoms = new Atoms();
     $pushInline(atoms, $lineChildren(this.$lineDesired(node)), this.$ctx(true));
-    const left = prevLiveEnd(this.view, unit.end, this.state.hidden);
+    const left = prevShownEnd(this.view, unit.end, this.state.hidden);
     const startFormats = unit.start || EMPTY_FORMATS;
     const frontier = frontierOf(this.view, unit.start, left, unit.cs.y, null);
     const old = new Atoms();
@@ -3340,25 +3317,11 @@ export class Writer {
     if (old.text !== atoms.text) {
       return;
     }
-    // What the update changes on each character, as the editor shows it
-    // (see heldResult): what main writes of it.
-    let shownAt = 0;
-    for (const r of atoms.runs) {
-      for (let at = r.start; at < r.end; at++) {
-        if (atoms.specials.has(at) || old.specials.has(at)) {
-          continue;
-        }
-        while (shownAt < old.runs.length && old.runs[shownAt].end <= at) {
-          shownAt++;
-        }
-        const shown =
-          shownAt < old.runs.length && old.runs[shownAt].start <= at
-            ? old.runs[shownAt].attrs
-            : {};
-        const changed = changedAttrs(shown, r.attrs);
-        if (changed !== null) {
-          this.heldResult.set(ids[at], changed);
-        }
+    // The line's characters, by their stored ids: once the hold ends, the
+    // line is read as stored and its transforms run again (see heldIds).
+    for (const id of ids) {
+      if (id !== undefined) {
+        this.heldIds.add(id);
       }
     }
     // The nodes holding the line's atoms that the update kept (or split off
@@ -3416,7 +3379,7 @@ export class Writer {
     // carried onto its tokens), see keepMadeAsStored. In the atoms' terms
     // (see $pushInline): a text node's text, a line break's newline, a
     // wrapper's content, one atom for any other node (an inline decorator).
-    const before = this.prevState.read(() => {
+    const before = this.state.editor.read(this.prevState, () => {
       const prev = $getNodeByKey(key);
       if (!$isElementNode(prev)) {
         return null;
@@ -3463,173 +3426,6 @@ export class Writer {
     }
   }
 
-  /**
-   * A line that holds characters of a line whose re-typing was not written
-   * (see skippedLine), once the hold has ended and Lexical's transforms ran
-   * on it as stored (see YBinding#$normalize): of what they made, only what
-   * agrees with what the update that ended the composition would have
-   * written (see heldResult) is written, as formats of those characters,
-   * attribute by attribute (see agreedAttrs). Text is never written
-   * (characters whose text a transform changed keep what is stored), nor is
-   * any other character. Nothing is written where a transform restructured
-   * the line: replaced it, or moved a node holding one of its characters
-   * into another line (see $movedOut).
-   */
-  private $writeAgreedLine(
-    key: NodeKey,
-    record: ReadonlyMap<string, Attrs>,
-  ): void {
-    const unit = this.state.unitByKey.get(key);
-    const node = $getNodeByKey(key);
-    if (
-      unit === undefined ||
-      unit.end === null ||
-      isGoneIn(this.view, unit.end) ||
-      !$isElementNode(node) ||
-      !node.isAttached() ||
-      this.roles.$role(node) !== 'line'
-    ) {
-      return;
-    }
-    const atoms = new Atoms();
-    $pushInline(atoms, $lineChildren(this.$lineDesired(node)), this.$ctx());
-    const left = prevLiveEnd(this.view, unit.end, this.state.hidden);
-    const startFormats = unit.start || EMPTY_FORMATS;
-    const frontier = frontierOf(this.view, unit.start, left, unit.cs.y, null);
-    const old = new Atoms();
-    const ids: string[] = [];
-    old.ids = ids;
-    readAtoms(
-      this.view,
-      left === null ? unit.cs.y._start : left.right,
-      unit.end,
-      startFormats,
-      old,
-      this.state.hidden,
-      frontier,
-      // Without what readers leave out, as the desired atoms and the
-      // format pass (see leftOut).
-      null,
-      startFormats,
-      this.leftOut,
-    );
-    // A transform that restructured the line (moved a node holding one of
-    // its characters into another line): nothing is written for it (an
-    // accepted limit, see DECISIONS.md D115).
-    if (this.$movedOut(key, node, ids, record)) {
-      return;
-    }
-    // The characters the transforms left where they are: the common prefix
-    // and suffix of the stored text and theirs.
-    const {prefix, suffix} = diffStrings(old.text, atoms.text, -1);
-    const delta = atoms.length - old.length;
-    const runs: Run[] = [];
-    let agrees = false;
-    let stored = 0;
-    let made = 0;
-    for (let at = 0; at < old.length; at++) {
-      while (stored < old.runs.length && old.runs[stored].end <= at) {
-        stored++;
-      }
-      let attrs: Attrs =
-        stored < old.runs.length && old.runs[stored].start <= at
-          ? old.runs[stored].attrs
-          : {};
-      const to = at < prefix ? at : at >= old.length - suffix ? at + delta : -1;
-      const held = record.get(ids[at]);
-      if (
-        held !== undefined &&
-        to >= 0 &&
-        !old.specials.has(at) &&
-        !atoms.specials.has(to)
-      ) {
-        while (made < atoms.runs.length && atoms.runs[made].end <= to) {
-          made++;
-        }
-        if (made < atoms.runs.length && atoms.runs[made].start <= to) {
-          const agreed = agreedAttrs(attrs, atoms.runs[made].attrs, held);
-          if (agreed !== attrs) {
-            attrs = agreed;
-            agrees = true;
-          }
-        }
-      }
-      const last = runs[runs.length - 1];
-      if (last !== undefined && last.end === at && last.attrs === attrs) {
-        last.end = at + 1;
-      } else {
-        runs.push({attrs, end: at + 1, start: at});
-      }
-    }
-    if (!agrees) {
-      return;
-    }
-    old.runs = runs;
-    this.frontier = frontier;
-    try {
-      this.$formatPass(unit.cs.y, left, startFormats, old);
-    } finally {
-      this.frontier = null;
-    }
-  }
-
-  /**
-   * Whether a text node that held one of the characters `record` names in
-   * line `key` before the transforms ran (the update's previous state, read
-   * as stored, so a collaborator's split or join is already there) is now in
-   * a line other than `line`. A node the transforms replaced in place (a
-   * hashtag made of the whole node) moved nowhere.
-   */
-  private $movedOut(
-    key: NodeKey,
-    line: ElementNode,
-    ids: readonly string[],
-    record: ReadonlyMap<string, Attrs>,
-  ): boolean {
-    const holders = this.prevState.read(() => {
-      const out: NodeKey[] = [];
-      const prev = $getNodeByKey(key);
-      if (!$isElementNode(prev)) {
-        return out;
-      }
-      let at = 0;
-      const visit = (children: readonly LexicalNode[]) => {
-        for (const n of children) {
-          if ($isTextNode(n)) {
-            const size = toWellFormed(n.getTextContent()).length;
-            for (let k = at; k < at + size; k++) {
-              if (record.has(ids[k])) {
-                out.push(n.getKey());
-                break;
-              }
-            }
-            at += size;
-          } else if ($isWrapper(n)) {
-            visit((n as ElementNode).getChildren());
-          } else {
-            // A line break or an inline node: one atom (see $pushInline).
-            at += 1;
-          }
-        }
-      };
-      visit(prev.getChildren());
-      return out;
-    });
-    for (const k of holders) {
-      const now = $getNodeByKey(k);
-      if (now !== null && now.isAttached()) {
-        let at = now.getParent();
-        while (at !== null && this.roles.$role(at) !== 'line') {
-          at = at.getParent();
-        }
-        if (at === null || at.getKey() !== line.getKey()) {
-          return true;
-        }
-      }
-    }
-    return false;
-  }
-
   /** Rewrite one line (its content and marker) on its own. */
   $writeLineAlone(u: Unit, d: Desired): void {
     // A rewrite after a failed write diffs the line against the document:
@@ -3643,7 +3439,7 @@ export class Writer {
     let stop: Item | null;
     let frontier: Item | null;
     if (u.end !== null) {
-      left = prevLiveEnd(this.view, u.end, this.state.hidden);
+      left = prevShownEnd(this.view, u.end, this.state.hidden);
       stop = u.end.right;
       frontier = frontierOf(this.view, u.start, left, u.cs.y, null);
     } else {
@@ -3812,7 +3608,7 @@ export class Writer {
       }
     }
     if (writes.length > 0) {
-      const left = prevLiveEnd(this.view, u.end!, this.state.hidden);
+      const left = prevShownEnd(this.view, u.end!, this.state.hidden);
       this.frontier = frontierOf(this.view, u.start, left, u.cs.y, null);
       const c = this.cursor(u.cs.y, left, u.start || EMPTY_FORMATS);
       this.frontier = null;
@@ -4104,7 +3900,7 @@ export class Writer {
           }
           add(holders, node.getKey(), k);
           if ($isElementNode(node)) {
-            stack.push(...node.getChildren());
+            pushAll(stack, node.getChildren());
           }
         }
       });
@@ -6094,19 +5890,17 @@ export class Writer {
    * $heldDecision): not written, so that what a transform made of the shown
    * line does not land on what is stored there. The binding reads it again,
    * ends the hold, and runs its transforms again on what is stored (see
-   * heldResult).
+   * heldIds).
    */
   skippedLine: NodeKey | null = null;
 
   /**
-   * What the update would have written of each character of the skipped
-   * line (see skippedLine), by the character's stored id (see Atoms.ids):
-   * the attributes the update changes on it, as the editor shows it (what
-   * main writes of it). Once the hold ends, the line is
-   * read as stored and its transforms run again; of what they make, only
-   * what agrees with this is written (see $writeAgreedLine).
+   * The characters of the skipped line (see skippedLine), by their stored
+   * ids (see Atoms.ids), where its content matches what is stored: once the
+   * hold ends, the line is read as stored and its transforms run again, as
+   * the author's own edit (see YBinding#heldIds).
    */
-  readonly heldResult = new Map<string, Attrs>();
+  readonly heldIds = new Set<string>();
 
   /**
    * Decide as `decision` (the recovery of a write taken under it): an update
@@ -6191,10 +5985,12 @@ export class Writer {
     const owner = $getNodeByKey(hidden.ownerKey);
     const textKept =
       (owner !== null && owner.isAttached()) ||
-      ownerTextKeys(this.prevState, hidden.ownerKey).some(key => {
-        const text = $getNodeByKey(key);
-        return text !== null && text.isAttached();
-      });
+      ownerTextKeys(this.state.editor, this.prevState, hidden.ownerKey).some(
+        key => {
+          const text = $getNodeByKey(key);
+          return text !== null && text.isAttached();
+        },
+      );
     hidden.missed = true;
     if (__DEV__ && textKept) {
       console.warn(
@@ -6426,62 +6222,6 @@ function wrapperOnly(attrs: Attrs): Attrs {
   return out;
 }
 
-/**
- * The attributes `want` changes of `shown` (a character's attributes as the
- * editor shows it, and as an update makes it), each with its new value (null
- * where the update takes it off), or null where it changes none: what the
- * update writes of that character.
- */
-function changedAttrs(shown: Attrs, want: Attrs): Attrs | null {
-  let out: Attrs | null = null;
-  for (const k of new Set([...Object.keys(shown), ...Object.keys(want)])) {
-    const value = want[k] ?? null;
-    if (!equalValue(shown[k] ?? null, value)) {
-      if (out === null) {
-        out = {};
-      }
-      out[k] = value;
-    }
-  }
-  return out;
-}
-
-/**
- * A character's attributes as written by Writer#$writeAgreedLine: what is
- * stored (`stored`), but for each attribute the update that ended the
- * composition changed (`held`, see Writer#heldResult) to the value the
- * transforms that ran on the stored line gave it too (`made`): that value.
- * An attribute that update did not change (one the hold kept from showing,
- * such as a collaborator's bold) is never written.
- * The segment key (see SEGMENT_KEY), which tells a node apart from its
- * neighbours, goes with the node's type. Returns `stored` itself where
- * nothing is written.
- */
-function agreedAttrs(stored: Attrs, made: Attrs, held: Attrs): Attrs {
-  const typed =
-    TYPE_KEY in held &&
-    !equalValue(stored[TYPE_KEY] ?? null, held[TYPE_KEY] ?? null) &&
-    equalValue(made[TYPE_KEY] ?? null, held[TYPE_KEY] ?? null);
-  let out: Attrs | null = null;
-  for (const k in held) {
-    const value = held[k] ?? null;
-    if (
-      (k === SEGMENT_KEY ? typed : equalValue(made[k] ?? null, value)) &&
-      !equalValue(stored[k] ?? null, value)
-    ) {
-      if (out === null) {
-        out = {...stored};
-      }
-      if (value === null) {
-        delete out[k];
-      } else {
-        out[k] = value;
-      }
-    }
-  }
-  return out ?? stored;
-}
-
 /** The live end item before an old unit (after earlier deletions too). */
 function unitLeft(
   view: View | null,
@@ -6491,11 +6231,11 @@ function unitLeft(
 ): Item | null {
   const u = units[idx];
   if (u.end !== null) {
-    return prevLiveEnd(view, u.end, hidden);
+    return prevShownEnd(view, u.end, hidden);
   }
   let e = idx > 0 ? units[idx - 1].end : null;
   while (e !== null && isGoneIn(view, e)) {
-    e = prevLiveEnd(view, e, hidden);
+    e = prevShownEnd(view, e, hidden);
   }
   return e;
 }
@@ -6526,9 +6266,7 @@ function readAtomsLimited(
   let stop: Item | null = start;
   let n = 0;
   while (stop !== null && n < limit) {
-    if (isShownContent(view, stop, leftOut)) {
-      n += unheldLength(stop, hidden);
-    }
+    n += shownLengthIn(view, stop, hidden, leftOut);
     stop = stop.right;
   }
   const end = {folded: frontier};

@@ -22,7 +22,7 @@ import invariant from '@lexical/internal/invariant';
 import {cloneMap} from './LexicalGenMap';
 import {$exportNodeJSON, $withCompactExport} from './LexicalSerializedExport';
 import {$getSlot, $getSlotNames} from './LexicalSlot';
-import {readEditorState} from './LexicalUpdates';
+import {internalGetActiveEditor, readEditorState} from './LexicalUpdates';
 import {$getRoot, INTERNAL_$withExportMemo} from './LexicalUtils';
 import {
   $isElementNode,
@@ -133,6 +133,21 @@ function $exportNodeToJSON<SerializedNode extends SerializedLexicalNode>(
 }
 
 export interface EditorStateReadOptions {
+  editor?: LexicalEditor | null;
+}
+
+/** Options of {@link EditorState.toJSON}. */
+export interface EditorStateToJSONOptions {
+  /**
+   * Write the compact form, which omits from every node the properties
+   * parsing restores on its own. Defaults to the legacy form.
+   */
+  compact?: boolean;
+  /**
+   * The editor this state belongs to, active while its nodes are exported, so
+   * a node whose exportJSON calls $getEditor() can. When omitted or null, the
+   * editor of the read or update toJSON is called in, if any.
+   */
   editor?: LexicalEditor | null;
 }
 
@@ -292,6 +307,19 @@ export class EditorState {
 
     return editorState;
   }
+  // The options overloads come first so that the last one, which type helpers
+  // such as `Parameters` resolve to, is still the boolean one.
+  /**
+   * This document's JSON, with its nodes exported with `options.editor`
+   * active (by default, the editor of the read or update it is called in, if
+   * any), in the compact form when `options.compact` is true and
+   * otherwise in the legacy form.
+   * @param options - The form and the editor to export with.
+   */
+  toJSON(
+    options: EditorStateToJSONOptions & {compact?: false},
+  ): SerializedEditorState;
+  toJSON(options: EditorStateToJSONOptions): CompactSerializedEditorState;
   /**
    * This document's JSON, in the legacy form that writes every property.
    *
@@ -304,6 +332,11 @@ export class EditorState {
    * A nested editor still follows the document containing it, because
    * {@link LexicalEditor.toJSON} passes the enclosing form on explicitly
    * rather than leaving it to be picked up here.
+   *
+   * An EditorState does not know its editor. Its nodes are exported with the
+   * editor of the read or update it is called in, if any: outside one, a node
+   * whose exportJSON calls $getEditor() needs {@link LexicalEditor.toJSON} or
+   * `editorState.toJSON({editor})`.
    */
   toJSON(compact?: false): SerializedEditorState;
   /**
@@ -313,18 +346,30 @@ export class EditorState {
    *   return type say which shape it is.
    */
   toJSON(compact: boolean): CompactSerializedEditorState;
-  toJSON(compact?: unknown): CompactSerializedEditorState {
-    // `typeof compact === 'boolean'`, not a truthy test, because
-    // `JSON.stringify` invokes this hook with the *property name* the value is
-    // under: `''` at the top level, but `'state'` for
-    // `JSON.stringify({state: editorState})`. A truthy check would silently
-    // write the compact form for the latter. Anything that is not a stated
-    // form is the legacy one, which is what both overloads promise.
-    return $withCompactExport(typeof compact === 'boolean' && compact, () =>
-      readEditorState(null, this, () =>
-        INTERNAL_$withExportMemo(() => ({
-          root: $exportNodeToJSON($getRoot()) as SerializedRootNode,
-        })),
+  toJSON(compactOrOptions?: unknown): CompactSerializedEditorState {
+    // `=== true`, not a truthy test, because `JSON.stringify` invokes this
+    // hook with the *property name* the value is under: `''` at the top
+    // level, but `'state'` for `JSON.stringify({state: editorState})`. A
+    // truthy check would silently write the compact form for the latter.
+    // Anything that is not a stated form is the legacy one, which is what the
+    // overloads promise.
+    const options =
+      typeof compactOrOptions === 'object' && compactOrOptions !== null
+        ? (compactOrOptions as EditorStateToJSONOptions)
+        : null;
+    const compact = options
+      ? options.compact === true
+      : compactOrOptions === true;
+    const editor = options ? options.editor : undefined;
+    return $withCompactExport(compact, () =>
+      readEditorState(
+        // Without one given, the active editor stays active.
+        editor || internalGetActiveEditor(),
+        this,
+        () =>
+          INTERNAL_$withExportMemo(() => ({
+            root: $exportNodeToJSON($getRoot()) as SerializedRootNode,
+          })),
       ),
     );
   }

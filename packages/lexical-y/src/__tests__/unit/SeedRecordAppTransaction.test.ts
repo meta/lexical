@@ -36,7 +36,11 @@ for (const gc of [false, true])
       },
       onWarn: () => {},
     });
-    const b = new YBinding(editor, doc, {schemaVersion: 1, selfCheck: true});
+    const b = new YBinding(editor, doc, {
+      onStatus: null,
+      schemaVersion: 1,
+      selfCheck: true,
+    });
     b.start();
     editor.update(
       () =>
@@ -47,7 +51,7 @@ for (const gc of [false, true])
     );
     const app = new Y.UndoManager(doc, {
       captureTimeout: 0,
-      deleteFilter: i => i.parentSub === 'lexical-y:3',
+      deleteFilter: i => i.parentSub === 'lexical-y:4',
       trackedOrigins: new Set(['outer']),
     });
     doc.transact(() => b.initialize(), 'outer');
@@ -61,14 +65,14 @@ for (const gc of [false, true])
     const seen: unknown[] = [];
     for (const u of updates) {
       Y.applyUpdate(receiver, u, 'remote');
-      seen.push(receiver.get('lexical-y').getAttr('lexical-y:3') ?? null);
+      seen.push(receiver.get('lexical-y').getAttr('lexical-y:4') ?? null);
     }
     // Every update the undo emits keeps the record (the undo may emit none:
     // the record it captured was already written again), and so does the
     // receiver at the end.
     expect(seen.every(v => v === true)).toBe(true);
-    expect(receiver.get('lexical-y').getAttr('lexical-y:3')).toBe(true);
-    expect(doc.get('lexical-y').getAttr('lexical-y:3')).toBe(true);
+    expect(receiver.get('lexical-y').getAttr('lexical-y:4')).toBe(true);
+    expect(doc.get('lexical-y').getAttr('lexical-y:4')).toBe(true);
     app.destroy();
     b.dispose();
     doc.destroy();

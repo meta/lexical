@@ -118,7 +118,7 @@ describe('an undo that ends a restored run', () => {
   for (const gc of [false, true]) {
     test(`keeps the list's links whole (gc ${gc ? 'on' : 'off'})`, () => {
       const seeded = seedYState(
-        {extensions: EXTENSIONS, schemaVersion: 1},
+        {extensions: EXTENSIONS, onWarn: null, schemaVersion: 1},
         () => {
           const root = $getRoot().clear();
           WORDS.forEach((word, i) =>
@@ -139,6 +139,7 @@ describe('an undo that ends a restored run', () => {
               configExtension(YCollabExtension, {
                 captureTimeout: 2 ** 30,
                 doc,
+                onYStatus: null,
                 schemaVersion: 1,
                 synced: true,
               }),
