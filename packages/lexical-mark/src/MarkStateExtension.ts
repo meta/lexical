@@ -58,6 +58,7 @@ import {
   type ElementNode,
   type ExtensionConfigBase,
   HISTORIC_TAG,
+  INTERNAL_getActiveEditorState,
   isHTMLElement,
   type Klass,
   type LexicalEditor,
@@ -2563,28 +2564,68 @@ function $applyInsertedTextMarkIDs(
     }
     return origin;
   };
+  // Recorded ordinary-text pieces count only when the first split followed
+  // an append to the source's old text, and the piece starts in that append.
+  // Sources outside the compared blocks retain their own ids when moved.
+  // Otherwise retain the existing entity-only heuristic below.
   // Whether `node` is text that a transform split off a TextNode that
   // existed, of another class than the pieces `splitText` creates (a text
   // entity: a hashtag, a mention), with the text inserted at its end, which
   // no longer belongs to it. `splitText` creates such a piece with
   // `$createTextNode` and a copy of the ids of that node, after it (and
   // after its other pieces). Those ids are not the inserted text's own.
+  // The leaves whose text in `prevState` is part of `before`
+  const compared = new Set<NodeKey>();
+  for (const node of before.nodes) {
+    compared.add(node.getKey());
+  }
+  const pendingState = INTERNAL_getActiveEditorState();
+  // Splits happened in this pending update, even when the comparison is
+  // against an older composition baseline.
+  const splitOrigins =
+    pendingState !== null && pendingState._splitTextOrigins !== null
+      ? pendingState._splitTextOrigins.get(editor.getEditorState()._nodeMap)
+      : undefined;
   const splitOff = new Map<NodeKey, boolean>();
   const $isSplitOffEntity = (node: LexicalNode): boolean => {
     const key = node.getKey();
     let result = splitOff.get(key);
     if (result === undefined) {
+      const recorded = splitOrigins && splitOrigins.get(key);
+      const source = recorded && recorded.source;
+      const previousSource =
+        source === undefined ? undefined : prevNodes.get(source);
+      const recordedOrigin =
+        source === undefined ? null : $getNodeByKey(source);
+      const fromComparedText =
+        source !== undefined &&
+        compared.has(source) &&
+        !(absorbedNew && normalized.has(source)) &&
+        $isTextNode(previousSource) &&
+        recorded !== undefined &&
+        recorded.offset >= previousSource.__text.length &&
+        recorded.text.startsWith(previousSource.__text) &&
+        $isTextNode(node) &&
+        recorded.text.slice(
+          recorded.offset,
+          recorded.offset + node.getTextContentSize(),
+        ) === node.getTextContent();
       const origin =
-        $isTextNode(node) && !prevNodes.has(key) ? $getOrigin(node) : null;
+        $isTextNode(node) && !prevNodes.has(key)
+          ? fromComparedText
+            ? recordedOrigin
+            : $getOrigin(node)
+          : null;
       result =
         $isTextNode(origin) &&
-        origin.constructor !== node.constructor &&
+        (fromComparedText || origin.constructor !== node.constructor) &&
         // The same value: `splitText` cloned the node's state into the
         // piece in this update. Inserted nodes bring ids of their own, even
         // equal ones (pasted, dropped, inserted or marked by code).
         $readNodeMarkIDs(flavor, origin) === $readNodeMarkIDs(flavor, node) &&
         // An unattached node, garbage collected with the update
-        $createTextNode('').constructor === node.constructor;
+        (fromComparedText ||
+          $createTextNode('').constructor === node.constructor);
       splitOff.set(key, result);
     }
     return result;
@@ -2636,11 +2677,6 @@ function $applyInsertedTextMarkIDs(
   }
   const unitIDs = (i: number): readonly string[] =>
     i >= 0 && i < n && after.kinds[i] <= LEAF ? ids[i] : NO_IDS;
-  // The leaves whose text in `prevState` is part of `before`
-  const compared = new Set<NodeKey>();
-  for (const node of before.nodes) {
-    compared.add(node.getKey());
-  }
   // For a TextNode that existed, with other text, outside the compared
   // blocks: the offsets [start, end) of its text that are not in the text it
   // had, anchored at the caret when it holds the caret
@@ -2855,7 +2891,11 @@ export const MarkBaseExtension: LexicalExtension<
   name: MARK_BASE_EXTENSION_NAME,
   register: (editor, _config, state) => {
     const {splits} = state.getInitResult();
+    editor._recordTextSplits++;
     return mergeRegister(
+      () => {
+        editor._recordTextSplits--;
+      },
       editor.registerUpdateListener(() => splits.clear()),
       () => splits.clear(),
     );
