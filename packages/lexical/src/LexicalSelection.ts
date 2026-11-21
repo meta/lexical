@@ -59,6 +59,7 @@ import {
 import {$comparePointCaretNextAcrossSlots} from './caret/LexicalCaret';
 import {IS_FIREFOX} from './environment';
 import {
+  COMPOSITION_START_CHAR,
   COMPOSITION_SUFFIX,
   DOM_TEXT_TYPE,
   TEXT_TYPE_TO_FORMAT,
@@ -3701,7 +3702,10 @@ export function $internalCreateRangeSelection(
     previousRange ? previousRange.format : 0,
     previousRange ? previousRange.style : '',
   );
-  if (previousRange) {
+  if (
+    previousRange &&
+    !$isCaretBesideEmptiedComposition(editor, previousRange, newSelection)
+  ) {
     $internalRefreshSelectionFormatAndStyle(
       newSelection,
       previousRange.anchor.key,
@@ -3711,6 +3715,47 @@ export function $internalCreateRangeSelection(
   // whether the DOM must be corrected; refreshing its format is not a move.
   newSelection.dirty = dirty;
   return newSelection;
+}
+
+/**
+ * Whether the caret was in the node being composed, the IME emptied that
+ * node's DOM, and the caret now ends the text node before it. That is the IME
+ * replacing the composed text, not the user moving the caret: ibus-hangul on
+ * Chromium empties the composition for every syllable, then commits it with a
+ * plain `insertText`.
+ */
+function $isCaretBesideEmptiedComposition(
+  editor: LexicalEditor,
+  previousRange: RangeSelection,
+  newSelection: RangeSelection,
+): boolean {
+  const key = previousRange.anchor.key;
+  if (key !== editor._compositionKey) {
+    return false;
+  }
+  const node = $getNodeByKey(key);
+  const element = editor.getElementByKey(key);
+  if (!$isTextNode(node) || element === null) {
+    return false;
+  }
+  // Read the DOM, not the node: the node keeps the composed text until
+  // compositionend updates it from the DOM. Once the IME has emptied it, only
+  // start characters are left, and the suffix is the same character except on
+  // Firefox, which this does not handle.
+  const domText = $getDOMTextNode(node, element, editor);
+  if (
+    domText === null ||
+    domText.data.split(COMPOSITION_START_CHAR).join('') !== ''
+  ) {
+    return false;
+  }
+  const {anchor} = newSelection;
+  const prev = node.getPreviousSibling();
+  return (
+    $isTextNode(prev) &&
+    anchor.key === prev.getKey() &&
+    anchor.offset === prev.getTextContentSize()
+  );
 }
 
 /**
@@ -3724,7 +3769,9 @@ export function $internalCreateRangeSelection(
  *
  * Landing on the same node is not a move: a format toggled on a collapsed
  * caret is armed for the next insertion and is deliberately not backed by the
- * node yet, so it must survive being re-selected in place.
+ * node yet, so it must survive being re-selected in place. Nor is falling back
+ * out of a composing node the IME emptied, which
+ * {@link $internalCreateRangeSelection} does not refresh for.
  *
  * Deliberately *not* called from `ElementNode.select()`/`TextNode.select()`:
  * those are how nearly every edit repositions its own caret, so refreshing
