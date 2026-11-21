@@ -1,0 +1,33 @@
+body {
+  color: #17212b;
+  background: #f5f7f9;
+  font:
+    16px/1.5 system-ui,
+    sans-serif;
+  margin: 2rem;
+}
+main {
+  max-width: 56rem;
+  margin: auto;
+}
+button {
+  padding: 0.5rem 0.75rem;
+  margin: 0 0.3rem 0.5rem 0;
+}
+#editor {
+  background: white;
+  border: 1px solid #738496;
+  border-radius: 0.3rem;
+  min-height: 10rem;
+  padding: 1rem;
+}
+#editor:focus-visible,
+button:focus-visible {
+  outline: 3px solid #1761ae;
+}
+pre {
+  overflow: auto;
+  background: #e7edf2;
+  padding: 1rem;
+  max-height: 32rem;
+}

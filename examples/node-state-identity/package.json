@@ -1,0 +1,23 @@
+{
+  "name": "@lexical/dev-node-state-identity-example",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@lexical/extension": "0.50.0",
+    "@lexical/history": "0.50.0",
+    "@lexical/rich-text": "0.50.0",
+    "@lexical/utils": "0.50.0",
+    "lexical": "0.50.0"
+  },
+  "devDependencies": {
+    "@lexical/clipboard": "0.50.0",
+    "typescript": "^6.0.3",
+    "vite": "^8.2.2"
+  }
+}
