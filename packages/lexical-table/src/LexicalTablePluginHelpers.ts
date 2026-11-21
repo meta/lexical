@@ -21,6 +21,7 @@ import {
   $findMatchingParent,
   $getEditor,
   $getNearestNodeFromDOMNode,
+  $getNodeByKey,
   $getPreviousSelection,
   $getRoot,
   $getSelection,
@@ -30,12 +31,15 @@ import {
   $normalizeSelection__EXPERIMENTAL,
   $setSelection,
   CLICK_COMMAND,
+  COLLABORATION_TAG,
   COMMAND_PRIORITY_EDITOR,
   COMMAND_PRIORITY_HIGH,
   COMMAND_PRIORITY_LOW,
   type CommandPayloadType,
   type EditorState,
   type ElementNode,
+  HISTORIC_TAG,
+  HISTORY_MERGE_TAG,
   isDOMNode,
   type LexicalEditor,
   mergeRegister,
@@ -244,6 +248,109 @@ function $tableTransform(node: TableNode) {
     }
     node.setColWidths(newColWidths);
   }
+}
+
+/**
+ * Returns true if the rows of `tableNode` do not all cover the same number of
+ * grid columns (spans included), i.e. if $padTableRows would add cells.
+ *
+ * Most tables are plain rectangles with no spans, so that case is answered
+ * from the row sizes alone; the table map is only computed when a span makes
+ * the row sizes ambiguous.
+ */
+function $isTableRagged(tableNode: TableNode): boolean {
+  let width: number | null = null;
+  let hasSpans = false;
+  for (const row of tableNode.getChildren()) {
+    if (!$isTableRowNode(row)) {
+      continue;
+    }
+    let rowWidth = 0;
+    for (const cell of row.getChildren()) {
+      if ($isTableCellNode(cell)) {
+        if (cell.getColSpan() > 1 || cell.getRowSpan() > 1) {
+          hasSpans = true;
+          break;
+        }
+        rowWidth++;
+      }
+    }
+    if (hasSpans) {
+      break;
+    }
+    if (width === null) {
+      width = rowWidth;
+    } else if (width !== rowWidth) {
+      return true;
+    }
+  }
+  if (!hasSpans) {
+    return false;
+  }
+  const [gridMap] = $computeTableMapSkipCellCheck(tableNode, null, null);
+  const maxRowLength = gridMap.reduce(
+    (curLength, row) => Math.max(curLength, row.length),
+    0,
+  );
+  return gridMap.some(
+    row => row.reduce((acc, cell) => (cell ? 1 + acc : acc), 0) < maxRowLength,
+  );
+}
+
+/**
+ * Pads tables that a committed update left ragged (issue #9453).
+ *
+ * The TableNode transform already pads every table that an update marks
+ * dirty, and that covers JSON loaded through setEditorState, since a parsed
+ * editor state marks all of its nodes dirty. What it cannot cover is an update
+ * that skipped transforms, so this listener catches those after the fact.
+ *
+ * Two kinds of update are deliberately left alone:
+ *
+ * - Collaboration updates. Every peer receives the same remote change, so if
+ *   each one padded it, the CRDT would keep all of the appended cells and the
+ *   row would end up wider than the rest. Those tables stay ragged in the
+ *   model until a local edit or table command pads them (as in issue #9375), and
+ *   TableNode.exportDOM pads its output in the meantime.
+ * - Undo and redo, so that padding never rewrites the history being replayed.
+ *
+ * The padding itself is tagged HISTORY_MERGE_TAG so it never becomes an undo
+ * step of its own.
+ */
+function registerRaggedTableNormalization(editor: LexicalEditor): () => void {
+  return editor.registerUpdateListener(({dirtyElements, editorState, tags}) => {
+    if (
+      dirtyElements.size === 0 ||
+      tags.has(COLLABORATION_TAG) ||
+      tags.has(HISTORIC_TAG)
+    ) {
+      return;
+    }
+    const raggedKeys = editorState.read(() => {
+      const keys: NodeKey[] = [];
+      for (const key of dirtyElements.keys()) {
+        const node = $getNodeByKey(key);
+        if ($isTableNode(node) && $isTableRagged(node)) {
+          keys.push(key);
+        }
+      }
+      return keys;
+    });
+    if (raggedKeys.length === 0) {
+      return;
+    }
+    editor.update(
+      () => {
+        for (const key of raggedKeys) {
+          const node = $getNodeByKey(key);
+          if ($isTableNode(node)) {
+            $padTableRows(node);
+          }
+        }
+      },
+      {tag: HISTORY_MERGE_TAG},
+    );
+  });
 }
 
 function $tableClickCommand(event: MouseEvent): boolean {
@@ -541,6 +648,7 @@ export function registerTablePlugin(
     editor.registerNodeTransform(TableNode, $tableTransform),
     editor.registerNodeTransform(TableRowNode, $tableRowTransform),
     editor.registerNodeTransform(TableCellNode, $tableCellTransform),
+    registerRaggedTableNormalization(editor),
   );
 }
 
