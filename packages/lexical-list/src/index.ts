@@ -46,6 +46,10 @@ export {
   REMOVE_LIST_COMMAND,
   UPDATE_LIST_START_COMMAND,
 } from './registerList';
+export {
+  type TouchIndentationConfig,
+  TouchIndentationExtension,
+} from './TouchIndentationExtension';
 export {WordListImportExtension} from './WordListImportExtension';
 
 export {
