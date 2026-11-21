@@ -17,7 +17,7 @@ import {
   type LinkNode,
   type SerializedLinkNode,
 } from '@lexical/link';
-import {$createMarkNode, $isMarkNode} from '@lexical/mark';
+import {$createMarkNode, $isMarkNode, MarkNode} from '@lexical/mark';
 import {
   $createHeadingNode,
   $isHeadingNode,
@@ -25,6 +25,7 @@ import {
 } from '@lexical/rich-text';
 import {
   $cloneWithProperties,
+  $create,
   $createLineBreakNode,
   $createNodeSelection,
   $createParagraphNode,
@@ -33,12 +34,15 @@ import {
   $getNodeByKey,
   $getRoot,
   $getSelection,
+  $isElementNode,
   $isLineBreakNode,
   $isParagraphNode,
   $isRangeSelection,
   $isTextNode,
   $selectAll,
   $setSelection,
+  ElementNode,
+  type LexicalNode,
   type ParagraphNode,
   type RangeSelection,
   type SerializedParagraphNode,
@@ -1762,6 +1766,274 @@ describe('$toggleLink with a NodeSelection', () => {
       expect(link.getURL()).toBe('https://lexical.dev/docs');
       expect(link.getTitle()).toBe('Kept');
     });
+  });
+});
+
+describe('insertText at the edge of a link, in an inline element inside it (#9280)', () => {
+  // Any custom inline element. Like ElementNode by default, it takes text at
+  // its edges, where a LinkNode or a MarkNode takes none.
+  class InlineNode extends ElementNode {
+    $config() {
+      return this.config('test_inline', {extends: ElementNode});
+    }
+    createDOM(): HTMLElement {
+      return document.createElement('span');
+    }
+    updateDOM(): boolean {
+      return false;
+    }
+    isInline(): true {
+      return true;
+    }
+  }
+
+  // A block that takes no text at its edges. No published block does this.
+  class RefusingBlockNode extends ElementNode {
+    $config() {
+      return this.config('test_refusing_block', {extends: ElementNode});
+    }
+    createDOM(): HTMLElement {
+      return document.createElement('div');
+    }
+    updateDOM(): boolean {
+      return false;
+    }
+    canInsertTextBefore(): false {
+      return false;
+    }
+    canInsertTextAfter(): false {
+      return false;
+    }
+  }
+
+  const extension = defineExtension({
+    dependencies: [LinkExtension, RichTextExtension],
+    name: '[insert-text-at-link-edge]',
+    nodes: () => [MarkNode, InlineNode, RefusingBlockNode],
+  });
+
+  function $shape(node: LexicalNode): string {
+    if ($isTextNode(node)) {
+      return JSON.stringify(node.getTextContent());
+    }
+    if ($isElementNode(node)) {
+      return `${node.getType()}[${node.getChildren().map($shape).join(', ')}]`;
+    }
+    return node.getType();
+  }
+
+  const $link = (...children: LexicalNode[]) =>
+    $createLinkNode('https://example.com/').append(...children);
+  const $mark = (...children: LexicalNode[]) =>
+    $createMarkNode(['id']).append(...children);
+  const $inline = (...children: LexicalNode[]) =>
+    $create(InlineNode).append(...children);
+
+  /**
+   * Writes the block `$build` returns, puts the caret at the given edge of the
+   * text it names, inserts `X` there, and returns the block's shape.
+   */
+  function insertX(
+    $build: () => [ElementNode, TextNode],
+    edge: 'start' | 'end',
+  ): string {
+    using editor = buildEditorFromExtensions(extension);
+    editor.update(
+      () => {
+        const [paragraph, caret] = $build();
+        $getRoot().clear().append(paragraph);
+        const offset = edge === 'start' ? 0 : caret.getTextContentSize();
+        caret.select(offset, offset);
+      },
+      {discrete: true},
+    );
+    editor.update(
+      () => {
+        const selection = $getSelection();
+        assert($isRangeSelection(selection), 'Expected a RangeSelection');
+        selection.insertText('X');
+      },
+      {discrete: true},
+    );
+    return editor.read(() => $shape($getRoot().getFirstChildOrThrow()));
+  }
+
+  test('writes after the link, at the end of a MarkNode that ends it', () => {
+    expect(
+      insertX(() => {
+        const caret = $createTextNode('xy');
+        return [
+          $createParagraphNode().append(
+            $createTextNode('ab '),
+            $link($createTextNode('cd '), $mark(caret)),
+          ),
+          caret,
+        ];
+      }, 'end'),
+    ).toBe('paragraph["ab ", link["cd ", mark["xy"]], "X"]');
+  });
+
+  test('writes after the link, at the end of an inline element that ends it', () => {
+    expect(
+      insertX(() => {
+        const caret = $createTextNode('xy');
+        return [
+          $createParagraphNode().append(
+            $createTextNode('ab '),
+            $link($createTextNode('cd '), $inline(caret)),
+          ),
+          caret,
+        ];
+      }, 'end'),
+    ).toBe('paragraph["ab ", link["cd ", test_inline["xy"]], "X"]');
+  });
+
+  test('writes into the text after the link, at the end of an inline element that ends it', () => {
+    expect(
+      insertX(() => {
+        const caret = $createTextNode('xy');
+        return [
+          $createParagraphNode().append(
+            $createTextNode('ab '),
+            $link($createTextNode('cd '), $inline(caret)),
+            $createTextNode(' ef'),
+          ),
+          caret,
+        ];
+      }, 'end'),
+    ).toBe('paragraph["ab ", link["cd ", test_inline["xy"]], "X ef"]');
+  });
+
+  test('writes before the link, at the start of an inline element that starts it', () => {
+    expect(
+      insertX(() => {
+        const caret = $createTextNode('xy');
+        return [
+          $createParagraphNode().append(
+            $link($inline(caret), $createTextNode(' cd')),
+            $createTextNode(' ef'),
+          ),
+          caret,
+        ];
+      }, 'start'),
+    ).toBe('paragraph["X", link[test_inline["xy"], " cd"], " ef"]');
+  });
+
+  test('writes after the link, at the end of its own text', () => {
+    expect(
+      insertX(() => {
+        const caret = $createTextNode('cd');
+        return [
+          $createParagraphNode().append($createTextNode('ab '), $link(caret)),
+          caret,
+        ];
+      }, 'end'),
+    ).toBe('paragraph["ab ", link["cd"], "X"]');
+  });
+
+  test('writes before the link, at the start of its own text', () => {
+    expect(
+      insertX(() => {
+        const caret = $createTextNode('cd');
+        return [
+          $createParagraphNode().append($link(caret), $createTextNode(' ef')),
+          caret,
+        ];
+      }, 'start'),
+    ).toBe('paragraph["X", link["cd"], " ef"]');
+  });
+
+  test('writes before the link, at the start of a MarkNode that starts it', () => {
+    expect(
+      insertX(() => {
+        const caret = $createTextNode('xy');
+        return [
+          $createParagraphNode().append(
+            $link($mark(caret), $createTextNode(' cd')),
+            $createTextNode(' ef'),
+          ),
+          caret,
+        ];
+      }, 'start'),
+    ).toBe('paragraph["X", link[mark["xy"], " cd"], " ef"]');
+  });
+
+  test("writes in an inline element away from the link's edge", () => {
+    expect(
+      insertX(() => {
+        const caret = $createTextNode('xy');
+        return [
+          $createParagraphNode().append(
+            $createTextNode('ab '),
+            $link($inline(caret), $createTextNode(' cd')),
+          ),
+          caret,
+        ];
+      }, 'end'),
+    ).toBe('paragraph["ab ", link[test_inline["xyX"], " cd"]]');
+  });
+
+  test('writes after the MarkNode, at the end of a link that ends it', () => {
+    expect(
+      insertX(() => {
+        const caret = $createTextNode('ef');
+        return [
+          $createParagraphNode().append(
+            $createTextNode('ab '),
+            $mark($createTextNode('cd '), $link(caret)),
+          ),
+          caret,
+        ];
+      }, 'end'),
+    ).toBe('paragraph["ab ", mark["cd ", link["ef"]], "X"]');
+  });
+
+  test('writes after the MarkNode, at the end of an inline element that ends it', () => {
+    expect(
+      insertX(() => {
+        const caret = $createTextNode('xy');
+        return [
+          $createParagraphNode().append(
+            $createTextNode('ab '),
+            $mark($createTextNode('cd '), $inline(caret)),
+            $createTextNode(' ef'),
+          ),
+          caret,
+        ];
+      }, 'end'),
+    ).toBe('paragraph["ab ", mark["cd ", test_inline["xy"]], "X ef"]');
+  });
+
+  test.each(['start', 'end'] as const)(
+    'writes in an inline element at the %s of a block that takes no text there',
+    edge => {
+      expect(
+        insertX(() => {
+          const caret = $createTextNode('xy');
+          return [$create(RefusingBlockNode).append($inline(caret)), caret];
+        }, edge),
+      ).toBe(
+        edge === 'start'
+          ? 'test_refusing_block[test_inline["Xxy"]]'
+          : 'test_refusing_block[test_inline["xyX"]]',
+      );
+    },
+  );
+
+  test('writes between two tokens inside a link, in the link', () => {
+    expect(
+      insertX(() => {
+        const caret = $createTextNode('cd').setMode('token');
+        return [
+          $createParagraphNode().append(
+            $createTextNode('ab '),
+            $link(caret, $createTextNode('ef').setMode('token')),
+            $createTextNode(' gh'),
+          ),
+          caret,
+        ];
+      }, 'end'),
+    ).toBe('paragraph["ab ", link["cd", "X", "ef"], " gh"]');
   });
 });
 

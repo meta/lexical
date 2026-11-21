@@ -1151,6 +1151,41 @@ function $previousSiblingDoesNotAcceptText(node: TextNode): boolean {
   );
 }
 
+/**
+ * @internal
+ *
+ * The outermost element that takes no text at the start (or end) of `node`:
+ * its parent, or an inline element above it that `node` is also at the start
+ * (or end) of. A LinkNode takes no text at its edges, so text typed at the end
+ * of a MarkNode or another inline element that ends a link belongs after the
+ * link. Null when every one of those elements takes text there.
+ */
+export function $getOutermostAncestorRefusingText(
+  node: TextNode,
+  isBefore: boolean,
+): ElementNode | null {
+  let refusing: ElementNode | null = null;
+  let child: LexicalNode = node;
+  let parent = child.getParent();
+  while (
+    parent !== null &&
+    (isBefore ? child.getPreviousSibling() : child.getNextSibling()) === null
+  ) {
+    if (
+      (child === node || parent.isInline()) &&
+      (isBefore ? !parent.canInsertTextBefore() : !parent.canInsertTextAfter())
+    ) {
+      refusing = parent;
+    }
+    if (!parent.isInline()) {
+      break;
+    }
+    child = parent;
+    parent = child.getParent();
+  }
+  return refusing;
+}
+
 // This function is connected to $shouldPreventDefaultAndInsertText and determines whether the
 // TextNode boundaries are writable or we should use the previous/next sibling instead. For example,
 // in the case of a LinkNode, boundaries are not writable.
@@ -1170,14 +1205,18 @@ export function $shouldInsertTextAfterOrBeforeTextNode(
   if (offset === 0) {
     return (
       !node.canInsertTextBefore() ||
-      (!parent.canInsertTextBefore() && !node.isComposing()) ||
+      ((!parent.canInsertTextBefore() ||
+        $getOutermostAncestorRefusingText(node, true) !== null) &&
+        !node.isComposing()) ||
       isToken ||
       $previousSiblingDoesNotAcceptText(node)
     );
   } else if (offset === node.getTextContentSize()) {
     return (
       !node.canInsertTextAfter() ||
-      (!parent.canInsertTextAfter() && !node.isComposing()) ||
+      ((!parent.canInsertTextAfter() ||
+        $getOutermostAncestorRefusingText(node, false) !== null) &&
+        !node.isComposing()) ||
       isToken
     );
   } else {

@@ -96,6 +96,7 @@ import {
   $getNearestRootOrShadowRoot,
   $getNodeByKey,
   $getNodeFromDOM,
+  $getOutermostAncestorRefusingText,
   $getRoot,
   $hasAncestor,
   $isEmptyCompositionTarget,
@@ -429,21 +430,24 @@ function $insertText(
   invariant($isTextNode(anchorNode), 'insertText: anchor is not a text node');
   const offset = selection.anchor.offset;
 
-  const anchorParent = anchorNode.getParentOrThrow();
   const anchorSize = anchorNode.getTextContentSize();
+  const refusingBefore =
+    offset === 0 ? $getOutermostAncestorRefusingText(anchorNode, true) : null;
+  const refusingAfter =
+    offset === anchorSize
+      ? $getOutermostAncestorRefusingText(anchorNode, false)
+      : null;
   const needsRedirect =
     $isTokenOrSegmented(anchorNode) ||
     (offset === 0 &&
-      (!anchorNode.canInsertTextBefore() ||
-        (!anchorParent.canInsertTextBefore() && !anchorNode.__prev))) ||
+      (!anchorNode.canInsertTextBefore() || refusingBefore !== null)) ||
     (offset === anchorSize &&
-      (!anchorNode.canInsertTextAfter() ||
-        (!anchorParent.canInsertTextAfter() && !anchorNode.__next)));
+      (!anchorNode.canInsertTextAfter() || refusingAfter !== null));
 
   if (needsRedirect) {
-    // Token/segmented nodes and nodes whose parent forbids text insertion
-    // at the boundary: reposition the cursor to an adjacent insertable
-    // node, then recurse.
+    // Token/segmented nodes, and an edge of the text where it or an element
+    // around it takes no text: reposition the cursor to an adjacent
+    // insertable node, then recurse.
 
     // Segmented node with cursor in the middle: convert to normal
     // text node so that the recursive insertText can proceed.
@@ -480,7 +484,9 @@ function $insertText(
       return;
     }
     if (offset === 0 || offset === anchorSize) {
-      const before = offset === 0;
+      // An empty text is at both edges: redirect the way something refuses.
+      const before =
+        offset === 0 && (refusingBefore !== null || refusingAfter === null);
       const direction = before ? 'previous' : 'next';
       const sibling = $getSiblingCaret(anchorNode, direction).getNodeAtCaret();
       let target: TextNode;
@@ -494,11 +500,8 @@ function $insertText(
         target = sibling;
       } else {
         target = $createTextNode().setFormat(format).setStyle(style);
-        const canInsert = before
-          ? anchorParent.canInsertTextBefore()
-          : anchorParent.canInsertTextAfter();
         $getSiblingCaret(
-          canInsert ? anchorNode : anchorParent,
+          (before ? refusingBefore : refusingAfter) || anchorNode,
           direction,
         ).insert(target);
       }
