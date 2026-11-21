@@ -21,6 +21,7 @@ import {
   type LexicalEditor,
   mergeRegister,
   safeCast,
+  shallowMergeConfig,
   type TextNode,
 } from 'lexical';
 
@@ -384,8 +385,18 @@ export const TextSubstitutionExtension = defineExtension({
   },
   config: safeCast<TextSubstitutionConfig>({
     disabled: false,
-    substitutions: {},
+    substitutions: DEFAULT_TEXT_SUBSTITUTIONS,
   }),
+  mergeConfig(config, overrides) {
+    const merged = shallowMergeConfig(config, overrides);
+    if (overrides.substitutions !== undefined) {
+      merged.substitutions = {
+        ...config.substitutions,
+        ...overrides.substitutions,
+      };
+    }
+    return merged;
+  },
   name: '@lexical/extension/TextSubstitution',
   register(editor, config, state) {
     const {disabled, substitutions} = state.getOutput();
@@ -393,11 +404,7 @@ export const TextSubstitutionExtension = defineExtension({
       if (disabled.value) {
         return undefined;
       }
-      const merged: Record<string, string> = {
-        ...DEFAULT_TEXT_SUBSTITUTIONS,
-        ...substitutions.value,
-      };
-      return registerTextSubstitution(editor, merged);
+      return registerTextSubstitution(editor, substitutions.value);
     });
   },
 });
