@@ -7,7 +7,15 @@
  * @flow strict
  */
 
+import type {LexicalNode} from 'lexical';
+
 import * as React from 'react';
+
+export type DraggableBlockBehavior =
+  | 'draggable'
+  | 'atomic'
+  | 'transparent'
+  | 'ignored';
 
 type Props = Readonly<{
   anchorElem?: ?HTMLElement,
@@ -16,7 +24,8 @@ type Props = Readonly<{
   menuComponent: React.Node,
   targetLineComponent: React.Node,
   isOnMenu: (element: HTMLElement) => boolean,
-  onElementChanged?: (element: HTMLElement | null) => void
+  onElementChanged?: (element: HTMLElement | null) => void,
+  $getBlockBehavior?: (node: LexicalNode) => ?DraggableBlockBehavior,
 }>;
 	
 declare export function DraggableBlockPlugin_EXPERIMENTAL(
