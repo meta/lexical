@@ -6,7 +6,7 @@
  *
  */
 
-import {$createCodeNode, CodeExtension} from '@lexical/code';
+import {$createCodeNode, CodeExtension, CodeNode} from '@lexical/code';
 import {
   buildEditorFromExtensions,
   configExtension,
@@ -17,6 +17,7 @@ import {
 import {HistoryExtension} from '@lexical/history';
 import {RichTextExtension} from '@lexical/rich-text';
 import {
+  $create,
   $createParagraphNode,
   $createTextNode,
   $getRoot,
@@ -70,7 +71,7 @@ if (
 
 function setUpEditor(
   options: {
-    substitutions?: Readonly<Record<string, string>>;
+    substitutions?: Readonly<Record<string, string | null>>;
     withHistory?: boolean;
     withRichText?: boolean;
   } = {},
@@ -241,6 +242,73 @@ describe('TextSubstitutionExtension', () => {
     );
     await typeText(editor, '--');
     expect(getText(editor)).toBe('x--');
+  });
+
+  test('does not substitute inside a code block subclass with its own type', async () => {
+    // A CodeNode subclass that overrides its type: a plain getType()
+    // check would miss it, so substitutions must stay off here too.
+    class MyCodeNode extends CodeNode {
+      $config() {
+        return this.config('my-code', {extends: CodeNode});
+      }
+    }
+    using editor = buildEditorFromExtensions(
+      defineExtension({
+        $initialEditorState: () => {
+          const paragraph = $createParagraphNode();
+          $getRoot().append(paragraph);
+          paragraph.selectEnd();
+        },
+        dependencies: [TextSubstitutionExtension],
+        name: 'text-substitution-code-subclass-test',
+        nodes: [MyCodeNode],
+      }),
+    );
+    editor.update(
+      () => {
+        const paragraph = $getRoot().getFirstChildOrThrow();
+        paragraph.remove();
+        const code = $create(MyCodeNode);
+        $getRoot().append(code);
+        code.append($createTextNode('x'));
+        code.selectEnd();
+      },
+      {discrete: true},
+    );
+    await typeText(editor, '--');
+    expect(getText(editor)).toBe('x--');
+  });
+
+  test('an alias with regex characters matches literally, not as a pattern', async () => {
+    using editor = setUpEditor({
+      substitutions: {'a.b': 'DOT'},
+    });
+    await typeText(editor, 'a.b');
+    expect(getText(editor)).toBe('DOT');
+    using editor2 = setUpEditor({
+      substitutions: {'a.b': 'DOT'},
+    });
+    // The '.' is a literal dot, not a wildcard: 'axb' must not fire.
+    await typeText(editor2, 'axb');
+    expect(getText(editor2)).toBe('axb');
+  });
+
+  test('invalid entries are ignored: an empty alias and an alias mapping to itself', async () => {
+    using editor = setUpEditor({
+      substitutions: {'': 'X', '--': '--'},
+    });
+    await typeText(editor, '--');
+    expect(getText(editor)).toBe('--');
+  });
+
+  test('mapping a default to null removes it while other defaults still work', async () => {
+    using editor = setUpEditor({
+      substitutions: {'--': null},
+    });
+    await typeText(editor, '--');
+    expect(getText(editor)).toBe('--');
+    await typeText(editor, ' (c)');
+    expect(getText(editor)).toBe('-- ©');
   });
 
   test('a single undo reverts the substitution, restoring the alias', async () => {

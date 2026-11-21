@@ -8,17 +8,19 @@
 
 import {
   $addUpdateTag,
+  $getNodeByKey,
   $getSelection,
   $isRangeSelection,
   $isTextNode,
   COLLABORATION_TAG,
-  COMMAND_PRIORITY_LOW,
+  COMMAND_PRIORITY_BEFORE_EDITOR,
   defineExtension,
   DELETE_CHARACTER_COMMAND,
   HISTORIC_TAG,
   HISTORY_MERGE_TAG,
   HISTORY_PUSH_TAG,
   type LexicalEditor,
+  type LexicalNode,
   mergeRegister,
   safeCast,
   shallowMergeConfig,
@@ -54,8 +56,12 @@ export interface TextSubstitutionConfig {
    * {@link DEFAULT_TEXT_SUBSTITUTIONS}. Keys are the alias as typed and
    * values are the replacement text. When aliases overlap, the longest
    * alias wins (so `-->` beats `--`).
+   *
+   * Set an alias to `null` to remove it, including a default: for
+   * example, `{'--': null}` turns the `--` substitution off. An alias
+   * that maps to itself (for example, `{'--': '--'}`) is ignored.
    */
-  substitutions: Readonly<Record<string, string>>;
+  substitutions: Readonly<Record<string, string | null>>;
 }
 
 interface SubstitutionRecord {
@@ -76,38 +82,115 @@ interface SubstitutionRecord {
  */
 const TEXT_SUBSTITUTION_TAG = 'text-substitution';
 
-function $findSubstitution(
-  text: string,
-  entries: readonly (readonly [string, string])[],
-): {alias: string; replacement: string; start: number} | null {
-  for (const [alias, replacement] of entries) {
-    if (alias.length > 0 && alias !== replacement && text.endsWith(alias)) {
-      return {alias, replacement, start: text.length - alias.length};
-    }
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+interface SubstitutionMatcher {
+  /**
+   * The replacement for the alias that the text ends with, or `null`
+   * when it ends with no alias. When aliases overlap, the longest
+   * alias wins (so `-->` beats `--`).
+   */
+  match(
+    text: string,
+  ): {alias: string; replacement: string; start: number} | null;
+  /** The replacement for one alias, or `undefined` when it is not one. */
+  getReplacement(alias: string): string | undefined;
+}
+
+/**
+ * Compile the substitutions into a single matcher. The matcher is built
+ * once per configuration change, not once per keystroke: invalid entries
+ * (an empty alias, a `null` value, or an alias that maps to itself) are
+ * filtered out here, the remaining aliases are sorted longest first so
+ * the alternation tries the longest alias first, and a single regex
+ * anchored at the end of the text does the matching. A per-keystroke
+ * scan over every entry would repeat all of that work on every typed
+ * character.
+ */
+function buildSubstitutionMatcher(
+  substitutions: Readonly<Record<string, string | null>>,
+): SubstitutionMatcher {
+  const entries = Object.entries(substitutions)
+    .filter(
+      (entry): entry is [string, string] =>
+        entry[1] !== null && entry[0].length > 0 && entry[0] !== entry[1],
+    )
+    .sort((a, b) => b[0].length - a[0].length);
+  if (entries.length === 0) {
+    return {getReplacement: () => undefined, match: () => null};
   }
-  return null;
+  const pattern = new RegExp(
+    `(${entries.map(([alias]) => escapeRegExp(alias)).join('|')})$`,
+  );
+  const replacements = new Map(entries);
+  return {
+    getReplacement(alias: string): string | undefined {
+      return replacements.get(alias);
+    },
+    match(text: string) {
+      const result = pattern.exec(text);
+      if (result === null) {
+        return null;
+      }
+      const alias = result[1];
+      const replacement = replacements.get(alias);
+      if (replacement === undefined) {
+        return null;
+      }
+      return {alias, replacement, start: result.index};
+    },
+  };
+}
+
+/**
+ * Whether the node is a code block node. `$isCodeNode` from
+ * `@lexical/code` cannot be used here: both `@lexical/code` and
+ * `@lexical/code-core` depend on `@lexical/extension`, so importing it
+ * would be circular. Instead, walk the node's class hierarchy for a
+ * static `getType()` of `'code'`, which also matches a subclass that
+ * overrides `getType()` with its own type string — the case a plain
+ * `getType()` check misses.
+ */
+function $isCodeBlock(node: LexicalNode | null | undefined): boolean {
+  let ctor: unknown;
+  if (node !== null && node !== undefined) {
+    ctor = node.constructor;
+  }
+  while (typeof ctor === 'function') {
+    const getType = (ctor as {getType?: unknown}).getType;
+    if (typeof getType === 'function') {
+      try {
+        if (getType.call(ctor) === 'code') {
+          return true;
+        }
+      } catch {
+        // The base LexicalNode.getType() throws for abstract classes
+        // (ElementNode and the like), which have no concrete type:
+        // keep walking up the hierarchy.
+      }
+    }
+    ctor = Object.getPrototypeOf(ctor);
+  }
+  return false;
 }
 
 function $isSubstitutableNode(node: TextNode): boolean {
   const parent = node.getParent();
-  if (parent !== null && parent.getType() === 'code') {
+  if (parent !== null && $isCodeBlock(parent)) {
     return false;
   }
-  // Inline code formatting (and, without a dependency on @lexical/code,
-  // a parent whose type is 'code') is left alone: substitutions are a
-  // prose feature, and code text must stay verbatim.
+  // Inline code formatting is left alone: substitutions are a prose
+  // feature, and code text must stay verbatim.
   return !node.hasFormat('code');
 }
 
 function registerTextSubstitution(
   editor: LexicalEditor,
-  substitutions: Readonly<Record<string, string>>,
+  substitutions: Readonly<Record<string, string | null>>,
 ) {
-  // Longest alias first, so '-->' wins over '--' and '<--' over '<-'.
-  const entries = Object.entries(substitutions).sort(
-    (a, b) => b[0].length - a[0].length,
-  );
-  const substitutionMap = new Map(entries);
+  const matcher = buildSubstitutionMatcher(substitutions);
   let lastSubstitution: SubstitutionRecord | null = null;
 
   return mergeRegister(
@@ -140,12 +223,16 @@ function registerTextSubstitution(
         }
         const anchorKey = selection.anchor.key;
         const anchorOffset = selection.anchor.offset;
-        const anchorNode = editorState._nodeMap.get(anchorKey);
         // Node reads need an active editor, which the update listener
-        // does not provide — read through editorState with {editor}.
-        const anchorText = $isTextNode(anchorNode)
-          ? editorState.read(() => anchorNode.getTextContent(), {editor})
-          : null;
+        // does not provide — read the node through editorState with
+        // {editor}, using the public $getNodeByKey.
+        const anchorText = editorState.read(
+          () => {
+            const anchorNode = $getNodeByKey(anchorKey);
+            return $isTextNode(anchorNode) ? anchorNode.getTextContent() : null;
+          },
+          {editor},
+        );
         if (
           anchorText === null ||
           // Only fire on a single typed character, at the end of the
@@ -172,7 +259,7 @@ function registerTextSubstitution(
         ) {
           const typedChar = text[anchorOffset - 1];
           const extendedAlias = lastSubstitution.alias + typedChar;
-          const extendedReplacement = substitutionMap.get(extendedAlias);
+          const extendedReplacement = matcher.getReplacement(extendedAlias);
           if (
             extendedReplacement !== undefined &&
             text.slice(lastSubstitution.start, anchorOffset) ===
@@ -262,7 +349,7 @@ function registerTextSubstitution(
         if (!dirtyLeaves.has(anchorKey)) {
           return;
         }
-        const match = $findSubstitution(text, entries);
+        const match = matcher.match(text);
         if (match === null) {
           return;
         }
@@ -339,10 +426,13 @@ function registerTextSubstitution(
         $addUpdateTag(TEXT_SUBSTITUTION_TAG);
         return true;
       },
-      // RichTextExtension's delete handler runs at COMMAND_PRIORITY_EDITOR
-      // (0); LOW (1) runs before it, so returning true here stops the
+      // The delete handler only needs to run before RichTextExtension's
+      // own delete handler (COMMAND_PRIORITY_EDITOR, 0), so it uses
+      // COMMAND_PRIORITY_BEFORE_EDITOR: the lowest priority that still
+      // runs before the editor's handlers, leaving higher-priority
+      // handlers (other plugins) first. Returning true here stops the
       // character from being deleted instead of reverted.
-      COMMAND_PRIORITY_LOW,
+      COMMAND_PRIORITY_BEFORE_EDITOR,
     ),
   );
 }
@@ -362,8 +452,7 @@ function registerTextSubstitution(
  * edits in between — restores the alias text instead of deleting one
  * character.
  *
- * To turn off a single default, map it to itself, e.g.
- * `{'--': '--'}`: an alias equal to its replacement is never applied.
+ * To turn off a single default, map it to `null`, e.g. `{'--': null}`.
  * Substitutions only fire at the end of a text node, so typing `--` in
  * the middle of an existing sentence does not substitute.
  *
@@ -390,10 +479,19 @@ export const TextSubstitutionExtension = defineExtension({
   mergeConfig(config, overrides) {
     const merged = shallowMergeConfig(config, overrides);
     if (overrides.substitutions !== undefined) {
-      merged.substitutions = {
+      const substitutions = {
         ...config.substitutions,
         ...overrides.substitutions,
       };
+      // A `null` value removes the substitution, including a default.
+      for (const [alias, replacement] of Object.entries(
+        overrides.substitutions,
+      )) {
+        if (replacement === null) {
+          delete substitutions[alias];
+        }
+      }
+      merged.substitutions = substitutions;
     }
     return merged;
   },

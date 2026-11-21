@@ -40,7 +40,7 @@ export function TextSubstitutionDialog({
   const [replacement, setReplacement] = useState('');
 
   const setSubstitutions = useCallback(
-    (next: Readonly<Record<string, string>>) => {
+    (next: Readonly<Record<string, string | null>>) => {
       getExtensionDependencyFromEditor(
         activeEditor,
         TextSubstitutionExtension,
@@ -80,9 +80,10 @@ export function TextSubstitutionDialog({
     setSubstitutions(DEFAULT_TEXT_SUBSTITUTIONS);
   }, [setSubstitutions]);
 
-  const entries = Object.entries(substitutions).sort((a, b) =>
-    a[0].localeCompare(b[0]),
-  );
+  // A `null` value removes a substitution, so it has no row here.
+  const entries = Object.entries(substitutions)
+    .filter((entry): entry is [string, string] => entry[1] !== null)
+    .sort((a, b) => a[0].localeCompare(b[0]));
 
   return (
     <>
