@@ -255,7 +255,7 @@ const ORDERED_LIST_REGEX = /^(\s*)(\d{1,})\.\s/;
 const UNORDERED_LIST_REGEX = /^(\s*)[-*+]\s/;
 const CHECK_LIST_REGEX = /^(\s*)(?:[-*+]\s)?\s?(\[(\s|x)?\])\s/i;
 const HEADING_REGEX = /^(#{1,6})\s/;
-const QUOTE_REGEX = /^>[ \t]?/;
+const QUOTE_REGEX = /^>[ \t]?\S/;
 const QUOTE_BLANK_LINE_REGEX = /^>\s*$/;
 /**
  * Whether `line` is a blank line of the quote `previous` is in: `>` alone (its
@@ -885,7 +885,7 @@ function exportQuote(
   const lines = content.split('\n');
   const output = [];
   for (const line of lines) {
-    output.push(line ? '> ' + line : '>');
+    output.push('> ' + line);
   }
   return output.join('\n');
 }
@@ -925,18 +925,27 @@ function $replaceWithQuote(
   match: string[],
   isImport: boolean,
 ): boolean | void {
-  if (match[0] === '>') {
-    // A bare `>` (CommonMark: a quote marker needs no space): the blank line
-    // between two blocks of a quote that holds blocks. A quote of inline
-    // content keeps reading it as text, as it always has. Typed (Enter after
+  if (!isImport && match[0] === '>') {
+    return false;
+  }
+  const isBareMarker =
+    children.length === 0 ||
+    children.every(
+      child => $isTextNode(child) && child.getTextContentSize() === 0,
+    );
+  if (isBareMarker) {
+    // A bare `>` (CommonMark: a quote marker needs no space): inside a quote
+    // (a quote container or an inline QuoteNode), it represents a blank quote
+    // line. Outside a quote, it keeps reading as text. Typed (Enter after
     // a lone `>`), nothing happens: the shortcut strips the marker only when
     // `replace` succeeds, so the text is left as it is.
-    if (!isImport) {
-      return false;
-    }
     const previousNode = parentNode.getPreviousSibling();
     if (
-      !($isQuoteContainerNode(previousNode) || $createQuote().isShadowRoot())
+      !(
+        $isQuoteNode(previousNode) ||
+        $isQuoteContainerNode(previousNode) ||
+        $createQuote().isShadowRoot()
+      )
     ) {
       for (const child of children) {
         if ($isTextNode(child)) {

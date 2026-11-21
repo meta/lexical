@@ -2,7 +2,6 @@
 '@lexical/markdown': patch
 ---
 
-[fix] Support block quotes without space after `>` and export blank quote lines as `>`
+[fix] Support block quotes without space after `>`
 
-Verify: Blank quote lines within a blockquote now export as `>` instead of `> `, unspaced quote lines like `>text` are recognized on import, and paragraph lines starting with `>` (including partial selections and lines following soft breaks) are escaped on export to round-trip cleanly as paragraphs. Markdown saved by earlier versions from a paragraph beginning with `>` (such as `>5 items`), or any text passed to `$convertFromMarkdownString` that starts with `>` and a non-space character (such as table-cell text), now loads as a quote per CommonMark §5.1. A custom transformer spreading `QUOTE` or reusing `QUOTE.regExp` with its own `replace` handler inherits or should decline `match[0] === '>'` outside import (`!isImport`) to preserve shortcut behavior on Enter.
-
+Verify: Unspaced quote lines like `>text` are now recognized on import per CommonMark §5.1, and paragraph lines starting with `>` (including partial selections and lines following soft breaks) are escaped on export to round-trip cleanly as paragraphs. A custom transformer spreading `QUOTE` or `QUOTE_CONTAINER` or reusing their `regExp` with its own `replace` handler inherits or should decline `match[0] === '>'` outside import (`!isImport`) to preserve shortcut behavior on Enter.
