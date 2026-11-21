@@ -882,6 +882,30 @@ describe('Segmented node composition (#5065)', () => {
     );
   });
 
+  test('insertText with toggled format into a segmented node only formats the inserted text', () => {
+    using editor = buildEditorFromExtensions(selectionTestExtension);
+    editor.update(
+      () => {
+        const segmented = $createTextNode('JohnSmith').setMode('segmented');
+        $getRoot().clear().append($createParagraphNode().append(segmented));
+
+        const sel = segmented.select(4, 4);
+        sel.formatText('bold');
+        sel.insertText('X');
+
+        const allText = $getRoot().getAllTextNodes();
+        expect(
+          allText.map(n => [n.getTextContent(), n.hasFormat('bold')]),
+        ).toEqual([
+          ['John', false],
+          ['X', true],
+          ['Smith', false],
+        ]);
+      },
+      {discrete: true},
+    );
+  });
+
   test('insertText without composition keeps the NodeState and detail of the segmented node', () => {
     const note = createState('note', {
       parse: v => (typeof v === 'string' ? v : ''),
