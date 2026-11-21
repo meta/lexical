@@ -10,6 +10,8 @@ import {$createCodeNode, CodeExtension} from '@lexical/code';
 import {
   buildEditorFromExtensions,
   configExtension,
+  DEFAULT_TEXT_SUBSTITUTIONS,
+  getExtensionDependencyFromEditor,
   TextSubstitutionExtension,
 } from '@lexical/extension';
 import {HistoryExtension} from '@lexical/history';
@@ -344,5 +346,44 @@ describe('TextSubstitutionExtension', () => {
     editor.dispatchCommand(DELETE_CHARACTER_COMMAND, true);
     await tick();
     expect(getText(editor)).toBe('hello');
+  });
+
+  test('updating the substitutions signal at runtime changes what gets replaced', async () => {
+    using editor = setUpEditor();
+    await typeText(editor, 'hello--');
+    expect(getText(editor)).toBe('hello—');
+    const substitutionsSignal = getExtensionDependencyFromEditor(
+      editor,
+      TextSubstitutionExtension,
+    ).output.substitutions;
+    // Replacing the map drops the defaults: a custom entry now fires
+    // and '--' is left alone.
+    substitutionsSignal.value = {':)': '::)'};
+    await tick();
+    await typeText(editor, ' :)');
+    expect(getText(editor)).toBe('hello— ::)');
+    await typeText(editor, ' --');
+    expect(getText(editor)).toBe('hello— ::) --');
+  });
+
+  test('overriding a default at runtime and restoring the defaults', async () => {
+    using editor = setUpEditor();
+    const substitutionsSignal = getExtensionDependencyFromEditor(
+      editor,
+      TextSubstitutionExtension,
+    ).output.substitutions;
+    substitutionsSignal.value = {
+      ...DEFAULT_TEXT_SUBSTITUTIONS,
+      '(c)': 'CUSTOM',
+    };
+    await tick();
+    await typeText(editor, '(c)');
+    expect(getText(editor)).toBe('CUSTOM');
+    await typeText(editor, ' --');
+    expect(getText(editor)).toBe('CUSTOM —');
+    substitutionsSignal.value = DEFAULT_TEXT_SUBSTITUTIONS;
+    await tick();
+    await typeText(editor, ' (c)');
+    expect(getText(editor)).toBe('CUSTOM — ©');
   });
 });

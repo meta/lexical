@@ -24,6 +24,7 @@ import {
   SelectBlockExtension,
   SelectionAlwaysOnDisplayExtension,
   TabIndentationExtension,
+  TextSubstitutionExtension,
   WatchEditableExtension,
 } from '@lexical/extension';
 import {HashtagExtension} from '@lexical/hashtag';
@@ -237,6 +238,7 @@ const PlaygroundRichTextExtension = defineExtension({
     }),
     CheckListExtension,
     PlaygroundMarkdownShortcutsExtension,
+    TextSubstitutionExtension,
     PageBreakExtension,
     PagesReactExtension,
     PollExtension,

@@ -1,0 +1,45 @@
+/**
+ * Copyright (c) Meta Platforms, Inc. and affiliates.
+ *
+ * This source code is licensed under the MIT license found in the
+ * LICENSE file in the root directory of this source tree.
+ *
+ */
+
+.TextSubstitutionDialog__note {
+  margin: 0 0 12px 0;
+}
+
+.TextSubstitutionDialog__list {
+  list-style: none;
+  margin: 0 0 12px 0;
+  padding: 0;
+  max-height: 240px;
+  overflow-y: auto;
+}
+
+.TextSubstitutionDialog__row {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+  padding: 4px 0;
+}
+
+.TextSubstitutionDialog__alias,
+.TextSubstitutionDialog__replacement {
+  font-family: monospace;
+}
+
+.TextSubstitutionDialog__alias {
+  flex: 1;
+  overflow-wrap: anywhere;
+}
+
+.TextSubstitutionDialog__arrow {
+  color: #888;
+}
+
+.TextSubstitutionDialog__replacement {
+  flex: 1;
+  overflow-wrap: anywhere;
+}
