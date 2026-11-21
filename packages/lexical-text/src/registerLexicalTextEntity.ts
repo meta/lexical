@@ -637,12 +637,29 @@ export function registerLexicalTextEntity<T extends TextNode>(
               if (!isEntityAfter(remainingText, nextSibling, false)) {
                 $replaceWithSimpleText(nextSibling);
               }
-            } else {
-              nextSibling.markDirty();
             }
 
             return;
           } else if (match === null || nextMatch.start !== match.start) {
+            if (
+              match === null &&
+              nextMatch.start >= remainingText.length &&
+              $isTextNode(nextSibling) &&
+              nextSibling.isSimpleText()
+            ) {
+              const updateState =
+                INTERNAL_getActiveEditorState() || editor.getEditorState();
+              let marked = markedInUpdate.get(updateState);
+              if (marked === undefined) {
+                marked = new Set();
+                markedInUpdate.set(updateState, marked);
+              }
+              if (!marked.has(nextSibling.getKey())) {
+                marked.add(nextSibling.getKey());
+                nextSibling.markDirty();
+              }
+            }
+
             return;
           }
         }
