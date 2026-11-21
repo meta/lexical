@@ -24,9 +24,11 @@ import {
   type TableNode,
   type TableSelection,
 } from '@lexical/table';
+import {$insertNodeToNearestRoot} from '@lexical/utils';
 import {
   $createParagraphNode,
   $createTextNode,
+  $getNodeByKey,
   $getRoot,
   $getSelection,
   $isParagraphNode,
@@ -34,6 +36,7 @@ import {
   $isTextNode,
   $selectAll,
   $setSelection,
+  type NodeKey,
 } from 'lexical';
 import {$assertNodeType, initializeUnitTest} from 'lexical/src/__tests__/utils';
 import {assert, beforeEach, describe, expect, test} from 'vitest';
@@ -366,6 +369,46 @@ describe('table selection', () => {
             expect(nodes).toEqual([]);
           }
         });
+      });
+    });
+
+    test('inserts at the document end after the selected table is removed', () => {
+      const editor = testEnv.editor;
+      let insertedKey: NodeKey;
+      editor.update(
+        () => {
+          tableNode.insertBefore(
+            $createParagraphNode().append($createTextNode('Before table')),
+          );
+        },
+        {discrete: true},
+      );
+      editor.update(() => tableNode.remove(), {discrete: true});
+      editor.update(
+        () => {
+          const selection = $getSelection();
+          assert($isTableSelection(selection));
+          expect($getNodeByKey(selection.focus.key)).toBeNull();
+          expect(selection.getNodes()).toEqual([]);
+          const inserted = $createParagraphNode().append(
+            $createTextNode('inserted'),
+          );
+          insertedKey = inserted.getKey();
+          $insertNodeToNearestRoot(inserted);
+        },
+        {discrete: true},
+      );
+      editor.read(() => {
+        const root = $getRoot();
+        const inserted = $getNodeByKey(insertedKey);
+        expect(inserted?.isAttached()).toBe(true);
+        expect(inserted?.getParent()?.getKey()).toBe(root.getKey());
+        expect(
+          root
+            .getChildren()
+            .map(node => node.getTextContent())
+            .filter(Boolean),
+        ).toEqual(['Before table', 'inserted']);
       });
     });
   });

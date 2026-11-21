@@ -9,18 +9,25 @@
 import {$generateHtmlFromNodes, $generateNodesFromDOM} from '@lexical/html';
 import {$insertNodeToNearestRoot} from '@lexical/utils';
 import {
+  $createNodeSelection,
+  $createParagraphNode,
   $createRangeSelection,
+  $createTextNode,
+  $getNodeByKey,
   $getRoot,
   $isElementNode,
   $setSelection,
+  type BaseSelection,
   type LexicalEditor,
   type LexicalNode,
+  type NodeKey,
 } from 'lexical';
 import {
   $createTestDecoratorNode,
+  $createTestShadowRootNode,
   createTestEditor,
 } from 'lexical/src/__tests__/utils';
-import {beforeEach, describe, expect, it} from 'vitest';
+import {beforeEach, describe, expect, it, vi} from 'vitest';
 
 describe('LexicalUtils#insertNodeToNearestRoot', () => {
   let editor: LexicalEditor;
@@ -217,4 +224,134 @@ describe('LexicalUtils#insertNodeToNearestRoot', () => {
       });
     });
   }
+
+  it.each([false, true])(
+    'inserts at the end of the focus block container for a non-range selection (empty: %s)',
+    empty => {
+      let focusKey: NodeKey;
+      let paragraphKey: NodeKey | undefined;
+      let lastSelectedKey: NodeKey;
+      let insertedKey: NodeKey;
+      editor.update(
+        () => {
+          const focus = $createTestShadowRootNode();
+          if (!empty) {
+            const paragraph = $createParagraphNode().append(
+              $createTextNode('inside'),
+            );
+            focus.append(paragraph);
+            paragraphKey = paragraph.getKey();
+          }
+          const lastSelected = $createTestDecoratorNode().setIsInline(false);
+          $getRoot().clear().append(focus, lastSelected);
+          focusKey = focus.getKey();
+          lastSelectedKey = lastSelected.getKey();
+          const points = $createRangeSelection();
+          points.focus.set(focusKey, 0, 'element');
+          const nodeSelection = $createNodeSelection();
+          nodeSelection.add(lastSelectedKey);
+          const selection: BaseSelection = nodeSelection;
+          // Model a non-range selection that exposes focus points.
+          vi.spyOn(selection, 'getStartEndPoints').mockReturnValue([
+            points.anchor,
+            points.focus,
+          ]);
+          $setSelection(selection);
+          insertedKey = $insertNodeToNearestRoot(
+            $createTestDecoratorNode().setIsInline(false),
+          ).getKey();
+        },
+        {discrete: true},
+      );
+      editor.read(() => {
+        const focus = $getNodeByKey(focusKey);
+        const inserted = $getNodeByKey(insertedKey);
+        if (!$isElementNode(focus)) {
+          throw new Error('Expected the focus container to remain an element');
+        }
+        expect(inserted?.isAttached()).toBe(true);
+        expect(inserted?.getParent()?.getKey()).toBe(focusKey);
+        const expectedChildren =
+          paragraphKey === undefined
+            ? [insertedKey]
+            : [paragraphKey, insertedKey];
+        expect(
+          focus.getChildrenKeys().slice(0, expectedChildren.length),
+        ).toEqual(expectedChildren);
+        if (paragraphKey !== undefined) {
+          expect($getNodeByKey(paragraphKey)?.getTextContent()).toBe('inside');
+        }
+        expect($getRoot().getLastChild()?.getKey()).toBe(lastSelectedKey);
+      });
+    },
+  );
+
+  it('keeps inserting after the selected node for a NodeSelection', () => {
+    let selectedKey: NodeKey;
+    let insertedKey: NodeKey;
+    let beforeKey: NodeKey;
+    let afterKey: NodeKey;
+    editor.update(
+      () => {
+        const before = $createParagraphNode().append($createTextNode('before'));
+        const selected = $createTestDecoratorNode().setIsInline(false);
+        const after = $createParagraphNode().append($createTextNode('after'));
+        $getRoot().clear().append(before, selected, after);
+        beforeKey = before.getKey();
+        selectedKey = selected.getKey();
+        afterKey = after.getKey();
+        const selection = $createNodeSelection();
+        selection.add(selectedKey);
+        $setSelection(selection);
+      },
+      {discrete: true},
+    );
+    editor.update(
+      () => {
+        insertedKey = $insertNodeToNearestRoot(
+          $createTestDecoratorNode().setIsInline(false),
+        ).getKey();
+      },
+      {discrete: true},
+    );
+    editor.read(() => {
+      expect($getRoot().getChildrenKeys()).toEqual([
+        beforeKey,
+        selectedKey,
+        insertedKey,
+        afterKey,
+      ]);
+    });
+  });
+
+  it('keeps inserting at the document end when there is no selection', () => {
+    let insertedKey: NodeKey;
+    let beforeKey: NodeKey;
+    editor.update(
+      () => {
+        const before = $createParagraphNode().append($createTextNode('before'));
+        $getRoot().clear().append(before);
+        beforeKey = before.getKey();
+        $setSelection(null);
+      },
+      {discrete: true},
+    );
+    editor.update(
+      () => {
+        insertedKey = $insertNodeToNearestRoot(
+          $createTestDecoratorNode().setIsInline(false),
+        ).getKey();
+      },
+      {discrete: true},
+    );
+    editor.read(() => {
+      const root = $getRoot();
+      const inserted = $getNodeByKey(insertedKey);
+      expect(inserted?.isAttached()).toBe(true);
+      expect(inserted?.getParent()?.getKey()).toBe(root.getKey());
+      expect(root.getFirstChild()?.getKey()).toBe(beforeKey);
+      expect(root.getChildrenKeys().indexOf(insertedKey)).toBeGreaterThan(0);
+      expect($getNodeByKey(beforeKey)?.getTextContent()).toBe('before');
+    });
+  });
 });
