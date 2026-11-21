@@ -6648,9 +6648,9 @@ describe('quote lines with optional space (#9442)', () => {
         {discrete: true},
       );
     }
-    expect(
-      editor.read('latest', () => $isQuoteNode($getRoot().getFirstChild())),
-    ).toBe(true);
+    expect(editor.read(() => $isQuoteNode($getRoot().getFirstChild()))).toBe(
+      true,
+    );
   });
 
   it('imports quote lines without space after > and exports with standard spacing', () => {
