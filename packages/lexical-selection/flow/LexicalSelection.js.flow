@@ -67,6 +67,14 @@ declare export function $shouldOverrideDefaultCharacterSelection(
   selection: RangeSelection,
   isBackward: boolean,
 ): boolean;
+declare export function $exitNodeSelectionToward(
+  node: LexicalNode,
+  direction: CaretDirection,
+): void;
+declare export function $convertContiguousNodeSelection(
+  selection: NodeSelection,
+  direction: CaretDirection,
+): boolean;
 
 declare export function createDOMRange(
   editor: LexicalEditor,
