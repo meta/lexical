@@ -34,6 +34,7 @@ import {
   createCommand,
   DecoratorNode,
   defineExtension,
+  getDOMTextNode,
   IS_APPLE,
   isExactShortcutMatch,
   KEY_DOWN_COMMAND,
@@ -395,7 +396,6 @@ function $updateHighlights(
       state.allHighlight!.add(range);
       if (i === currentIndex) {
         state.currentHighlight!.add(range);
-        scrollRangeIntoView(range);
       }
     }
   } else {
@@ -403,9 +403,12 @@ function $updateHighlights(
   }
 }
 
-function scrollRangeIntoView(range: Range): void {
-  const el = range.startContainer.parentElement;
-  el?.scrollIntoView({behavior: 'smooth', block: 'nearest'});
+function $scrollMatchIntoView(editor: LexicalEditor, match: TextMatch): void {
+  const points = $resolveMatchToPoints(match, $buildOffsetMap());
+  if (points) {
+    const text = getDOMTextNode(editor.getElementByKey(points.anchorKey));
+    text?.parentElement?.scrollIntoView({behavior: 'smooth', block: 'nearest'});
+  }
 }
 
 function clearHighlights(state: HighlightState): void {
@@ -492,9 +495,6 @@ function $updateOverlayHighlights(
     }
     const rects = createRectsFromDOMRange(editor, range);
     const isCurrent = i === currentIndex;
-    if (isCurrent) {
-      scrollRangeIntoView(range);
-    }
     for (const rect of rects) {
       const span = doc.createElement('span');
       span.style.position = 'absolute';
@@ -611,6 +611,12 @@ export const FindReplaceExtension = defineExtension({
   register: (editor, _config, state) => {
     const output = state.getOutput();
     const highlightState = createHighlightState(editor.getKey());
+    const scrollToCurrentMatch = () => {
+      const match = output.matches.peek()[output.effectiveIndex.peek()];
+      if (match) {
+        editor.read('latest', () => $scrollMatchIntoView(editor, match));
+      }
+    };
 
     return mergeRegister(
       editor.registerCommand(
@@ -679,7 +685,8 @@ export const FindReplaceExtension = defineExtension({
                 $replaceMatch(points, replaceText, m[idx], regex);
               }
             },
-            {discrete: true},
+            // The next match takes this index, so show it.
+            {discrete: true, onUpdate: scrollToCurrentMatch},
           );
           return true;
         },
@@ -794,6 +801,18 @@ export const FindReplaceExtension = defineExtension({
         editor.read(() => {
           $updateHighlights(editor, m, idx, highlightState);
         });
+      }),
+
+      // Scroll only when the search moves: an edit finds the matches again,
+      // which redraws the highlights above but keeps the scroll position.
+      effect(() => {
+        void output.searchTerm.value;
+        void output.caseSensitive.value;
+        void output.isRegex.value;
+        void output.currentIndex.value;
+        if (output.isOpen.value) {
+          scrollToCurrentMatch();
+        }
       }),
 
       () => disposeHighlightState(highlightState),
