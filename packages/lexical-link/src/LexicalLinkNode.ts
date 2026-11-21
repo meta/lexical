@@ -1025,6 +1025,12 @@ export function $toggleLink(
 
   $withSelectedNodes(() => {
     let linkNode: LinkNode | null = null;
+    const elementsWithSelectedDescendants = new Set<NodeKey>();
+    for (const node of nodes) {
+      for (let parent = node.getParent(); parent; parent = parent.getParent()) {
+        elementsWithSelectedDescendants.add(parent.getKey());
+      }
+    }
     for (const node of nodes) {
       if (!node.isAttached()) {
         continue;
@@ -1038,6 +1044,12 @@ export function $toggleLink(
         if (!node.isInline()) {
           // Ignore block nodes, if there are any children we will see them
           // later and wrap in a new LinkNode
+          continue;
+        }
+        // A partially selected inline element can also appear in the
+        // extracted node list alongside its selected children. Wrapping the
+        // element here would link its unselected children as well.
+        if (elementsWithSelectedDescendants.has(node.getKey())) {
           continue;
         }
         if ($isLinkNode(node)) {
