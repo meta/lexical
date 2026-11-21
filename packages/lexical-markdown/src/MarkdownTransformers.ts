@@ -255,7 +255,7 @@ const ORDERED_LIST_REGEX = /^(\s*)(\d{1,})\.\s/;
 const UNORDERED_LIST_REGEX = /^(\s*)[-*+]\s/;
 const CHECK_LIST_REGEX = /^(\s*)(?:[-*+]\s)?\s?(\[(\s|x)?\])\s/i;
 const HEADING_REGEX = /^(#{1,6})\s/;
-const QUOTE_REGEX = /^>\s/;
+const QUOTE_REGEX = /^>[ \t]?/;
 const QUOTE_BLANK_LINE_REGEX = /^>\s*$/;
 /**
  * Whether `line` is a blank line of the quote `previous` is in: `>` alone (its
@@ -270,7 +270,7 @@ function isBlankQuoteLine(line: string, previous: string | undefined): boolean {
 }
 
 /** A quote line, `>` and a space or `>` alone (see $replaceWithQuote). */
-const QUOTE_LINE_REGEX = /^>(\s|$)/;
+const QUOTE_LINE_REGEX = /^>[ \t]?/;
 const CODE_START_REGEX = /^([ \t]*`{3,})([\w-]+)?[ \t]?/;
 const CODE_END_REGEX = /^[ \t]*`{3,}$/;
 const CODE_SINGLE_LINE_REGEX =
@@ -885,7 +885,7 @@ function exportQuote(
   const lines = content.split('\n');
   const output = [];
   for (const line of lines) {
-    output.push('> ' + line);
+    output.push(line ? '> ' + line : '>');
   }
   return output.join('\n');
 }
