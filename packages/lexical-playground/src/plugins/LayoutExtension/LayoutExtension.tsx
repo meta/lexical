@@ -128,19 +128,17 @@ export const LayoutExtension = defineExtension({
       editor.registerCommand(
         INSERT_LAYOUT_COMMAND,
         template => {
-          editor.update(() => {
-            const container = $createLayoutContainerNode(template);
-            const itemsCount = getItemsCountFromTemplate(template);
+          const container = $createLayoutContainerNode(template);
+          const itemsCount = getItemsCountFromTemplate(template);
 
-            for (let i = 0; i < itemsCount; i++) {
-              container.append(
-                $createLayoutItemNode().append($createParagraphNode()),
-              );
-            }
+          for (let i = 0; i < itemsCount; i++) {
+            container.append(
+              $createLayoutItemNode().append($createParagraphNode()),
+            );
+          }
 
-            $insertNodeToNearestRoot(container);
-            container.selectStart();
-          });
+          $insertNodeToNearestRoot(container);
+          container.selectStart();
 
           return true;
         },
@@ -149,37 +147,35 @@ export const LayoutExtension = defineExtension({
       editor.registerCommand(
         UPDATE_LAYOUT_COMMAND,
         ({template, nodeKey}) => {
-          editor.update(() => {
-            const container = $getNodeByKey(nodeKey);
+          const container = $getNodeByKey(nodeKey);
 
-            if (!$isLayoutContainerNode(container)) {
-              return;
+          if (!$isLayoutContainerNode(container)) {
+            return true;
+          }
+
+          const itemsCount = getItemsCountFromTemplate(template);
+          const prevItemsCount = getItemsCountFromTemplate(
+            container.getTemplateColumns(),
+          );
+
+          // Add or remove columns to match the new template.
+          if (itemsCount > prevItemsCount) {
+            for (let i = prevItemsCount; i < itemsCount; i++) {
+              container.append(
+                $createLayoutItemNode().append($createParagraphNode()),
+              );
             }
+          } else if (itemsCount < prevItemsCount) {
+            for (let i = prevItemsCount - 1; i >= itemsCount; i--) {
+              const layoutItem = container.getChildAtIndex(i);
 
-            const itemsCount = getItemsCountFromTemplate(template);
-            const prevItemsCount = getItemsCountFromTemplate(
-              container.getTemplateColumns(),
-            );
-
-            // Add or remove columns to match the new template.
-            if (itemsCount > prevItemsCount) {
-              for (let i = prevItemsCount; i < itemsCount; i++) {
-                container.append(
-                  $createLayoutItemNode().append($createParagraphNode()),
-                );
-              }
-            } else if (itemsCount < prevItemsCount) {
-              for (let i = prevItemsCount - 1; i >= itemsCount; i--) {
-                const layoutItem = container.getChildAtIndex(i);
-
-                if ($isLayoutItemNode(layoutItem)) {
-                  layoutItem.remove();
-                }
+              if ($isLayoutItemNode(layoutItem)) {
+                layoutItem.remove();
               }
             }
+          }
 
-            container.setTemplateColumns(template);
-          });
+          container.setTemplateColumns(template);
 
           return true;
         },

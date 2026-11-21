@@ -1100,7 +1100,7 @@ describe('HMRExtension', () => {
       editor.dispatchCommand(UNDO_COMMAND, undefined);
       return transforms;
     };
-    const $editTwice = (editor: LexicalEditor) => {
+    const editTwice = (editor: LexicalEditor) => {
       for (const index of [0, 1]) {
         editor.update(() => $edit(index), {
           discrete: true,
@@ -1113,13 +1113,13 @@ describe('HMRExtension', () => {
     let baseline = -1;
     {
       using editor = createCounting(null);
-      $editTwice(editor);
+      editTwice(editor);
       baseline = undoTransforms(editor);
     }
 
     {
       using editor = createCounting(hot);
-      $editTwice(editor);
+      editTwice(editor);
     }
 
     {

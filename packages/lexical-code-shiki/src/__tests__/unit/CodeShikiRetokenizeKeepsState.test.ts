@@ -820,7 +820,7 @@ const appPlainTokenizer: Tokenizer = {
  * `kind` set to `kind`, where given), read as a collaborator's change is (no
  * transforms), then tokenized again by a paragraph inserted right after it.
  */
-function $retokenizeOldTokens(
+function retokenizeOldTokens(
   editor: LexicalEditor,
   texts: string[],
   kind?: string,
@@ -889,7 +889,7 @@ describe("a token an app's tokenizer makes, over old tokens with NodeState", () 
 
   test("each part of a token an app's tokenizer makes of its own class is of that class, with its field and the tokenizer's NodeState, and has the NodeState of its own text", () => {
     using editor = editorWithAppHighlight(appKindTokenizer);
-    $retokenizeOldTokens(editor, ['alpha ', 'beta']);
+    retokenizeOldTokens(editor, ['alpha ', 'beta']);
     expect(tokensOf(editor)).toEqual({
       chars: 'a:c1 l:c1 p:c1 h:c1 a:c1  :c1 b:c2 e:c2 t:c2 a:c2',
       kinds: [JSON.stringify([true, 'app', 'tokenizer'])],
@@ -898,7 +898,7 @@ describe("a token an app's tokenizer makes, over old tokens with NodeState", () 
 
   test("a NodeState value an app's tokenizer sets is on each token, beside the NodeState of its own text", () => {
     using editor = editorWithAppHighlight(kindTokenizer);
-    $retokenizeOldTokens(editor, ['alpha ', 'beta']);
+    retokenizeOldTokens(editor, ['alpha ', 'beta']);
     expect(tokensOf(editor)).toEqual({
       chars: 'a:c1 l:c1 p:c1 h:c1 a:c1  :c1 b:c2 e:c2 t:c2 a:c2',
       kinds: [JSON.stringify([false, '', 'tokenizer'])],
@@ -907,7 +907,7 @@ describe("a token an app's tokenizer makes, over old tokens with NodeState", () 
 
   test('an old token with a NodeState value the new one has another value for is kept as it is', () => {
     using editor = editorWithAppHighlight(appPlainTokenizer);
-    $retokenizeOldTokens(editor, ['alpha'], 'set by the app');
+    retokenizeOldTokens(editor, ['alpha'], 'set by the app');
     expect(tokensOf(editor)).toEqual({
       chars: 'a:c1 l:c1 p:c1 h:c1 a:c1',
       kinds: [JSON.stringify([false, '', 'set by the app'])],

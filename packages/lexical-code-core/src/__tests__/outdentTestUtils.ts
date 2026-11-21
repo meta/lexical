@@ -36,7 +36,7 @@ import {assert} from 'vitest';
  * call its own `registerCodeHighlighting(editor, ..., tabSize)` and any
  * async language/theme loading the highlighter requires.
  */
-export function $runOutdentScenario(
+export function runOutdentScenario(
   editor: LexicalEditor,
   rawText: string,
   cursorOffset: number,

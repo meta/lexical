@@ -741,7 +741,7 @@ const EXPECTED: Record<
   },
 };
 
-function $strip(shape: string): string {
+function strip(shape: string): string {
   return shape
     .replace(/^p\("before"\) \/ /, '')
     .replace(/ \/ p\("after"\)$/, '');
@@ -773,7 +773,7 @@ function buildEditor(structure: boolean) {
   );
 }
 
-function $run(cmd: Cmd, ctx: Ctx, structure: boolean): string {
+function run(cmd: Cmd, ctx: Ctx, structure: boolean): string {
   using editor = buildEditor(structure);
   const rootElement = document.createElement('div');
   rootElement.contentEditable = 'true';
@@ -793,7 +793,7 @@ function $run(cmd: Cmd, ctx: Ctx, structure: boolean): string {
         {discrete: true},
       );
     }
-    return $strip(editor.read(() => $shape()));
+    return strip(editor.read(() => $shape()));
   } finally {
     editor.setRootElement(null);
     rootElement.remove();
@@ -823,7 +823,7 @@ describe('structural commands in block containers', () => {
   test.each(cases)(
     '%s in %s (NodeStructureExtension: %s)',
     (cmd, ctx, structure, expected) => {
-      expect($run(CMDS[cmd], ctx, structure)).toBe(expected);
+      expect(run(CMDS[cmd], ctx, structure)).toBe(expected);
     },
   );
 
@@ -1281,7 +1281,7 @@ describe('@lexical/mdast shortcuts in block containers', () => {
           {discrete: true},
         );
       }
-      expect(editor.read(() => $strip($shape()))).toBe(expected);
+      expect(editor.read(() => strip($shape()))).toBe(expected);
     },
   );
 });
