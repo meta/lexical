@@ -269,7 +269,7 @@ function isBlankQuoteLine(line: string, previous: string | undefined): boolean {
   );
 }
 
-/** A quote line, `>` and a space or `>` alone (see $replaceWithQuote). */
+/** A quote line, `>` and a space, `>` alone, or `>` followed by text (see $replaceWithQuote). */
 const QUOTE_LINE_REGEX = /^>[ \t]?/;
 const CODE_START_REGEX = /^([ \t]*`{3,})([\w-]+)?[ \t]?/;
 const CODE_END_REGEX = /^[ \t]*`{3,}$/;
@@ -929,7 +929,7 @@ function $replaceWithQuote(
     return false;
   }
   const isBareMarker =
-    children.length === 0 ||
+    match[0] === '>' &&
     children.every(
       child => $isTextNode(child) && child.getTextContentSize() === 0,
     );

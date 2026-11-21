@@ -6604,6 +6604,55 @@ describe('quote lines with optional space (#9442)', () => {
     ).toBe('> a\n> \n> b');
   });
 
+  it('imports and round-trips an empty quote line between paragraphs', () => {
+    const editor = createTestEditor();
+    const md = 'x\n\n> \n\ny';
+    editor.update(() => $convertFromMarkdownString(md, TRANSFORMERS), {
+      discrete: true,
+    });
+    expect(
+      editor.read('latest', () => {
+        const children = $getRoot().getChildren();
+        return (
+          children.length === 3 &&
+          $isParagraphNode(children[0]) &&
+          $isQuoteNode(children[1]) &&
+          $isParagraphNode(children[2])
+        );
+      }),
+    ).toBe(true);
+    expect(
+      editor.read('latest', () => $convertToMarkdownString(TRANSFORMERS)),
+    ).toBe('x\n\n> \n\ny');
+  });
+
+  it('typing > then space in an empty paragraph creates a quote node', () => {
+    const editor = createTestEditor();
+    registerMarkdownShortcuts(editor, [QUOTE]);
+    editor.update(
+      () => {
+        const paragraph = $createParagraphNode();
+        $getRoot().append(paragraph);
+        paragraph.select(0, 0);
+      },
+      {discrete: true},
+    );
+    for (const character of '> ') {
+      editor.update(
+        () => {
+          const selection = $getSelection();
+          if ($isRangeSelection(selection)) {
+            selection.insertText(character);
+          }
+        },
+        {discrete: true},
+      );
+    }
+    expect(
+      editor.read('latest', () => $isQuoteNode($getRoot().getFirstChild())),
+    ).toBe(true);
+  });
+
   it('imports quote lines without space after > and exports with standard spacing', () => {
     const editor = createTestEditor();
     const md = '>a';
