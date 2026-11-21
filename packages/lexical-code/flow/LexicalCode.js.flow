@@ -57,7 +57,7 @@ declare export function $getLastCodeNodeOfLine(
 ): CodeHighlightNode | TabNode | LineBreakNode;
 
 declare export function $outdentLeadingSpaces(
-  node: CodeHighlightNode,
+  node: TextNode,
   tabSize: number,
   selection: RangeSelection,
 ): boolean;

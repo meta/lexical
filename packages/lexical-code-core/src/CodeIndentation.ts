@@ -22,6 +22,7 @@ import {
   $isLineBreakNode,
   $isRangeSelection,
   $isTabNode,
+  $isTextNode,
   $normalizeCaret,
   $setSelectionFromCaretRange,
   type BaseSelection,
@@ -36,7 +37,6 @@ import {
   KEY_TAB_COMMAND,
   type LexicalCommand,
   type LexicalEditor,
-  type LineBreakNode,
   mergeRegister,
   MOVE_TO_END,
   MOVE_TO_START,
@@ -44,6 +44,7 @@ import {
   type RangeSelection,
   safeCast,
   type TabNode,
+  type TextNode,
 } from 'lexical';
 
 import {CodeExtension} from './CodeExtension';
@@ -80,27 +81,53 @@ function $isSelectionInCode(selection: null | BaseSelection): boolean {
   );
 }
 
+// A code line is the run of text nodes between two LineBreakNodes: TabNodes
+// and CodeHighlightNodes, or plain TextNodes when no highlighter is
+// registered. Unlike $getFirstCodeNodeOfLine and $getLastCodeNodeOfLine,
+// these do not stop at a plain TextNode.
+function $getFirstTextNodeOfLine(node: TextNode): TextNode {
+  let first = node;
+  for (
+    let previous = first.getPreviousSibling();
+    $isTextNode(previous);
+    previous = previous.getPreviousSibling()
+  ) {
+    first = previous;
+  }
+  return first;
+}
+
+function $getLastTextNodeOfLine(node: TextNode): TextNode {
+  let last = node;
+  for (
+    let next = last.getNextSibling();
+    $isTextNode(next);
+    next = next.getNextSibling()
+  ) {
+    last = next;
+  }
+  return last;
+}
+
 /**
  * Returns an Array of code lines
- * Take the sequence of LineBreakNode | TabNode | CodeHighlightNode forming
- * the selection and split it by LineBreakNode.
+ * Take the sequence of LineBreakNodes and text nodes forming the selection
+ * and split it by LineBreakNode.
  * If the selection ends at the start of the last line, it is considered empty.
  * Empty lines are discarded.
  */
-function $getCodeLines(
-  selection: RangeSelection,
-): (CodeHighlightNode | TabNode)[][] {
+function $getCodeLines(selection: RangeSelection): TextNode[][] {
   const nodes = selection.getNodes();
-  const lines: (CodeHighlightNode | TabNode)[][] = [];
+  const lines: TextNode[][] = [];
   if (nodes.length === 1 && $isCodeNode(nodes[0])) {
     return lines;
   }
-  let lastLine: (CodeHighlightNode | TabNode)[] = [];
+  let lastLine: TextNode[] = [];
   for (let i = 0; i < nodes.length; i++) {
     const node = nodes[i];
     invariant(
-      $isCodeHighlightNode(node) || $isTabNode(node) || $isLineBreakNode(node),
-      'Expected selection to be inside CodeBlock and consisting of CodeHighlightNode, TabNode and LineBreakNode',
+      $isTextNode(node) || $isLineBreakNode(node),
+      'Expected selection to be inside CodeBlock and consisting of TextNode and LineBreakNode',
     );
     if ($isLineBreakNode(node)) {
       if (lastLine.length > 0) {
@@ -151,7 +178,7 @@ function $handleTab(shiftKey: boolean): null | LexicalCommand<void> {
     return indentOrOutdent;
   }
 
-  const codeLine: (CodeHighlightNode | TabNode)[] = codeLines[0];
+  const codeLine: TextNode[] = codeLines[0];
   const codeLineLength = codeLine.length;
 
   invariant(
@@ -171,10 +198,8 @@ function $handleTab(shiftKey: boolean): null | LexicalCommand<void> {
   }
 
   // find boundary elements of the line
-  // since codeLine only contains TabNode | CodeHighlightNode
-  // the result of these functions should is of Type TabNode | CodeHighlightNode
-  const firstOfLine = $getFirstCodeNodeOfLine(codeLine[0]);
-  const lastOfLine = $getLastCodeNodeOfLine(codeLine[0]);
+  const firstOfLine = $getFirstTextNodeOfLine(codeLine[0]);
+  const lastOfLine = $getLastTextNodeOfLine(codeLine[0]);
 
   const anchorOfLine = $createPoint(firstOfLine.getKey(), 0, 'text');
   const focusOfLine = $createPoint(
@@ -221,13 +246,13 @@ function $outdentLineAtCaret(
 ): void {
   const anchorNode = selection.anchor.getNode();
   // An element point (e.g. the caret on a blank line) has no line to outdent.
-  if (!$isCodeHighlightNode(anchorNode) && !$isTabNode(anchorNode)) {
+  if (!$isTextNode(anchorNode)) {
     return;
   }
-  const firstOfLine = $getFirstCodeNodeOfLine(anchorNode);
+  const firstOfLine = $getFirstTextNodeOfLine(anchorNode);
   if ($isTabNode(firstOfLine)) {
     firstOfLine.remove();
-  } else if (tabSize !== undefined && $isCodeHighlightNode(firstOfLine)) {
+  } else if (tabSize !== undefined) {
     $outdentLeadingSpaces(firstOfLine, tabSize, selection);
   }
 }
@@ -284,13 +309,12 @@ function $handleMultilineIndent(
     const line = codeLines[i];
     // a line here is never empty
     if (line.length > 0) {
-      let firstOfLine: null | CodeHighlightNode | TabNode | LineBreakNode =
-        line[0];
+      let firstOfLine = line[0];
 
       // make sure to consider the first node on the first line
       // because the line might not be fully selected
       if (i === 0) {
-        firstOfLine = $getFirstCodeNodeOfLine(firstOfLine);
+        firstOfLine = $getFirstTextNodeOfLine(firstOfLine);
       }
 
       if (type === INDENT_CONTENT_COMMAND) {
@@ -308,7 +332,7 @@ function $handleMultilineIndent(
         }
       } else if ($isTabNode(firstOfLine)) {
         firstOfLine.remove();
-      } else if (tabSize !== undefined && $isCodeHighlightNode(firstOfLine)) {
+      } else if (tabSize !== undefined) {
         // Outdent space-indented lines (e.g. code formatted with prettier).
         $outdentLeadingSpaces(firstOfLine, tabSize, selection);
       }
