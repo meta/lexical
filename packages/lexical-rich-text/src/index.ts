@@ -105,12 +105,14 @@ import {
   enumValue,
   FORMAT_ELEMENT_COMMAND,
   FORMAT_TEXT_COMMAND,
+  getComposedEventTarget,
   getDOMSelection,
   INDENT_CONTENT_COMMAND,
   INSERT_LINE_BREAK_COMMAND,
   INSERT_PARAGRAPH_COMMAND,
   INSERT_TAB_COMMAND,
   INTERNAL_$expandSelectionToWholeDocument,
+  IS_APPLE,
   IS_APPLE_WEBKIT,
   IS_IOS,
   IS_SAFARI,
@@ -121,6 +123,7 @@ import {
   KEY_ARROW_UP_COMMAND,
   KEY_BACKSPACE_COMMAND,
   KEY_DELETE_COMMAND,
+  KEY_DOWN_COMMAND,
   KEY_ENTER_COMMAND,
   KEY_ESCAPE_COMMAND,
   KEY_SPACE_COMMAND,
@@ -763,6 +766,32 @@ function $isTargetWithinDecorator(target: HTMLElement): boolean {
     $isDecoratorNode($getNearestNodeFromDOMNode(target)) &&
     !(isHTMLElement(target) && target.hasAttribute('data-lexical-slot'))
   );
+}
+
+// Keep typed text separate from following content, reusing an empty block.
+function $selectAfterBlockDecorator(selection: NodeSelection): boolean {
+  const nodes = selection.getNodes();
+  if (
+    nodes.length !== 1 ||
+    !$isDecoratorNode(nodes[0]) ||
+    nodes[0].isInline()
+  ) {
+    return false;
+  }
+  const next = nodes[0].getNextSibling();
+  if (
+    $isElementNode(next) &&
+    !next.isInline() &&
+    next.isEmpty() &&
+    next.canBeEmpty()
+  ) {
+    next.select();
+  } else {
+    const paragraph = $createParagraphNode();
+    nodes[0].insertAfter(paragraph);
+    paragraph.select();
+  }
+  return true;
 }
 
 function $isSelectionAtEndOfRoot(selection: RangeSelection) {
@@ -1428,6 +1457,26 @@ export function registerRichText(
     defaultShouldHandlePasteAsFiles,
   ),
 ): () => void {
+  const $insertTextAfterBlockDecorator = (event: KeyboardEvent): boolean => {
+    const selection = $getSelection();
+    // Firefox and WebKit need a DOM caret before they emit beforeinput.
+    if (
+      $isNodeSelection(selection) &&
+      !event.defaultPrevented &&
+      event.key.length === 1 &&
+      !event.metaKey &&
+      ((!event.ctrlKey && (!event.altKey || IS_APPLE)) ||
+        event.getModifierState('AltGraph')) &&
+      !$isEventFromEmbeddedInput(event) &&
+      !$isTargetWithinDecorator(getComposedEventTarget(event) as HTMLElement) &&
+      $selectAfterBlockDecorator(selection)
+    ) {
+      event.preventDefault();
+      editor.dispatchCommand(CONTROLLED_TEXT_INSERTION_COMMAND, event.key);
+      return true;
+    }
+    return false;
+  };
   const removeListener = mergeRegister(
     editor.registerCommand(
       CLICK_COMMAND,
@@ -1591,38 +1640,23 @@ export function registerRichText(
     ),
     editor.registerCommand(
       BEFORE_INPUT_COMMAND,
-      event => {
+      (event, fromEditor) => {
+        // Preparing a parent caret would redirect a nested editor's insertion.
+        if (fromEditor !== editor) {
+          return false;
+        }
         const selection = $getSelection();
-        // A node selection has no DOM caret, so the browser would put typed
-        // text at the top of the document. Move the caret into a line of its
-        // own right after the decorator (an empty block already there, such
-        // as the empty heading inserting a rule after a heading leaves, or a
-        // new paragraph) and let the default handler take it from there: the
-        // text does not join the start of the block after it.
         if ($isNodeSelection(selection) && event.inputType === 'insertText') {
-          const nodes = selection.getNodes();
-          if (
-            nodes.length === 1 &&
-            $isDecoratorNode(nodes[0]) &&
-            !nodes[0].isInline()
-          ) {
-            const next = nodes[0].getNextSibling();
-            if (
-              $isElementNode(next) &&
-              !next.isInline() &&
-              next.isEmpty() &&
-              next.canBeEmpty()
-            ) {
-              next.select();
-            } else {
-              const paragraph = $createParagraphNode();
-              nodes[0].insertAfter(paragraph);
-              paragraph.select();
-            }
-          }
+          $selectAfterBlockDecorator(selection);
         }
         return false;
       },
+      COMMAND_PRIORITY_LOW,
+    ),
+    editor.registerCommand(
+      KEY_DOWN_COMMAND,
+      // Space goes through KEY_SPACE_COMMAND so its listeners run first.
+      event => event.key !== ' ' && $insertTextAfterBlockDecorator(event),
       COMMAND_PRIORITY_LOW,
     ),
     editor.registerCommand(
@@ -2212,7 +2246,7 @@ export function registerRichText(
     ),
     editor.registerCommand(
       KEY_SPACE_COMMAND,
-      () => {
+      event => {
         const selection = $getSelection();
 
         if ($isRangeSelection(selection)) {
@@ -2224,7 +2258,7 @@ export function registerRichText(
           );
         }
 
-        return false;
+        return $insertTextAfterBlockDecorator(event);
       },
       COMMAND_PRIORITY_EDITOR,
     ),
