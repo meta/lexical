@@ -24,8 +24,10 @@ import {
   assertHTML,
   assertSelection,
   click,
+  expect,
   focus,
   focusEditor,
+  getPageOrFrame,
   html,
   initialize,
   insertSampleImage,
@@ -41,6 +43,156 @@ test.skip(({isPlainText}) => isPlainText, 'Requires rich text');
 
 test.describe('Links', () => {
   test.beforeEach(({isCollab, page}) => initialize({isCollab, page}));
+
+  for (const precedingText of [' before', '']) {
+    test(`Clicking a one-character link after ${precedingText ? 'text' : 'another link'} targets that link`, async ({
+      page,
+    }) => {
+      await focusEditor(page);
+      await pasteFromClipboard(page, {
+        'text/html': `<p><a href="https://example.org/first">First</a>${precedingText}<a href="https://example.org/one">x</a> after <a href="https://example.org/last">Last</a></p>`,
+      });
+      const frame = getPageOrFrame(page);
+      const editor = frame.locator('[contenteditable="true"]').first();
+      const link = editor.getByRole('link', {exact: true, name: 'x'});
+      const box = await link.boundingBox();
+      await link.click({position: {x: 1, y: box.height / 2}});
+      await expect(frame.locator('.link-view a')).toHaveAttribute(
+        'href',
+        'https://example.org/one',
+      );
+      await click(page, '.link-edit');
+      const input = frame.locator('.link-input');
+      await expect(input).toHaveValue('https://example.org/one');
+      await input.fill('https://example.org/changed');
+      await input.press('Enter');
+      await expect(link).toHaveAttribute('href', 'https://example.org/changed');
+
+      await link.click();
+      await click(page, '.link-trash');
+      await expect(link).toHaveCount(0);
+      await expect(editor).toHaveText(`First${precedingText}x after Last`);
+      await expect(
+        editor.getByRole('link', {exact: true, name: 'First'}),
+      ).toHaveAttribute('href', 'https://example.org/first');
+      await expect(
+        editor.getByRole('link', {exact: true, name: 'Last'}),
+      ).toHaveAttribute('href', 'https://example.org/last');
+    });
+  }
+
+  for (const caretPosition of ['before', 'after']) {
+    test(`Clicking inside a link before selectionchange preserves the caret (${caretPosition})`, async ({
+      page,
+    }) => {
+      await focusEditor(page);
+      await pasteFromClipboard(page, {
+        'text/html':
+          '<p>before <a href="https://example.org/long">longer link</a> after</p>',
+      });
+      if (caretPosition === 'before') {
+        await moveToLineBeginning(page);
+        await assertCaret(page, 'p > span:first-child', 0);
+      } else {
+        await moveToLineEnd(page);
+        await assertCaret(page, 'p > span:last-child', 6);
+      }
+
+      const link = getPageOrFrame(page).getByRole('link', {
+        exact: true,
+        name: 'longer link',
+      });
+      await link.evaluate(element => {
+        const text = element.querySelector(
+          '[data-lexical-text="true"]',
+        ).firstChild;
+        const view = element.ownerDocument.defaultView;
+        view.getSelection().setBaseAndExtent(text, 4, text, 4);
+        element.dispatchEvent(
+          new view.PointerEvent('click', {
+            bubbles: true,
+            button: 0,
+            composed: true,
+            detail: 1,
+            pointerType: 'touch',
+          }),
+        );
+      });
+
+      await assertCaret(page, 'p > a > span', 4);
+    });
+  }
+
+  for (const boundary of ['before', 'after']) {
+    for (const anchorType of ['text', 'element']) {
+      test(`Clicking ${boundary} a link before selectionchange uses the live ${anchorType} caret`, async ({
+        page,
+      }) => {
+        await focusEditor(page);
+        await pasteFromClipboard(page, {
+          'text/html':
+            '<p>before <a href="https://example.org/long">longer link</a> after</p>',
+        });
+        if (boundary === 'before') {
+          await moveToLineEnd(page);
+          await assertCaret(page, 'p > span:last-child', 6);
+        } else {
+          await moveToLineBeginning(page);
+          await assertCaret(page, 'p > span:first-child', 0);
+        }
+
+        const frame = getPageOrFrame(page);
+        const editor = frame.locator('[contenteditable="true"]').first();
+        const link = editor.getByRole('link', {
+          exact: true,
+          name: 'longer link',
+        });
+        await link.evaluate(
+          (element, {anchorType: domAnchorType, boundary: domBoundary}) => {
+            const parent = element.parentNode;
+            const text = (
+              domBoundary === 'before'
+                ? element.previousElementSibling
+                : element.nextElementSibling
+            ).firstChild;
+            const anchor = domAnchorType === 'text' ? text : parent;
+            const offset =
+              domAnchorType === 'text'
+                ? domBoundary === 'before'
+                  ? text.textContent.length
+                  : 0
+                : Array.from(parent.childNodes).indexOf(element) +
+                  (domBoundary === 'after' ? 1 : 0);
+            const view = element.ownerDocument.defaultView;
+            view
+              .getSelection()
+              .setBaseAndExtent(anchor, offset, anchor, offset);
+            element.dispatchEvent(
+              new view.PointerEvent('click', {
+                bubbles: true,
+                button: 0,
+                composed: true,
+                detail: 1,
+                pointerType: 'mouse',
+              }),
+            );
+          },
+          {anchorType, boundary},
+        );
+
+        await page.keyboard.type('q');
+
+        await expect(editor).toHaveText(
+          boundary === 'before'
+            ? 'before qlonger link after'
+            : 'before longer linkq after',
+        );
+        await expect(link).toHaveText('longer link');
+        await expect(link).toHaveAttribute('href', 'https://example.org/long');
+      });
+    }
+  }
+
   test(`Can convert a text node into a link`, async ({page}) => {
     await focusEditor(page);
     await page.keyboard.type('Hello');
@@ -2070,6 +2222,60 @@ test.describe('Links', () => {
           </p>
         `,
       );
+    });
+  });
+
+  test.describe(() => {
+    test.skip(
+      ({browserName, isCollab}) => browserName !== 'chromium' || isCollab,
+      'Pointer capture fixes this in Chromium only: WebKit ignores it for ' +
+        'native text selection and still shows #9940, and Firefox is ' +
+        'untested. Collab renders the editor in an iframe.',
+    );
+    test('Dragging a selection out of the link URL input keeps extending it (#9940)', async ({
+      page,
+    }) => {
+      await focusEditor(page);
+      await page.keyboard.type('Hello world ');
+      await pasteFromClipboard(page, {'text/plain': 'https://lexical.dev'});
+      await click(page, '.link-edit');
+      await focus(page, '.link-input');
+
+      const frame = getPageOrFrame(page);
+      const input = frame.locator('.link-input');
+      const length = (await input.inputValue()).length;
+      const box = await input.boundingBox();
+      const root = frame.locator('.ContentEditable__root').first();
+      const rootBox = await root.boundingBox();
+      const y = box.y + box.height / 2;
+      // A point left of the input but still inside the editor's
+      // contenteditable, which the link editor floats over; that is what used
+      // to move the selection. Clamped so layout tweaks don't move it outside.
+      const outsideX = Math.max(box.x - 60, (rootBox.x + box.x) / 2);
+      expect(
+        await root.evaluate(
+          (el, [x, yy]) => el.contains(document.elementFromPoint(x, yy)),
+          [outsideX, y],
+        ),
+      ).toBe(true);
+
+      const editorHTML = await root.innerHTML();
+
+      // Drag from the end of the URL to past the input's left edge: like any
+      // text input, the selection should then cover the whole URL.
+      await page.mouse.move(box.x + box.width - 5, y);
+      await page.mouse.down();
+      await page.mouse.move(outsideX, y, {steps: 10});
+      const selection = () =>
+        input.evaluate(el => [el.selectionStart, el.selectionEnd]);
+      await expect.poll(selection).toEqual([0, length]);
+      await page.mouse.up();
+      await expect.poll(selection).toEqual([0, length]);
+      await expect(input).toBeFocused();
+      // The drag stays in the URL input: the link editor is still editing,
+      // and the document under the pointer is untouched.
+      await expect(frame.locator('.link-view')).toHaveCount(0);
+      expect(await root.innerHTML()).toBe(editorHTML);
     });
   });
 });

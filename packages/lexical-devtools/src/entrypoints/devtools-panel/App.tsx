@@ -24,11 +24,11 @@ interface Props {
 function App({tabID}: Props) {
   const [errorMessage, setErrorMessage] = useState('');
 
-  const {lexicalState} = useExtensionStore();
-  const states = lexicalState[tabID];
-  const lexicalCount = Object.keys(states ?? {}).length;
+  const {editorCount} = useExtensionStore();
+  const count = editorCount[tabID];
+  const lexicalCount = count ?? 0;
 
-  return lexicalState[tabID] === null ? (
+  return count === null ? (
     <Alert.Root status="warning">
       <Alert.Indicator />
       <Alert.Content>
@@ -62,7 +62,7 @@ function App({tabID}: Props) {
           </ButtonGroup>
         </Box>
         <Box pl="4" alignContent="center">
-          {states === undefined ? (
+          {count === undefined ? (
             <Text fontSize="xs">Loading...</Text>
           ) : (
             <Text fontSize="xs">

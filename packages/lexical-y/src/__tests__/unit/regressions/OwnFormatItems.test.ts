@@ -96,6 +96,7 @@ function clients(
           configExtension(YCollabExtension, {
             captureTimeout: 2 ** 30,
             doc,
+            onYStatus: null,
             schemaVersion: 1,
             synced: true,
           }),
@@ -142,6 +143,7 @@ function undo(client: Client) {
 describe('a comment its author undid stays off the rest of the document when a collaborator undoes removing it (#9623)', () => {
   const CONFIG = {
     extensions: [RichTextExtension, MarkStateExtension],
+    onWarn: null,
     schemaVersion: 1,
   };
   const PARAS = [
@@ -252,7 +254,11 @@ describe('a comment its author undid stays off the rest of the document when a c
 });
 
 describe("undoing one's own formats leaves the next word alone after a collaborator typed plain text inside the first run (#9599)", () => {
-  const CONFIG = {extensions: [RichTextExtension], schemaVersion: 1};
+  const CONFIG = {
+    extensions: [RichTextExtension],
+    onWarn: null,
+    schemaVersion: 1,
+  };
   // "w0 " "w1 " "w2 " | "w3 " (strikethrough) "w4 " "w5 "
   const seeded = seedYState(CONFIG, () => {
     const $word = (w: string, struck = false) => {
@@ -338,7 +344,11 @@ describe("undoing one's own formats leaves the next word alone after a collabora
 });
 
 describe('undoing text typed into a run and then formatted leaves the untouched rest of the run as it was (#9671)', () => {
-  const CONFIG = {extensions: [RichTextExtension], schemaVersion: 1};
+  const CONFIG = {
+    extensions: [RichTextExtension],
+    onWarn: null,
+    schemaVersion: 1,
+  };
   const $texts = (): TextNode[] => {
     const p = $getRoot().getFirstChildOrThrow();
     return $isElementNode(p) ? p.getChildren().filter($isTextNode) : [];

@@ -1,0 +1,377 @@
+[
+  {
+    "bytes": "ARW20aKDqcq3BwAoAQlsZXhpY2FsLXkLbGV4aWNhbC15OjQBeCgBCWxleGljYWwteRJsZXhpY2FsLXktc2NoZW1hOjEBeCgBCWxleGljYWwteQtrOnBhcmFncmFwaAF3BGxpbmUGAQlsZXhpY2FsLXkGZjpib2xkBHRydWWEttGig6nKtwcDAmFihrbRooOpyrcHBQZmOmJvbGQDWzNdhrbRooOpyrcHBgZmOmJvbGQEdHJ1ZYa20aKDqcq3BwcIZjppdGFsaWMEdHJ1ZYS20aKDqcq3BwgCY2SGttGig6nKtwcKBmY6Ym9sZANbNF2GttGig6nKtwcLCGY6aXRhbGljA1s0XYa20aKDqcq3BwwIZjppdGFsaWMEdHJ1ZYa20aKDqcq3Bw0HcDpzdHlsZQwiY29sb3I6IHJlZCKEttGig6nKtwcOAmVmhrbRooOpyrcHEAhmOml0YWxpYwNbNF2GttGig6nKtwcRB3A6c3R5bGUDWzRdhrbRooOpyrcHEgdwOnN0eWxlDCJjb2xvcjogcmVkIoS20aKDqcq3BxMCZ2iGttGig6nKtwcVB3A6c3R5bGUDWzNdhLbRooOpyrcHFgJpaoe20aKDqcq3BxgDAsK2AA==",
+    "input": [
+      {
+        "type": "paragraph",
+        "children": [
+          {
+            "type": "text",
+            "format": 1,
+            "text": "ab"
+          },
+          {
+            "type": "text",
+            "format": 3,
+            "text": "cd"
+          },
+          {
+            "type": "text",
+            "format": 2,
+            "style": "color: red",
+            "text": "ef"
+          },
+          {
+            "type": "text",
+            "style": "color: red",
+            "text": "gh"
+          },
+          {
+            "type": "text",
+            "text": "ij"
+          }
+        ]
+      }
+    ],
+    "name": "overlapping keys and styles"
+  },
+  {
+    "bytes": "ARXitcu818CtDgAoAQlsZXhpY2FsLXkLbGV4aWNhbC15OjQBeCgBCWxleGljYWwteRJsZXhpY2FsLXktc2NoZW1hOjEBeCgBCWxleGljYWwteQtrOnBhcmFncmFwaAF3BGxpbmUoAQlsZXhpY2FsLXkGazpsaW5rAXcbZm9ybWF0fHVybCx0YXJnZXQscmVsLHRpdGxlKAEJbGV4aWNhbC15Bms6bWFyawF3Bm5lc3RlZAYBCWxleGljYWwteQZ3OmxpbmsYeyJ1cmwiOiJodHRwczovL3gudGVzdCJ9hOK1y7zXwK0OBQJhYobitcu818CtDgcGdzpsaW5rA1szXYbitcu818CtDggGZjpib2xkBHRydWWG4rXLvNfArQ4JBnc6bGluaxh7InVybCI6Imh0dHBzOi8veC50ZXN0In2E4rXLvNfArQ4KAmNkhuK1y7zXwK0ODAZmOmJvbGQDWzRdhuK1y7zXwK0ODQZ3OmxpbmsDWzRdh+K1y7zXwK0ODgMGaTptYXJrKADitcu818CtDg8FcDppZHMBdQF3AmMxKADitcu818CtDg8BYwF3AWkGAOK1y7zXwK0ODwZmOmJvbGQEdHJ1ZYTitcu818CtDhICZWaE4rXLvNfArQ4PAmdoh+K1y7zXwK0OFgMCwraG4rXLvNfArQ4UBmY6Ym9sZANbNl0A",
+    "input": [
+      {
+        "type": "paragraph",
+        "children": [
+          {
+            "type": "link",
+            "children": [
+              {
+                "type": "text",
+                "text": "ab"
+              },
+              {
+                "type": "text",
+                "format": 1,
+                "text": "cd"
+              }
+            ],
+            "url": "https://x.test"
+          },
+          {
+            "type": "mark",
+            "children": [
+              {
+                "type": "text",
+                "format": 1,
+                "text": "ef"
+              }
+            ],
+            "ids": ["c1"]
+          },
+          {
+            "type": "text",
+            "text": "gh"
+          }
+        ]
+      }
+    ],
+    "name": "wrappers and marks"
+  },
+  {
+    "bytes": "ASqbvdS8s/zqAQAoAQlsZXhpY2FsLXkLbGV4aWNhbC15OjQBeCgBCWxleGljYWwteRJsZXhpY2FsLXktc2NoZW1hOjEBeCgBCWxleGljYWwteQlrOmhlYWRpbmcBdwRsaW5lKAEJbGV4aWNhbC15B2s6cXVvdGUBdwRsaW5lKAEJbGV4aWNhbC15Bms6bGlzdAF3Dmdyb3VwfGxpc3RUeXBlKAEJbGV4aWNhbC15Cms6bGlzdGl0ZW0BdwRsaW5lKAEJbGV4aWNhbC15Cms6dGVzdF9ib3gBdwZuZXN0ZWQoAQlsZXhpY2FsLXkLazpwYXJhZ3JhcGgBdwRsaW5lBgEJbGV4aWNhbC15CGY6aXRhbGljBHRydWWEm73UvLP86gEIBXRpdGxlhpu91Lyz/OoBDQhmOml0YWxpYwNbNl2Hm73UvLP86gEOAwLCtoabvdS8s/zqAQ8IZjppdGFsaWMEdHJ1ZYSbvdS8s/zqARABcYabvdS8s/zqAREIZjppdGFsaWMDWzJdhJu91Lyz/OoBEgFyh5u91Lyz/OoBEwMCwraGm73UvLP86gEUBmY6Ym9sZAR0cnVlhJu91Lyz/OoBFQNvbmWGm73UvLP86gEYBmY6Ym9sZANbNF2Hm73UvLP86gEZAwLCtoabvdS8s/zqARoGZjpib2xkBHRydWWEm73UvLP86gEbA3R3b4abvdS8s/zqAR4GZjpib2xkA1s0XYebvdS8s/zqAR8DAsK2KACbvdS8s/zqAQ8BdAF3B2hlYWRpbmcoAJu91Lyz/OoBFAF0AXcFcXVvdGUoAJu91Lyz/OoBGgF0AXcIbGlzdGl0ZW0oAJu91Lyz/OoBGgFnAXcEbGlzdCgAm73UvLP86gEaCmc6bGlzdFR5cGUBdwZidWxsZXQoAJu91Lyz/OoBGgFsAX0AKACbvdS8s/zqASABdAF3CGxpc3RpdGVtKACbvdS8s/zqASABZwF3BGxpc3QoAJu91Lyz/OoBIApnOmxpc3RUeXBlAXcGYnVsbGV0KACbvdS8s/zqASABbAF9AIebvdS8s/zqASADCmI6dGVzdF9ib3goAJu91Lyz/OoBKwZwOnRvbmUBdwRibHVlKACbvdS8s/zqASsBYwF3AWIGAJu91Lyz/OoBKwZmOmJvbGQEdHJ1ZYSbvdS8s/zqAS4GaW4gYm94hpu91Lyz/OoBNAZmOmJvbGQDWzddh5u91Lyz/OoBNQMCwrYA",
+    "input": [
+      {
+        "type": "heading",
+        "children": [
+          {
+            "type": "text",
+            "format": 2,
+            "text": "title"
+          }
+        ]
+      },
+      {
+        "type": "quote",
+        "children": [
+          {
+            "type": "text",
+            "format": 2,
+            "text": "q"
+          },
+          {
+            "type": "text",
+            "text": "r"
+          }
+        ]
+      },
+      {
+        "type": "list",
+        "children": [
+          {
+            "type": "listitem",
+            "children": [
+              {
+                "type": "text",
+                "format": 1,
+                "text": "one"
+              }
+            ]
+          },
+          {
+            "type": "listitem",
+            "children": [
+              {
+                "type": "text",
+                "format": 1,
+                "text": "two"
+              }
+            ]
+          }
+        ],
+        "listType": "bullet"
+      },
+      {
+        "type": "test_box",
+        "children": [
+          {
+            "type": "paragraph",
+            "children": [
+              {
+                "type": "text",
+                "format": 1,
+                "text": "in box"
+              }
+            ]
+          }
+        ],
+        "tone": "blue"
+      }
+    ],
+    "name": "nested containers"
+  },
+  {
+    "bytes": "ASKn4dL426fPCgAoAQlsZXhpY2FsLXkLbGV4aWNhbC15OjQBeCgBCWxleGljYWwteRJsZXhpY2FsLXktc2NoZW1hOjEBeCgBCWxleGljYWwteQdrOnRhYmxlAXcGbmVzdGVkKAEJbGV4aWNhbC15Cms6dGFibGVyb3cBdwZuZXN0ZWQoAQlsZXhpY2FsLXkLazp0YWJsZWNlbGwBdwZuZXN0ZWQoAQlsZXhpY2FsLXkLazpwYXJhZ3JhcGgBdwRsaW5lBwEJbGV4aWNhbC15AwdiOnRhYmxlKACn4dL426fPCgYBYwF3AWIHAKfh0vjbp88KBgMKYjp0YWJsZXJvdygAp+HS+NunzwoIAWMBdwFiBwCn4dL426fPCggDC2I6dGFibGVjZWxsKACn4dL426fPCgoBYwF3AWIGAKfh0vjbp88KCgZmOmJvbGQEdHJ1ZYSn4dL426fPCgwCYTGGp+HS+NunzwoOBmY6Ym9sZANbM12Hp+HS+NunzwoPAwLCtoen4dL426fPCgoDC2I6dGFibGVjZWxsKACn4dL426fPChEBYwF3AWIGAKfh0vjbp88KEQZmOmJvbGQEdHJ1ZYSn4dL426fPChMCYTKGp+HS+NunzwoVBmY6Ym9sZANbM12Hp+HS+NunzwoWAwLCtoen4dL426fPCggDCmI6dGFibGVyb3coAKfh0vjbp88KGAFjAXcBYgcAp+HS+NunzwoYAwtiOnRhYmxlY2VsbCgAp+HS+NunzwoaAWMBdwFiBACn4dL426fPChoCYjGHp+HS+NunzwodAwLCtoen4dL426fPChoDC2I6dGFibGVjZWxsKACn4dL426fPCh8BYwF3AWIGAKfh0vjbp88KHwhmOml0YWxpYwR0cnVlhKfh0vjbp88KIQJiMoan4dL426fPCiMIZjppdGFsaWMDWzNdh6fh0vjbp88KJAMCwrYA",
+    "input": [
+      {
+        "type": "table",
+        "children": [
+          {
+            "type": "tablerow",
+            "children": [
+              {
+                "type": "tablecell",
+                "children": [
+                  {
+                    "type": "paragraph",
+                    "children": [
+                      {
+                        "type": "text",
+                        "format": 1,
+                        "text": "a1"
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "type": "tablecell",
+                "children": [
+                  {
+                    "type": "paragraph",
+                    "children": [
+                      {
+                        "type": "text",
+                        "format": 1,
+                        "text": "a2"
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "type": "tablerow",
+            "children": [
+              {
+                "type": "tablecell",
+                "children": [
+                  {
+                    "type": "paragraph",
+                    "children": [
+                      {
+                        "type": "text",
+                        "text": "b1"
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "type": "tablecell",
+                "children": [
+                  {
+                    "type": "paragraph",
+                    "children": [
+                      {
+                        "type": "text",
+                        "format": 2,
+                        "text": "b2"
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "name": "table"
+  },
+  {
+    "bytes": "ARWf/6uJo8S0CwAoAQlsZXhpY2FsLXkLbGV4aWNhbC15OjQBeCgBCWxleGljYWwteRJsZXhpY2FsLXktc2NoZW1hOjEBeCgBCWxleGljYWwteQtrOnBhcmFncmFwaAF3BGxpbmUGAQlsZXhpY2FsLXkGZjpib2xkBHRydWWEn/+riaPEtAsDAXiGn/+riaPEtAsEBmY6Ym9sZANbMl2Gn/+riaPEtAsFBmY6Ym9sZAR0cnVlhp//q4mjxLQLBgFrDyIxcjh4c2IwdXUxci4zIoaf/6uJo8S0CwcBdAUidGFiIoSf/6uJo8S0CwgBCYaf/6uJo8S0CwkGZjpib2xkA1s0XYaf/6uJo8S0CwoBawNbNF2Gn/+riaPEtAsLAXQDWzRdhp//q4mjxLQLDAZmOmJvbGQEdHJ1ZYSf/6uJo8S0Cw0BeYaf/6uJo8S0Cw4GZjpib2xkA1syXYSf/6uJo8S0Cw8BCoaf/6uJo8S0CxAGZjpib2xkBHRydWWEn/+riaPEtAsRAXqGn/+riaPEtAsSBmY6Ym9sZANbMl2Hn/+riaPEtAsTAwLCtgA=",
+    "input": [
+      {
+        "type": "paragraph",
+        "children": [
+          {
+            "type": "text",
+            "format": 1,
+            "text": "x"
+          },
+          {
+            "type": "tab",
+            "format": 1
+          },
+          {
+            "type": "text",
+            "format": 1,
+            "text": "y"
+          },
+          {
+            "type": "linebreak"
+          },
+          {
+            "type": "text",
+            "format": 1,
+            "text": "z"
+          }
+        ]
+      }
+    ],
+    "name": "a tab and a line break"
+  },
+  {
+    "bytes": "AQ+Gh5DXgZiIAQAoAQlsZXhpY2FsLXkLbGV4aWNhbC15OjQBeCgBCWxleGljYWwteRJsZXhpY2FsLXktc2NoZW1hOjEBeCgBCWxleGljYWwteQtrOnBhcmFncmFwaAF3BGxpbmUoAQlsZXhpY2FsLXkXazpudW1lcmljX2ZpZWxkX3dyYXBwZXIBdwhmb3JtYXR8MAQBCWxleGljYWwteQdiZWZvcmUghoaHkNeBmIgBChd3Om51bWVyaWNfZmllbGRfd3JhcHBlcgd7IjAiOjN9hIaHkNeBmIgBCwJhYoaGh5DXgZiIAQ0XdzpudW1lcmljX2ZpZWxkX3dyYXBwZXIDWzNdhoaHkNeBmIgBDgZmOmJvbGQEdHJ1ZYaGh5DXgZiIAQ8XdzpudW1lcmljX2ZpZWxkX3dyYXBwZXIHeyIwIjozfYSGh5DXgZiIARABY4aGh5DXgZiIAREGZjpib2xkA1szXYaGh5DXgZiIARIXdzpudW1lcmljX2ZpZWxkX3dyYXBwZXIDWzNdhIaHkNeBmIgBEwYgYWZ0ZXKHhoeQ14GYiAEZAwLCtgA=",
+    "input": [
+      {
+        "type": "paragraph",
+        "children": [
+          {
+            "type": "text",
+            "text": "before "
+          },
+          {
+            "0": 3,
+            "type": "numeric_field_wrapper",
+            "children": [
+              {
+                "type": "text",
+                "text": "ab"
+              },
+              {
+                "type": "text",
+                "format": 1,
+                "text": "c"
+              }
+            ]
+          },
+          {
+            "type": "text",
+            "text": " after"
+          }
+        ]
+      }
+    ],
+    "name": "a wrapper with a numeric field name"
+  },
+  {
+    "bytes": "ASL989CRiOf8DQAoAQlsZXhpY2FsLXkLbGV4aWNhbC15OjQBeCgBCWxleGljYWwteRJsZXhpY2FsLXktc2NoZW1hOjEBeCgBCWxleGljYWwteQtrOnBhcmFncmFwaAF3BGxpbmUEAQlsZXhpY2FsLXkGcGxhaW4ghv3z0JGI5/wNCAZzOnRvbmUGIndhcm0ihP3z0JGI5/wNCQR3YXJthv3z0JGI5/wNDQZzOnRvbmUDWzVdhv3z0JGI5/wNDgZmOmJvbGQEdHJ1ZYb989CRiOf8DQ8Gczp0b25lBiJjb2xkIoT989CRiOf8DRAKIGJvbGQtY29sZIb989CRiOf8DRoGZjpib2xkBFsxMl2G/fPQkYjn/A0bBnM6dG9uZQRbMTJdhv3z0JGI5/wNHAZzOnJhbmsBM4T989CRiOf8DR0HIHJhbmtlZIb989CRiOf8DSQGczpyYW5rA1s4XYb989CRiOf8DSUGczpyYW5rATeG/fPQkYjn/A0mBnM6dG9uZQYid2FybSKE/fPQkYjn/A0nBSBib3Rohv3z0JGI5/wNLAZzOnJhbmsDWzddhv3z0JGI5/wNLQZzOnRvbmUDWzddhv3z0JGI5/wNLgZzOnRvbmUHImJyZWFrIoT989CRiOf8DS8BCob989CRiOf8DTAGczp0b25lA1syXYb989CRiOf8DTEGczpmbGFnBHRydWWE/fPQkYjn/A0yB2ZsYWdnZWSG/fPQkYjn/A05BnM6ZmxhZwNbOF2G/fPQkYjn/A06BnM6bWV0YSR7Impzb24iOiJ7XCJhXCI6XCJ4XCIsXCJiXCI6WzEsMl19In2E/fPQkYjn/A07ByBvYmplY3SG/fPQkYjn/A1CBnM6bWV0YQNbOF2G/fPQkYjn/A1DBnM6dGFncxh7Impzb24iOiJbXCJ6XCIsXCJhXCJdIn2E/fPQkYjn/A1EBiBhcnJheYb989CRiOf8DUoGczp0YWdzA1s3XYT989CRiOf8DUsFIHRhaWyH/fPQkYjn/A1QAwLCtgA=",
+    "input": [
+      {
+        "type": "paragraph",
+        "children": [
+          {
+            "type": "text",
+            "text": "plain "
+          },
+          {
+            "type": "text",
+            "text": "warm",
+            "$": {
+              "tone": "warm"
+            }
+          },
+          {
+            "type": "text",
+            "format": 1,
+            "text": " bold-cold",
+            "$": {
+              "tone": "cold"
+            }
+          },
+          {
+            "type": "text",
+            "text": " ranked",
+            "$": {
+              "rank": 3
+            }
+          },
+          {
+            "type": "text",
+            "text": " both",
+            "$": {
+              "tone": "warm",
+              "rank": 7
+            }
+          },
+          {
+            "type": "linebreak",
+            "$": {
+              "tone": "break"
+            }
+          },
+          {
+            "type": "text",
+            "text": "flagged",
+            "$": {
+              "flag": true
+            }
+          },
+          {
+            "type": "text",
+            "text": " object",
+            "$": {
+              "meta": {
+                "a": "x",
+                "b": [1, 2]
+              }
+            }
+          },
+          {
+            "type": "text",
+            "text": " array",
+            "$": {
+              "tags": ["z", "a"]
+            }
+          },
+          {
+            "type": "text",
+            "text": " tail"
+          }
+        ]
+      }
+    ],
+    "name": "flat NodeState"
+  }
+]

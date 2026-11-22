@@ -1,0 +1,416 @@
+/**
+ * Copyright (c) Meta Platforms, Inc. and affiliates.
+ *
+ * This source code is licensed under the MIT license found in the
+ * LICENSE file in the root directory of this source tree.
+ *
+ * @flow strict
+ */
+
+import type {YBinding, YLocalEdits, YStatus} from '@lexical/y';
+import type {
+  HeadlessYConfig,
+  YUnsyncedBlock,
+  YUnsyncedReason,
+  YUnsyncedReport,
+} from '@lexical/y/headless';
+import type {SerializedLexicalNode} from 'lexical';
+
+/**
+ * @lexical/y/offline: EXPERIMENTAL local persistence for Yjs 14 documents
+ * (IndexedDB, by document key and epoch) and the offline session on top of
+ * it: capture on a moved epoch, the report, the replay.
+ */
+
+declare export var Y_OFFLINE_DEFAULTS: {
+  readonly databaseName: string,
+  readonly compactAfter: number,
+  readonly openTimeout: number,
+};
+
+export type YOfflineErrorCode =
+  | 'unavailable'
+  | 'blocked'
+  | 'quota'
+  | 'corrupt'
+  | 'closed'
+  | 'limit'
+  | 'newer'
+  | 'failed';
+export type YOfflineSalvage = {
+  readonly state: Uint8Array | null,
+  readonly readableRows: number,
+  readonly unreadableRows: number,
+};
+// A union by `code` (and `where`, for 'corrupt'): narrow on it to reach the
+// fields that code carries. One variant per code, so Flow refines each.
+export type YOfflineError =
+  | {
+      readonly code: 'corrupt',
+      readonly where: 'slot',
+      readonly epoch: string | null,
+      readonly salvage: YOfflineSalvage,
+      readonly message: string,
+      readonly cause?: unknown,
+    }
+  | {
+      readonly code: 'corrupt',
+      readonly where: 'captures',
+      readonly unreadable: number,
+      readonly message: string,
+      readonly cause?: unknown,
+    }
+  | {
+      readonly code: 'newer',
+      readonly epoch: string | null,
+      readonly message: string,
+      readonly cause?: unknown,
+    }
+  | {
+      readonly code: 'limit',
+      readonly limit: 'keys' | 'bytes',
+      readonly message: string,
+      readonly cause?: unknown,
+    }
+  | {readonly code: 'unavailable', readonly message: string, readonly cause?: unknown}
+  | {readonly code: 'blocked', readonly message: string, readonly cause?: unknown}
+  | {readonly code: 'quota', readonly message: string, readonly cause?: unknown}
+  | {readonly code: 'closed', readonly message: string, readonly cause?: unknown}
+  | {readonly code: 'failed', readonly message: string, readonly cause?: unknown};
+export type YOfflineLimits = {
+  readonly keys?: number,
+  readonly bytesPerKey?: number,
+  readonly group?: (key: string) => string,
+};
+export type YOfflineResult<T> =
+  | {readonly ok: true, readonly value: T}
+  | {readonly ok: false, readonly error: YOfflineError};
+export type YOfflineStored = {
+  readonly state: Uint8Array,
+  readonly base: Uint8Array | null,
+  readonly hasUnsyncedEdits: boolean,
+  readonly baseAt?: number | null,
+};
+export type YOfflineSlotInfo = {
+  readonly key: string,
+  readonly epoch: string | null,
+  readonly updatedAt: number,
+  readonly hasUnsyncedEdits: boolean,
+  readonly rows: number,
+};
+export type YOfflineCapture = {
+  readonly id: string,
+  readonly key: string,
+  readonly epoch: string | null,
+  readonly reason: YUnsyncedReason,
+  readonly capturedAt: number,
+  readonly baseAt?: number | null,
+  readonly state: Uint8Array,
+  readonly json: unknown | null,
+  readonly text: string | null,
+  readonly differs: boolean,
+  readonly base: Uint8Array | null,
+  readonly claimed: boolean,
+  readonly claimedAt?: number,
+  readonly claimedWrite?: {readonly ids: ReadonlyArray<string>},
+  // Set once a recovery wrote everything of the capture into the document
+  // (leftovers: {wrap}).
+  readonly resolved?: {
+    readonly at: number,
+    readonly inserted: ReadonlyArray<string>,
+    readonly vector: Uint8Array,
+  },
+};
+export interface YOfflineSlot {
+  readonly key: string;
+  readonly epoch: string | null;
+  load(options?: {
+    readonly writers?: 'all' | 'gone',
+  }): Promise<YOfflineResult<YOfflineStored | null>>;
+  append(update: Uint8Array): Promise<YOfflineResult<void>>;
+  confirm(
+    state: Uint8Array,
+    confirmedAt?: number | null,
+  ): Promise<YOfflineResult<void>>;
+  compact(since?: Uint8Array): Promise<YOfflineResult<void>>;
+  discard(): Promise<YOfflineResult<void>>;
+  // Only the rows this handle wrote; the rows it loaded stay.
+  discardWritten?: () => Promise<YOfflineResult<void>>;
+  readonly rowsSinceCompaction: number;
+  adopt(epoch: string): Promise<YOfflineResult<void>>;
+  close(): void;
+  moveIntoCapture?: (
+    capture: YOfflineCapture | null,
+  ) => Promise<YOfflineResult<void>>;
+}
+// What store.clear deletes: slots ({epoch} one, 'all' every one of the key,
+// unsynced edits included, 'none') and captures ('all', 'unreadable' only
+// the ones this release cannot read, 'none'). Both required.
+export type YOfflineClear = {
+  readonly slots: {readonly epoch: string | null} | 'all' | 'none',
+  readonly captures: 'all' | 'unreadable' | 'none',
+};
+export interface YOfflineStore {
+  slot(key: string, epoch: string | null): YOfflineSlot;
+  slots(key: string): Promise<YOfflineResult<Array<YOfflineSlotInfo>>>;
+  captures(key: string): Promise<YOfflineResult<Array<YOfflineCapture>>>;
+  putCapture(capture: YOfflineCapture): Promise<YOfflineResult<void>>;
+  claimCapture(
+    key: string,
+    id: string,
+    options?: {readonly retake?: {readonly claimedAt: number | null}},
+  ): Promise<YOfflineResult<boolean>>;
+  deleteCapture(key: string, id: string): Promise<YOfflineResult<void>>;
+  clear(key: string, what: YOfflineClear): Promise<YOfflineResult<void>>;
+  captureSlot?: (
+    key: string,
+    epoch: string | null,
+    build: (stored: YOfflineStored) => YOfflineCapture,
+  ) => Promise<YOfflineResult<YOfflineCapture | null>>;
+  keys(): Promise<YOfflineResult<Array<string>>>;
+  close(): void;
+}
+export type YOfflineStoreOptions = {
+  readonly idb: {
+    readonly indexedDB: IDBFactory | void,
+    readonly IDBKeyRange: typeof IDBKeyRange | void,
+  },
+  readonly databaseName?: string,
+  readonly now?: () => number,
+  readonly openTimeout?: number,
+  readonly limits?: YOfflineLimits,
+  readonly locks?: YOfflineLocks | null,
+};
+export interface YOfflineLocks {
+  request(
+    name: string,
+    callback: (lock: unknown) => Promise<unknown>,
+  ): Promise<unknown>;
+  query(): Promise<{
+    readonly held?: ReadonlyArray<{readonly name?: string}>,
+  }>;
+}
+declare export function openYOfflineStore(
+  options: YOfflineStoreOptions,
+): Promise<YOfflineResult<YOfflineStore>>;
+
+export type YOfflineStage = 'off' | 'persist' | 'replay';
+export interface YOfflineBinding {
+  readonly binding: YBinding;
+  readonly status: YStatus;
+  freeze(): YLocalEdits;
+}
+declare export var Y_OFFLINE_STAGES: ReadonlyArray<YOfflineStage>;
+
+export type YOfflineLoaded = {
+  readonly epoch: string | null,
+  readonly state: Uint8Array | null,
+  readonly base: Uint8Array | null,
+  readonly hasUnsyncedEdits: boolean,
+  readonly baseAt: number | null,
+  // Every unsynced edit loaded is in rows a tab still open holds: that tab
+  // captures them, this page's session does not unless it edits.
+  readonly unsyncedInLiveTabs: boolean,
+  readonly slot: YOfflineSlot | null,
+};
+declare export function loadYOffline(input: {
+  readonly store: YOfflineStore,
+  readonly key: string,
+  readonly epoch?: string,
+}): Promise<YOfflineResult<YOfflineLoaded>>;
+
+// What is kept on the device: the whole document, only while it holds
+// unsynced edits, or nothing as it is made (unsynced edits in the tab
+// alone).
+export type YOfflinePersist = 'document' | 'unsynced' | 'captures-only';
+// The stage and the store it uses, as one value.
+export type YOfflineMode =
+  | {readonly stage: 'off'}
+  | {
+      readonly stage: 'persist' | 'replay',
+      readonly store: YOfflineStore,
+      readonly persist: YOfflinePersist,
+    };
+export type YOfflineSessionOptions = {
+  readonly binding: YOfflineBinding,
+  readonly key: string,
+  readonly epoch: string | null,
+  // Required: what loadYOffline returned, or null for a document that was
+  // not created from it.
+  readonly loaded: YOfflineLoaded | null,
+  readonly offline: YOfflineMode,
+  readonly onError: (error: YOfflineError) => void,
+  // Required: stops this document's provider for good; the session calls
+  // it when the epoch moved.
+  readonly stopSync: () => void,
+  readonly writeDelay?: number,
+  readonly compactAfter?: number,
+  readonly now?: () => number,
+};
+export type YOfflineVerdict =
+  | {readonly kind: 'off'}
+  // markSynced: the server holds everything the document holds (only a
+  // confirmed epoch carries it).
+  | {readonly kind: 'same', readonly markSynced: () => void}
+  | {
+      readonly kind: 'moved',
+      readonly capture: YOfflineCapture | null,
+      readonly saved: YOfflineResult<void>,
+    };
+export interface YOfflineSession {
+  readonly stage: YOfflineStage;
+  readonly epoch: string | null;
+  readonly hasUnsyncedEdits: boolean;
+  readonly persisted: boolean;
+  readonly ended: boolean;
+  serverEpoch(
+    epoch: string,
+    options?: {readonly reason?: YUnsyncedReason},
+  ): Promise<YOfflineVerdict>;
+  freeze(options?: {readonly reason?: YUnsyncedReason}): Promise<YOfflineVerdict>;
+  flush(): Promise<YOfflineResult<void>>;
+  dispose(): void;
+}
+declare export function attachYOfflineSession(
+  options: YOfflineSessionOptions,
+): YOfflineSession;
+
+export type YOfflineReport = {
+  ...YUnsyncedReport,
+  readonly captureId: string,
+  readonly baseAt: number | null,
+  readonly order: ReadonlyArray<string>,
+  readonly inDocument: ReadonlyArray<string>,
+  readonly orderDiffers: boolean,
+};
+export type YOfflineDescribeOptions = {
+  readonly current: Uint8Array,
+  readonly config: HeadlessYConfig,
+  readonly migrate?: (state: Uint8Array) => Uint8Array,
+};
+declare export function describeYOfflineCapture(
+  capture: YOfflineCapture,
+  options: YOfflineDescribeOptions,
+): YOfflineResult<YOfflineReport>;
+
+// Leftovers: the blocks of a report a replay cannot apply. A replay never
+// drops them: `leftovers` is required, and there is no "report only" value.
+export type YLeftoverBlock = {
+  ...YUnsyncedBlock,
+  readonly yours: SerializedLexicalNode,
+};
+export type YLeftoversPlacement = 'after-block' | 'top';
+export type YLeftoversContext = {
+  readonly placement: YLeftoversPlacement,
+  readonly after: string | null,
+  readonly capturedAt: number,
+  readonly reason: YUnsyncedReason,
+  readonly hasNode: (type: string) => boolean,
+};
+export type YLeftoversWrap = (
+  blocks: ReadonlyArray<YLeftoverBlock>,
+  context: YLeftoversContext,
+) => ReadonlyArray<SerializedLexicalNode>;
+export type YLeftoversHandle = (
+  blocks: ReadonlyArray<YUnsyncedBlock>,
+  context: {
+    readonly report: YUnsyncedReport,
+    readonly captureId: string | null,
+  },
+) => void;
+// Write the blocks that cannot be replayed into the document, through wrap.
+export type YLeftoversWrapped = {
+  readonly wrap: YLeftoversWrap,
+  readonly placement?: YLeftoversPlacement,
+};
+// Take the blocks that cannot be replayed yourself (an Offline edits panel).
+export type YLeftoversHandled = {
+  readonly handle: YLeftoversHandle,
+};
+export type YLeftovers = YLeftoversWrapped | YLeftoversHandled;
+// The required `leftovers` of replayUnsyncedEdits and recoverYOfflineEdits:
+// pass leftovers: {wrap: wrapLeftoversAsQuote('…')} or
+// leftovers: {handle: blocks => …}.
+export type YLeftoversRequiredPassWrapOrHandle = {
+  readonly leftovers: YLeftovers,
+};
+export type YLeftoversInserted = {
+  readonly blocks: ReadonlyArray<string>,
+  readonly inserted: ReadonlyArray<string>,
+  readonly after: string | null,
+  readonly fallback: string | null,
+};
+// Which blocks a replay writes over the document by itself: 'replayable',
+// 'none' (all to leftovers), or {maxBaseAge} (ms; 'none' for an older copy
+// or one whose baseAt is unknown).
+export type YAutoReplay =
+  | 'replayable'
+  | 'none'
+  | {readonly maxBaseAge: number};
+// The required `autoReplay` of replayUnsyncedEdits and recoverYOfflineEdits:
+// pass autoReplay: 'replayable', 'none', or {maxBaseAge: <milliseconds>}.
+export type YAutoReplayRequiredPassReplayableNoneOrMaxBaseAge = {
+  readonly autoReplay: YAutoReplay,
+};
+declare export function wrapLeftoversAsQuote(
+  label: string | ((context: YLeftoversContext) => string),
+): YLeftoversWrap;
+
+export type YReplaySkipReason =
+  | 'not-replayable'
+  | 'changed-since'
+  | 'no-block-ids'
+  | 'unreadable'
+  | 'in-document'
+  | 'not-in-report'
+  | 'not-auto-replayed'
+  | 'not-written';
+export type YReplayResult = {
+  readonly applied: ReadonlyArray<string>,
+  readonly notApplied: ReadonlyArray<{
+    readonly id: string,
+    readonly reason: YReplaySkipReason,
+  }>,
+  readonly inserted: ReadonlyArray<string>,
+  readonly leftovers: ReadonlyArray<YLeftoversInserted>,
+  readonly handled: ReadonlyArray<string>,
+};
+// `leftovers` and `autoReplay` are required: omitting either is a Flow error
+// (see YLeftoversRequiredPassWrapOrHandle and
+// YAutoReplayRequiredPassReplayableNoneOrMaxBaseAge for what to pass).
+export type YReplayInput = {
+  readonly binding: YOfflineBinding,
+  readonly report: YOfflineReport | YUnsyncedReport,
+  readonly only?: ReadonlyArray<string>,
+  readonly now?: () => number,
+  ...YLeftoversRequiredPassWrapOrHandle,
+  ...YAutoReplayRequiredPassReplayableNoneOrMaxBaseAge,
+};
+declare export function replayUnsyncedEdits(
+  input: YReplayInput,
+): YReplayResult;
+
+export type YOfflineRecovered = {
+  readonly capture: YOfflineCapture,
+  readonly report: YOfflineResult<YOfflineReport>,
+  readonly replay: YReplayResult | null,
+};
+// `leftovers` and `autoReplay` are required at every stage: omitting either
+// is a Flow error (see YLeftoversRequiredPassWrapOrHandle and
+// YAutoReplayRequiredPassReplayableNoneOrMaxBaseAge for what to pass).
+export type YOfflineRecoverInput = {
+  readonly binding: YOfflineBinding,
+  readonly store: YOfflineStore | null,
+  readonly key: string,
+  readonly epoch: string,
+  readonly stage: YOfflineStage,
+  readonly config: HeadlessYConfig,
+  readonly migrate?: (state: Uint8Array) => Uint8Array,
+  readonly session?: YOfflineSession,
+  readonly now?: () => number,
+  ...YLeftoversRequiredPassWrapOrHandle,
+  ...YAutoReplayRequiredPassReplayableNoneOrMaxBaseAge,
+};
+declare export function recoverYOfflineEdits(
+  input: YOfflineRecoverInput,
+): Promise<YOfflineResult<Array<YOfflineRecovered>>>;

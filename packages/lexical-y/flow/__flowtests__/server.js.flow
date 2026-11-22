@@ -1,0 +1,144 @@
+/**
+ * Copyright (c) Meta Platforms, Inc. and affiliates.
+ *
+ * This source code is licensed under the MIT license found in the
+ * LICENSE file in the root directory of this source tree.
+ *
+ * @flow strict
+ */
+
+// Checked by `pnpm run flow` (not shipped): @lexical/y/server's protocol
+// objects (versioned and inexact) and its record API.
+
+import type {
+  YQuarantineRecord,
+  YRecordAcknowledgement,
+  YRoomDescription,
+  YSessionCaptureMaterial,
+  YSessionHandshake,
+  YSessionVerdict,
+} from '@lexical/y/server';
+
+import {
+  checkYSession,
+  createYDoc,
+  createYQuarantineRecord,
+  createYSessionCapture,
+  describeYRoom,
+  getYGeneration,
+  sourceView,
+  UNKNOWN_GENERATION,
+} from '@lexical/y/server';
+
+declare const stored: Uint8Array;
+declare const pending: Uint8Array;
+
+const doc = createYDoc(stored);
+const generation: string = getYGeneration(doc, 'incarnation', ['lexical-y']);
+const room: YRoomDescription = describeYRoom(doc, {
+  incarnation: 'incarnation',
+  inherited: false,
+  seedContract: 1,
+});
+const requires: ReadonlyArray<string> = room.requires;
+const migrated: boolean = room.hasMigration;
+
+// A version 1 handshake, with features; extra fields are fine (inexact).
+const handshake: YSessionHandshake = {
+  features: ['f'],
+  generation,
+  layouts: [1, 2],
+  material: false,
+  seed: 1,
+  v: 1,
+};
+const later: YSessionHandshake = {...handshake, schemas: {}};
+// $FlowExpectedError[incompatible-type] v is required
+const unversioned: YSessionHandshake = {
+  generation,
+  layouts: [1, 2],
+  material: false,
+  seed: 1,
+};
+
+const verdict: YSessionVerdict = checkYSession(room, handshake);
+const reason: ?string = verdict.reason;
+if (verdict.verdict === 'admit' || verdict.verdict === 'bootstrap') {
+  const initialize: boolean = verdict.initialize;
+}
+
+// Records: a kind from a later release is a string; a pending form.
+const source = {
+  generation: UNKNOWN_GENERATION,
+  incarnation: null,
+  layouts: null,
+  renderer: null,
+  schemaVersion: null,
+};
+const record: YQuarantineRecord = createYQuarantineRecord({
+  kind: 'a-later-kind',
+  receivedAt: 0,
+  requires: ['f'],
+  source,
+});
+const v: 1 = record.v;
+const format: 'yjs-v1' = record.updateFormat;
+const kind: string = record.kind;
+const split: YQuarantineRecord = createYQuarantineRecord(
+  {kind: 'pending', pending, receivedAt: 0, source, stored},
+  {generation, state: stored},
+);
+const ack: YRecordAcknowledgement = {
+  hash: record.hash,
+  record: record.id,
+  replica: 'replica',
+  room: 'room',
+  sourceGeneration: UNKNOWN_GENERATION,
+  v: 1,
+};
+
+// A capture resumed from persisted, versioned material.
+const capture = createYSessionCapture({
+  deltas: [],
+  signals: [],
+  snapshot: stored,
+  updateFormat: 'yjs-v1',
+  v: 1,
+});
+const material: YSessionCaptureMaterial = capture.material();
+const fromCapture: YQuarantineRecord = createYQuarantineRecord({
+  ...material,
+  kind: 'capture',
+  receivedAt: 0,
+  source,
+});
+// $FlowExpectedError[incompatible-type] unversioned material is not resumed
+createYSessionCapture({deltas: [], signals: [], snapshot: stored});
+
+// The source view reads a record (its header and material).
+const view = sourceView(record);
+// $FlowExpectedError[incompatible-type] bare material has no header
+sourceView({deltas: [], queue: [], snapshot: stored});
+
+// Extensible objects accept a variable carrying a field this release does
+// not know (inexact), not only literals.
+const roomOptions = {
+  incarnation: 'inc',
+  inherited: false,
+  laterOption: true,
+  seedContract: 1,
+};
+describeYRoom(doc, roomOptions);
+const laterMaterial = {...capture.material(), laterField: 1};
+createYSessionCapture(laterMaterial);
+const laterHandshake = {...handshake, laterField: 'x'};
+checkYSession(room, laterHandshake);
+const laterRecord = {...record, laterField: null};
+sourceView(laterRecord);
+const laterBase = {generation: 'g', laterField: 0, state: stored};
+createYQuarantineRecord({kind: 'capture', receivedAt: 0, source}, laterBase);
+
+// Capability ranges are read only.
+const range: Readonly<[number, number]> = handshake.layouts;
+// $FlowExpectedError[cannot-write] a capability range is read only
+handshake.layouts[0] = 1;

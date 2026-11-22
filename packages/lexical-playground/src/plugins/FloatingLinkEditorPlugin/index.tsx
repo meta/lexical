@@ -26,6 +26,8 @@ import {
 import {useLexicalComposerContext} from '@lexical/react/LexicalComposerContext';
 import {
   $findMatchingParent,
+  $getEditor,
+  $getNearestNodeFromDOMNode,
   $getSelection,
   $isDecoratorNode,
   $isLineBreakNode,
@@ -38,11 +40,13 @@ import {
   COMMAND_PRIORITY_HIGH,
   COMMAND_PRIORITY_LOW,
   getActiveElementDeep,
+  getComposedEventTarget,
   getDOMSelection,
   getDOMSelectionPoints,
   getDOMSelectionRangeAndPoints,
   getParentElement,
   getRootOwnerDocument,
+  isDOMNode,
   KEY_ESCAPE_COMMAND,
   type LexicalEditor,
   mergeRegister,
@@ -245,7 +249,7 @@ function FloatingLinkEditor({
   useEffect(() => {
     return mergeRegister(
       editor.registerUpdateListener(({editorState}) => {
-        editorState.read(() => {
+        editor.read(editorState, () => {
           $updateLinkEditor();
         });
       }),
@@ -364,6 +368,28 @@ function FloatingLinkEditor({
             }}
             onKeyDown={event => {
               monitorInputInteraction(event);
+            }}
+            onPointerDown={event => {
+              // The link editor floats over the editor's contenteditable. A
+              // text selection dragged out of the input would otherwise be
+              // computed from the contenteditable under the pointer, which
+              // moves the selection to unrelated offsets. Capturing the
+              // pointer keeps the drag tied to the input, as in a plain input.
+              // Mouse and pen drags need this; touch gets implicit capture,
+              // and buttons other than the primary one don't drag-select.
+              const target = event.currentTarget;
+              if (
+                event.pointerType === 'touch' ||
+                event.button !== 0 ||
+                typeof target.setPointerCapture !== 'function'
+              ) {
+                return;
+              }
+              try {
+                target.setPointerCapture(event.pointerId);
+              } catch {
+                // The pointer is not active (e.g. a synthetic event).
+              }
             }}
           />
           <div>
@@ -495,7 +521,7 @@ function useFloatingLinkEditorToolbar(
         }
       }),
       editor.registerUpdateListener(({editorState}) => {
-        editorState.read(() => {
+        editor.read(editorState, () => {
           $updateToolbar();
         });
       }),
@@ -511,7 +537,56 @@ function useFloatingLinkEditorToolbar(
       editor.registerCommand(
         CLICK_COMMAND,
         payload => {
-          const selection = $getSelection();
+          let selection = $getSelection();
+          const currentEditor = $getEditor();
+          const target = getComposedEventTarget(payload);
+          if (
+            currentEditor.isEditable() &&
+            payload.button === 0 &&
+            !payload.shiftKey &&
+            $isRangeSelection(selection) &&
+            selection.isCollapsed() &&
+            isDOMNode(target)
+          ) {
+            const clickedNode = $getNearestNodeFromDOMNode(target);
+            const clickedLink =
+              clickedNode && $findMatchingParent(clickedNode, $isLinkNode);
+            const anchorNode = selection.anchor.getNode();
+            if (
+              clickedLink &&
+              !clickedLink.is(anchorNode) &&
+              !clickedLink.isParentOf(anchorNode)
+            ) {
+              const rootElement = currentEditor.getRootElement();
+              const nativeSelection = getDOMSelection(
+                rootElement?.ownerDocument.defaultView ?? null,
+              );
+              const {anchorNode: domAnchorNode, anchorOffset: domAnchorOffset} =
+                nativeSelection
+                  ? getDOMSelectionPoints(nativeSelection, rootElement)
+                  : {anchorNode: null, anchorOffset: 0};
+              const linkElement = currentEditor.getElementByKey(
+                clickedLink.getKey(),
+              );
+              // A click can precede selectionchange; the DOM caret may be newer.
+              if (!linkElement?.contains(domAnchorNode)) {
+                let isBefore = anchorNode.isBefore(clickedLink);
+                if (
+                  linkElement &&
+                  domAnchorNode &&
+                  rootElement?.contains(domAnchorNode)
+                ) {
+                  const linkRange = linkElement.ownerDocument.createRange();
+                  linkRange.selectNodeContents(linkElement);
+                  isBefore =
+                    linkRange.comparePoint(domAnchorNode, domAnchorOffset) < 0;
+                }
+                selection = isBefore
+                  ? clickedLink.selectStart()
+                  : clickedLink.selectEnd();
+              }
+            }
+          }
           if ($isRangeSelection(selection)) {
             const node = getSelectedNode(selection);
             const linkNode = $findMatchingParent(node, $isLinkNode);

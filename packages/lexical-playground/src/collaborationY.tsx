@@ -26,6 +26,7 @@
 
 import {
   AutoFocusExtension,
+  BlockIdExtension,
   buildEditorFromExtensions,
   getExtensionDependencyFromEditor,
   type Signal,
@@ -44,8 +45,11 @@ import {
   UNSUPPORTED_LAYOUT_WARNING,
   UNSUPPORTED_SCHEMA_WARNING,
   UNSUPPORTED_SLOTS_WARNING,
+  Y_DEFAULTS,
+  yCollab,
   YCollabExtension,
   type YDoc,
+  type YStatus,
   type YWarning,
 } from '@lexical/y';
 import {CONNECTED_COMMAND, TOGGLE_CONNECT_COMMAND} from '@lexical/yjs';
@@ -60,6 +64,17 @@ import {
 } from 'lexical';
 import {type JSX, useEffect, useRef} from 'react';
 
+import {
+  COLLAB_Y_EPOCH,
+  type CollabYOffline,
+  CollabYOfflinePanel,
+  type CollabYOfflinePrepared,
+  createCollabYOffline,
+  prepareCollabYOffline as prepareOffline,
+  roomAtEpoch,
+  storedStateFor,
+} from './collaborationYOffline';
+
 const params = new URLSearchParams(window.location.search);
 const WEBSOCKET_ENDPOINT =
   params.get('collabEndpoint') || 'ws://localhost:1235';
@@ -73,7 +88,7 @@ const WEBSOCKET_ID = params.get('collabId') || '0';
  * full. `?collabYSchemaVersion=<n>` overrides it, to try the gate with two
  * tabs.
  */
-const SCHEMA_VERSION = Number(params.get('collabYSchemaVersion')) || 1;
+const SCHEMA_VERSION = Number(params.get('collabYSchemaVersion')) || 2;
 
 export interface CollabYSession {
   doc: YDoc;
@@ -85,6 +100,11 @@ export interface CollabYSession {
    * configuration it cannot write with), for the read-only notice's text.
    */
   readOnlyWarning: Signal<YWarning | null>;
+  /**
+   * Offline mode (the "Collab Y Offline" setting; see
+   * collaborationYOffline.tsx), or null when it is off.
+   */
+  offline: CollabYOffline | null;
 }
 
 /** The binding's warnings that come with (or explain) its read-only state. */
@@ -104,14 +124,43 @@ const READ_ONLY_WARNING_CODES: ReadonlySet<string> = new Set([
  */
 function needsNewerApp(warning: YWarning | null): boolean {
   return (
-    warning !== null &&
-    (warning.code === UNSUPPORTED_SCHEMA_WARNING ||
-      warning.code === UNSUPPORTED_LAYOUT_WARNING) &&
+    (isYWarning(warning, UNSUPPORTED_SCHEMA_WARNING) ||
+      isYWarning(warning, UNSUPPORTED_LAYOUT_WARNING)) &&
     warning.data.reason === 'newer'
   );
 }
 
+/** The `reason` of a warning's data (each one the notice shows has one). */
+function reasonOf(warning: YWarning): string | undefined {
+  const data: unknown = warning.data;
+  return typeof data === 'object' && data !== null && 'reason' in data
+    ? String(data.reason)
+    : undefined;
+}
+
+/**
+ * The binding's status, for debugging (`window.lexicalYStatus`): the
+ * read-only notice reads the binding's warnings, which carry more detail.
+ */
+function showStatus(status: YStatus): void {
+  (globalThis as {lexicalYStatus?: YStatus}).lexicalYStatus = status;
+}
+
 let session: CollabYSession | null = null;
+
+/** The room of the document `id` (and its key in the local store). */
+const roomOf = (id: string) => WEBSOCKET_SLUG + '/' + WEBSOCKET_ID + '/' + id;
+
+/**
+ * Offline mode's first step: what this device stores for the document `id`
+ * (null with offline mode off). One promise per document, for React's `use`.
+ */
+export function prepareCollabYOffline(
+  id: string,
+  enabled: boolean,
+): Promise<CollabYOfflinePrepared | null> {
+  return prepareOffline(roomOf(id), enabled);
+}
 
 /**
  * The page's collab Y editor, built once.
@@ -125,13 +174,21 @@ let session: CollabYSession | null = null;
 export function getCollabYSession(
   id: string,
   buildApp: () => AnyLexicalExtensionArgument,
+  prepared: CollabYOfflinePrepared | null = null,
 ): CollabYSession {
   if (session === null) {
-    const doc = createYDoc();
+    // Offline mode: the document stored on this device, when it belongs to
+    // the epoch the room is at. The editor is then editable at once, with
+    // no connection (`synced: true`), and syncs like any other when one
+    // comes.
+    const stored = storedStateFor(prepared);
+    const doc = createYDoc(stored);
     const readOnlyWarning = signal<YWarning | null>(null);
+    const room = roomOf(id);
+    // Each epoch is its own room (offline mode only: the relay has none).
     const provider = new WebsocketProvider(
       WEBSOCKET_ENDPOINT,
-      WEBSOCKET_SLUG + '/' + WEBSOCKET_ID + '/' + id,
+      prepared === null ? room : roomAtEpoch(room, COLLAB_Y_EPOCH),
       doc,
       {
         connect: false,
@@ -147,16 +204,33 @@ export function getCollabYSession(
           ReactProviderExtension,
           configExtension(ReactExtension, {contentEditable: null}),
           buildApp(),
+          // Offline edits are compared and reapplied block by block, which
+          // needs block ids.
+          ...(prepared === null ? [] : [BlockIdExtension]),
+          // The canonical setup (the same in the package README and y.md).
+          yCollab({
+            doc,
+            history: Y_DEFAULTS.history, // the default
+            onStatus: status => showStatus(status),
+            root: Y_DEFAULTS.root, // the default
+            schemaVersion: SCHEMA_VERSION,
+            synced: false, // markSynced() after the provider's first sync
+          }),
+          // A document loaded from this device is already what the page
+          // has: nothing to wait for.
+          ...(stored === null
+            ? []
+            : [configExtension(YCollabExtension, {synced: true})]),
           // The binding's self-check (off by default) reads its writes
           // back in development builds: a mismatch is a warning, which the
           // collab Y e2e specs fail on. It is keyed on the build mode, as
           // Lexical's own `__DEV__` is (scripts/vite/lexicalMonorepoPlugin.ts),
           // and not on `import.meta.env.DEV`, which Vite derives from
           // NODE_ENV: `vite build --mode development`, the build the e2e CI
-          // job tests, has NODE_ENV production and DEV false.
+          // job tests, has NODE_ENV production and DEV false. The
+          // playground's relay does not migrate stored documents: one below
+          // the floor stays read only.
           configExtension(YCollabExtension, {
-            doc,
-            schemaVersion: SCHEMA_VERSION,
             selfCheck: import.meta.env?.MODE !== 'production',
           }),
         ],
@@ -180,7 +254,30 @@ export function getCollabYSession(
         },
       }),
     );
-    session = {doc, editor, provider, readOnlyWarning};
+    const offline =
+      prepared === null
+        ? null
+        : createCollabYOffline({
+            binding: getExtensionDependencyFromEditor(editor, YCollabExtension)
+              .output.collab,
+            // The same nodes and block ids, headless, for the reports.
+            config: {
+              extensions: [
+                ReactProviderExtension,
+                configExtension(ReactExtension, {contentEditable: null}),
+                buildApp(),
+                BlockIdExtension,
+              ],
+              onWarn: () => {},
+              schemaVersion: SCHEMA_VERSION,
+            },
+            endpoint: WEBSOCKET_ENDPOINT,
+            from: prepared,
+            key: room,
+            room,
+            stopSync: () => provider.disconnect(),
+          });
+    session = {doc, editor, offline, provider, readOnlyWarning};
   }
   return session;
 }
@@ -190,14 +287,16 @@ export function getCollabYSession(
  * the toolbar's connect button, and shows the binding's read-only state.
  */
 export function CollabYPlugin({
+  offline = null,
   provider,
   readOnlyWarning,
 }: {
+  offline?: CollabYOffline | null;
   provider: WebsocketProvider;
   readOnlyWarning: Signal<YWarning | null>;
 }): JSX.Element | null {
   const [editor] = useLexicalComposerContext();
-  const {binding, status} = getExtensionDependencyFromEditor(
+  const {collab, status} = getExtensionDependencyFromEditor(
     editor,
     YCollabExtension,
   ).output;
@@ -208,7 +307,11 @@ export function CollabYPlugin({
     const onSync = (isSynced: boolean) => {
       if (isSynced) {
         // A no-op after the first time.
-        binding.initialize();
+        collab.markSynced();
+        if (offline !== null) {
+          // The server holds what the page holds: the base of later edits.
+          offline.onSynced();
+        }
       }
     };
     const onStatus = ({status: value}: {status: string}) => {
@@ -216,10 +319,40 @@ export function CollabYPlugin({
     };
     provider.on('sync', onSync);
     provider.on('status', onStatus);
+    // Offline mode: this relay acknowledges nothing, so an update sent while
+    // connected and synced counts as held by the server once the socket has
+    // sent it and edits pause (the closest signal a generic relay gives; see
+    // markSynced in y.md's offline section).
+    let quiet: ReturnType<typeof setTimeout> | null = null;
+    const onUpdate = (_update: Uint8Array, origin: unknown) => {
+      if (offline === null || origin === provider) {
+        return;
+      }
+      if (quiet !== null) {
+        clearTimeout(quiet);
+      }
+      quiet = setTimeout(() => {
+        quiet = null;
+        const ws = provider.ws;
+        if (
+          provider.wsconnected &&
+          provider.synced &&
+          ws !== null &&
+          ws.bufferedAmount === 0
+        ) {
+          offline.onSynced();
+        }
+      }, 300);
+    };
+    provider.doc.on('update', onUpdate);
     const unregister = editor.registerCommand(
       TOGGLE_CONNECT_COMMAND,
       shouldConnect => {
         if (shouldConnect) {
+          // A document whose epoch moved is never synced again.
+          if (offline !== null && offline.frozen()) {
+            return true;
+          }
           provider.connect();
         } else {
           provider.disconnect();
@@ -236,9 +369,13 @@ export function CollabYPlugin({
       unregister();
       provider.off('sync', onSync);
       provider.off('status', onStatus);
+      provider.doc.off('update', onUpdate);
+      if (quiet !== null) {
+        clearTimeout(quiet);
+      }
       provider.disconnect();
     };
-  }, [binding, editor, provider]);
+  }, [collab, editor, offline, provider]);
 
   // The binding keeps the editor non-editable until it has read the
   // document, and while it is read only (a layout it cannot write). Anything
@@ -249,11 +386,11 @@ export function CollabYPlugin({
   useEffect(
     () =>
       editor.registerEditableListener(editable => {
-        if (editable && binding.status !== 'active') {
+        if (editable && collab.status.kind !== 'active') {
           editor.setEditable(false);
         }
       }),
-    [binding, editor],
+    [collab, editor],
   );
 
   // The editor is read only until the binding has read the document, so
@@ -276,8 +413,10 @@ export function CollabYPlugin({
     }
   }, [editor, statusValue]);
 
+  const panel =
+    offline === null ? null : <CollabYOfflinePanel offline={offline} />;
   if (statusValue !== 'readonly') {
-    return null;
+    return panel;
   }
   // The app's own text, chosen from the warning's typed `code` and
   // `reason`; the code and reason are also on the element, for the e2e
@@ -289,12 +428,15 @@ export function CollabYPlugin({
         ? 'This document was edited with a newer version of the playground. Reload the page to get the latest version; until then it is read only here.'
         : 'This document was written by a newer version of the playground. It is read only here.';
   return (
-    <div
-      className="collab-y-notice"
-      role="status"
-      data-code={warning === null ? undefined : warning.code}
-      data-reason={warning === null ? undefined : warning.data.reason}>
-      {text}
-    </div>
+    <>
+      <div
+        className="collab-y-notice"
+        role="status"
+        data-code={warning === null ? undefined : warning.code}
+        data-reason={warning === null ? undefined : reasonOf(warning)}>
+        {text}
+      </div>
+      {panel}
+    </>
   );
 }

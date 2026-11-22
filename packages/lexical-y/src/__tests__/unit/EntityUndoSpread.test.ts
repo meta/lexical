@@ -126,65 +126,58 @@ function blocksOf(peer: Peer): Record<string, number[]> {
   });
 }
 
-test.fails(
-  '#9716: undo restores a comment opener without its closer after an entity type change (spreads to the end of the document)',
-  async () => {
-    const t = await setup(
-      () => {
-        $getRoot().append(
-          $createParagraphNode().append(
-            $createTextNode('alpha one '),
-            $createKeywordNode('two'),
-            $createTextNode(' three '),
-            $createHashtagNode('#four'),
-            $createTextNode(' 0'),
-          ),
-          $createParagraphNode().append(
-            $createTextNode('beta one two three 1'),
-          ),
-          $createParagraphNode().append(
-            $createTextNode('gamma one two three 2'),
-          ),
-        );
-      },
-      {nodes: [...NODES, HashtagNode, KeywordNode], prepare},
-    );
-    const [a, b] = t.peers;
-    // A's undo step: four updates with no step boundary between them
-    a.update(() => {
-      const two = $nodeWithTwo();
-      $addMarkID('c1', $select(two, 0, two.getTextContentSize()));
-      $setSelection(null);
-    });
-    const step = (fn: () => void) => a.editor.update(fn, {discrete: true});
-    step(() => {
-      const two = $nodeWithTwo();
-      const at = two.getTextContent().indexOf('two') + 3;
-      const selection = $select(two, at, at);
-      selection.format = 0;
-      selection.insertText('x');
-      $setSelection(null);
-    });
-    step(() => {
-      const two = $nodeWithTwo();
-      $addMarkID('c3', $select(two, 0, two.getTextContentSize()));
-      $setSelection(null);
-    });
-    step(() => {
-      const two = $nodeWithTwo();
-      const selection = $select(two, 0, 0);
-      selection.format = 0;
-      selection.insertText('#t');
-      $setSelection(null);
-    });
-    await t.sync();
-    b.update(() => $removeMarkID('c3'));
-    a.undo();
-    await t.sync();
-    b.undo();
-    await t.sync();
-    await expectConverged(t.peers);
-    const c3 = blocksOf(a).c3 || [];
-    expect(c3.filter(i => i !== 0)).toEqual([]);
-  },
-);
+test('#9716: undo restores a comment opener without its closer after an entity type change (spreads to the end of the document)', async () => {
+  const t = await setup(
+    () => {
+      $getRoot().append(
+        $createParagraphNode().append(
+          $createTextNode('alpha one '),
+          $createKeywordNode('two'),
+          $createTextNode(' three '),
+          $createHashtagNode('#four'),
+          $createTextNode(' 0'),
+        ),
+        $createParagraphNode().append($createTextNode('beta one two three 1')),
+        $createParagraphNode().append($createTextNode('gamma one two three 2')),
+      );
+    },
+    {nodes: [...NODES, HashtagNode, KeywordNode], prepare},
+  );
+  const [a, b] = t.peers;
+  // A's undo step: four updates with no step boundary between them
+  a.update(() => {
+    const two = $nodeWithTwo();
+    $addMarkID('c1', $select(two, 0, two.getTextContentSize()));
+    $setSelection(null);
+  });
+  const step = (fn: () => void) => a.editor.update(fn, {discrete: true});
+  step(() => {
+    const two = $nodeWithTwo();
+    const at = two.getTextContent().indexOf('two') + 3;
+    const selection = $select(two, at, at);
+    selection.format = 0;
+    selection.insertText('x');
+    $setSelection(null);
+  });
+  step(() => {
+    const two = $nodeWithTwo();
+    $addMarkID('c3', $select(two, 0, two.getTextContentSize()));
+    $setSelection(null);
+  });
+  step(() => {
+    const two = $nodeWithTwo();
+    const selection = $select(two, 0, 0);
+    selection.format = 0;
+    selection.insertText('#t');
+    $setSelection(null);
+  });
+  await t.sync();
+  b.update(() => $removeMarkID('c3'));
+  a.undo();
+  await t.sync();
+  b.undo();
+  await t.sync();
+  await expectConverged(t.peers);
+  const c3 = blocksOf(a).c3 || [];
+  expect(c3.filter(i => i !== 0)).toEqual([]);
+});

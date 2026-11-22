@@ -29,7 +29,7 @@ import {
 } from 'lexical';
 import {describe, expect, test} from 'vitest';
 
-import {type Peer, setup, WITH_GC} from '../../utils/harness';
+import {freshReader, type Peer, setup, WITH_GC} from '../../utils/harness';
 import {prepareMarkState} from '../../utils/sizeOps';
 
 const mark = 's:markIds\u001fc5';
@@ -64,30 +64,28 @@ async function split(make: () => TextNode, at = 6, length = 4) {
 
 // A read must keep the text and key the browser is composing into.
 describe.each([0, 1])('composition in part %s', index => {
-  // Inherited (main too): https://github.com/meta/lexical/issues/9739
-  test.fails(
-    'a remote comment removal preserves the composed target',
-    async () => {
-      const t = await split(() =>
-        $createTextNode('alpha beta').setMode('segmented'),
-      );
-      try {
-        const key = t.b.read(() => $children()[index].getKey());
-        const text = t.b.read(() => $children()[index].getTextContent());
-        t.b.update(() => {
-          const node = $getNodeByKey(key) as TextNode;
-          node.select(1, 1);
-          $setCompositionKey(key);
-        });
-        t.a.update(() => $removeMarkID('c5'));
-        await t.sync();
-        expect(t.b.editor._compositionKey).toBe(key);
-        expect(t.b.read(() => $getNodeByKey(key)?.getTextContent())).toBe(text);
-      } finally {
-        stop(t.peers);
-      }
-    },
-  );
+  // Inherited on main (https://github.com/meta/lexical/issues/9739); passes
+  // with paired runs.
+  test('a remote comment removal preserves the composed target', async () => {
+    const t = await split(() =>
+      $createTextNode('alpha beta').setMode('segmented'),
+    );
+    try {
+      const key = t.b.read(() => $children()[index].getKey());
+      const text = t.b.read(() => $children()[index].getTextContent());
+      t.b.update(() => {
+        const node = $getNodeByKey(key) as TextNode;
+        node.select(1, 1);
+        $setCompositionKey(key);
+      });
+      t.a.update(() => $removeMarkID('c5'));
+      await t.sync();
+      expect(t.b.editor._compositionKey).toBe(key);
+      expect(t.b.read(() => $getNodeByKey(key)?.getTextContent())).toBe(text);
+    } finally {
+      stop(t.peers);
+    }
+  });
 });
 
 // Regression: reading the run back while another part is composed rewrote it
@@ -117,7 +115,10 @@ describe.each(['keystroke', 'composition end', 'composing keystroke'])(
   'equal highlight parts: %s',
   action => {
     // A code highlight ignores a stored bold that a full write would remove:
-    // these writes keep the keystroke path
+    // these writes keep the keystroke path. The ignored bold does not split
+    // the highlight into two nodes (see Reader#$pieces and
+    // CodeHighlightStaleFormat.test.ts): read as two, text typed into either
+    // part read apart from it in a fresh read.
     test('preserves an ignored stored bold', async () => {
       const t = await setup(
         () =>
@@ -138,28 +139,27 @@ describe.each(['keystroke', 'composition end', 'composing keystroke'])(
           t.b.read(() =>
             $children().map(n => [n.getTextContent(), n.getFormat()]),
           ),
-        ).toEqual([
-          ['alpha ', 0],
-          ['beta', 0],
-        ]);
+        ).toEqual([['alpha beta', 0]]);
         if (action === 'keystroke') {
           t.b.update(() => {
-            $children()[1].setTextContent('beta!').select(5, 5);
+            $children()[0].setTextContent('alpha beta!').select(11, 11);
           });
         } else {
           t.b.update(() => {
-            $children()[1].select(1, 1);
-            $setCompositionKey($children()[1].getKey());
+            $children()[0].select(7, 7);
+            $setCompositionKey($children()[0].getKey());
           });
           if (action === 'composition end') {
             t.b.update(() => $setCompositionKey(null));
           } else {
             t.b.update(() =>
-              $children()[1].setTextContent('beta!').select(5, 5),
+              $children()[0].setTextContent('alpha beta!').select(11, 11),
             );
           }
         }
         await t.sync();
+        const fresh = await freshReader(t.b);
+        expect(fresh.describe()).toBe(t.b.describe());
         const delta = JSON.parse(
           JSON.stringify(raw(t.b).toDelta()),
         ) as ReturnType<RawRoot['toDelta']>;

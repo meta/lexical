@@ -42,6 +42,7 @@ import {
 import {describe, expect, test} from 'vitest';
 
 import {createYDoc, YCollabExtension, type YDoc} from '../../..';
+import {migrateToLayout4} from '../../utils/migrate';
 
 // A document whose code block line is
 // `const t44z = fetch(t45z); // t46z note t47zt48z t49z t50z t51z`, its
@@ -82,6 +83,7 @@ function client(doc: YDoc): LexicalEditor {
         MarkStateExtension,
         configExtension(YCollabExtension, {
           doc,
+          onYStatus: null,
           schemaVersion: 1,
           selfCheck: true,
         }),
@@ -114,6 +116,8 @@ describe('#9577: composing in a code token split by NodeState', () => {
       const doc = createYDoc();
       doc.clientID = 777;
       Y.applyUpdate(doc, b64(DOC), 'load');
+      // (A capture from before layout 3, migrated as the 2-to-3 step does.)
+      migrateToLayout4(doc, doc.get('lexical-y'));
       const editor = client(doc);
       await idle();
       expect(codeLine(editor)).toBe(LINE);

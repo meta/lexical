@@ -45,7 +45,12 @@ import {
   SLOT_NODES,
 } from '../utils/slots';
 
-const config = {nodes: SLOT_NODES, schemaVersion: 1, selfCheck: true};
+const config = {
+  nodes: SLOT_NODES,
+  onWarn: null,
+  schemaVersion: 1,
+  selfCheck: true,
+};
 
 function $build() {
   $getRoot().append(
@@ -155,9 +160,12 @@ describe('named slots, headless', () => {
         nodes: SLOT_NODES,
       }),
     ];
-    const state = seedYState({extensions, schemaVersion: 1}, $build);
+    const state = seedYState(
+      {extensions, onWarn: null, schemaVersion: 1},
+      $build,
+    );
     const ids = () =>
-      readYState(state, {extensions, schemaVersion: 1}, () => {
+      readYState(state, {extensions, onWarn: null, schemaVersion: 1}, () => {
         const out: string[] = [];
         const $visit = (n: LexicalNode) => {
           const json = n.exportJSON() as {$?: {blockId?: string}};

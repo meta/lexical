@@ -9,25 +9,23 @@
 // @vitest-environment node
 
 import * as Y from '@y/y';
-import {describe, expect, test, vi} from 'vitest';
+import {describe, expect, test} from 'vitest';
 
 import {Cursor} from '../../internal/Cursor';
+import {readLayout4Formats} from '../../migrate/3to4/frozen/layout4';
 
-// A layout that stores one attribute under several format keys (here a set
-// stored one key per member, `m|<member>` = true) names them one family
-// (see formatFamily). The write cursor's rules for format items then hold
-// for the attribute as they hold for a key stored whole (see
-// Cursor#format and Cursor#minimizeFormatChanges).
+// A set-valued NodeState is stored one format key per member
+// (`s:<key>\u001f<member>` = true), and those keys are one family (see
+// formatFamily). The write cursor's rules for format items then hold for the
+// attribute as they hold for a key stored whole (see Cursor#format and
+// Cursor#minimizeFormatChanges). The documents here start from plain items
+// (Y.Node#insert with attributes, a raw writer's), which the cursor's paired
+// runs meet. (Before layout 4 these cells ran on a mocked family of names
+// the binding does not own, `m|<member>`, through the plain-value writer;
+// layout 4 writes covered names only, D120.)
 
-vi.mock('../../internal/Schema', async importOriginal => {
-  const actual = await importOriginal<typeof import('../../internal/Schema')>();
-  return {
-    ...actual,
-    formatFamily: (key: string) => (key.startsWith('m|') ? 'm' : key),
-  };
-});
-
-const m = (member: string) => `m|${member}`;
+const PREFIX = 's:m\u001f';
+const m = (member: string) => PREFIX + member;
 
 function doc(id: number): Y.Doc {
   const d = new Y.Doc();
@@ -55,18 +53,21 @@ function exchange(docs: Y.Doc[]) {
   }
 }
 
-/** Each character with the members it holds. */
+/** Each character with the members it holds, by the paired fold. */
 function members(d: Y.Doc): string[] {
   const out: string[] = [];
-  const {children} = d.get('t').toDelta().toJSON() as {
-    children: {insert: string; format?: Record<string, unknown>}[];
-  };
-  for (const op of children) {
-    const held = Object.entries(op.format ?? {})
-      .filter(([k, v]) => k.startsWith('m|') && v === true)
-      .map(([k]) => k.slice(2))
-      .sort();
-    for (const ch of op.insert) {
+  const t = d.get('t');
+  const values = readLayout4Formats(t);
+  let at = 0;
+  for (let it = t._start; it !== null; it = it.right) {
+    if (it.deleted || !(it.content instanceof Y.ContentString)) {
+      continue;
+    }
+    for (const ch of it.content.str) {
+      const held = [...values[at++]]
+        .filter(([k, v]) => k.startsWith(PREFIX) && v === true)
+        .map(([k]) => k.slice(PREFIX.length))
+        .sort();
       out.push(held.length > 0 ? `${ch}[${held.join(',')}]` : ch);
     }
   }

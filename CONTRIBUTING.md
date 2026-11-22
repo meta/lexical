@@ -88,6 +88,12 @@ or create the file by hand:
   Detect: calls to `.getCommonAncestor(` on nodes.
   ````
 
+- A change to published types that can make existing code stop type
+  checking (a new overload, a removed or added generic, a branded or
+  narrowed type) is `[breaking]`, even when it only deprecates something.
+  Its `Detect:` names the call shapes that stop compiling, including calls
+  that relied on an inferred type argument, and its `Migration:` gives the
+  replacement.
 - A `[deprecation]` entry must name the replacement (`Replacement:`) and say
   when removal is planned (`Removal:` with a version, `no earlier than v0.NN`,
   or `not scheduled`).

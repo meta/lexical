@@ -2,7 +2,7 @@
 
 This example demonstrates a split-view markdown editor: a WYSIWYG editor on
 the left synchronized with a live markdown preview on the right. It is built
-entirely on the Lexical [Extension](https://lexical.dev/docs/concepts/extensions)
+entirely on the Lexical [Extension](https://lexical.dev/docs/extensions/intro)
 system — every piece of state and behavior the React UI relies on is provided
 by an extension as a command, an output signal, or both.
 
