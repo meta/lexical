@@ -836,11 +836,12 @@ export function getExportedLengths(values: string[]): number[] {
  * again when its version changes, and vendor the fix if no release has it.
  */
 function toMarkdownWithStandIns(
-  tree: Root,
+  exported: Root,
   extensions: ToMarkdownExtension[],
   isCjkFriendly: boolean,
   measure?: (values: string[]) => string[],
 ): string {
+  const tree = joinAdjacentText(exported);
   const used = new Set<number>();
   const counts = countStoodIn(tree, used);
   if (counts.size > 0) {
@@ -897,6 +898,64 @@ function toMarkdownWithStandIns(
     }
   }
   return measuring(measure, () => toMarkdown(tree, {extensions}));
+}
+
+/**
+ * `node` with each run of adjacent text siblings joined into one text, as an
+ * inline element with no export rule of its own (a MarkNode) leaves its text
+ * beside the text around it. mdast-util-to-markdown gives a text only the
+ * last character of the one before it to decide its escapes, so a `www.`
+ * split over two texts would go out unescaped. A text with anything but its
+ * value, such as `data` or a `position` that an export rule set for a handler
+ * to read, is kept apart. The tree itself is not changed.
+ */
+function joinAdjacentText<T extends Nodes>(node: T): T {
+  if (!('children' in node)) {
+    return node;
+  }
+  const source = node.children as Nodes[];
+  // Copied on the first change only, so a tree with nothing to join is kept.
+  let children: Nodes[] | null = null;
+  for (let i = 0; i < source.length; i++) {
+    const child = source[i];
+    const last = children ? children[children.length - 1] : source[i - 1];
+    if (i > 0 && isPlainText(child) && isPlainText(last)) {
+      if (children === null) {
+        children = source.slice(0, i);
+      }
+      children[children.length - 1] = {
+        type: 'text',
+        value: last.value + child.value,
+      };
+    } else {
+      const joined = joinAdjacentText(child);
+      if (children === null && joined !== child) {
+        children = source.slice(0, i);
+      }
+      if (children !== null) {
+        children.push(joined);
+      }
+    }
+  }
+  return children === null ? node : {...node, children};
+}
+
+/**
+ * Whether `node` is a text with nothing but its value: no `data`, no
+ * `position`, nor anything else set.
+ */
+function isPlainText(node: Nodes | undefined): node is Text {
+  return (
+    node !== undefined &&
+    node.type === 'text' &&
+    // Symbol keys too, which Object.entries leaves out.
+    Reflect.ownKeys(node).every(
+      key =>
+        key === 'type' ||
+        key === 'value' ||
+        (node as unknown as Record<PropertyKey, unknown>)[key] === undefined,
+    )
+  );
 }
 
 /** Runs `serialize` with `measure` as how {@link getExportedLengths} measures. */
