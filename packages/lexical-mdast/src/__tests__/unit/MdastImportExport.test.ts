@@ -8,6 +8,8 @@
 
 // @vitest-environment node
 
+import type {Link, Nodes, Paragraph, Root} from 'mdast';
+
 import {
   buildEditorFromExtensions,
   configExtension,
@@ -47,15 +49,20 @@ import {
   $isLineBreakNode,
   $isRangeSelection,
   $isTextNode,
+  $selectAll,
   $setSelectionFromCaretRange,
   defineExtension,
+  type LexicalEditor,
   type LexicalNode,
   TEXT_TYPE_TO_FORMAT,
   type TextFormatType,
   type TextNode,
 } from 'lexical';
 import {$assertNodeType} from 'lexical/src/__tests__/utils';
-import {defaultHandlers} from 'mdast-util-to-markdown';
+import {
+  defaultHandlers,
+  type Options as ToMarkdownExtension,
+} from 'mdast-util-to-markdown';
 import {assert, describe, expect, it} from 'vitest';
 
 import {
@@ -69,6 +76,7 @@ import {
   ImportContextMarkdown,
   MdastAutolinkLiteralExtension,
   MdastCommonMarkExtension,
+  type MdastExportRule,
   MdastExtension,
   MdastGfmExtension,
   MdastHeadingExtension,
@@ -1252,8 +1260,8 @@ describe('@lexical/mdast import/export', () => {
       markdown,
     );
     expect(parses).toBe(3);
-    // A subtree export keeps the containers it read until the next one,
-    // without adding them to what document exports keep.
+    // A subtree export keeps the containers it read, without adding them to
+    // what document exports keep.
     editor.update(
       () => {
         $paragraph().append($createTextNode(' z'));
@@ -1360,76 +1368,1040 @@ describe('@lexical/mdast import/export', () => {
     );
   });
 
-  it('keeps the containers of the latest subtree or selection export only', () => {
-    let parses = 0;
-    using editor = buildEditorFromExtensions(
-      MdastCommonMarkExtension,
-      MdastAutolinkLiteralExtension,
-      configExtension(MdastExtension, {
-        mdastExtensions: [
-          {
-            transforms: [
-              () => {
-                parses++;
+  it.each(['document', 'subtree', 'selection'] as const)(
+    'calls contributed root and paragraph handlers with the state as this in a %s export',
+    kind => {
+      const calls: string[] = [];
+      using editor = buildEditorFromExtensions(
+        MdastCommonMarkExtension,
+        MdastAutolinkLiteralExtension,
+        configExtension(MdastExtension, {
+          toMarkdownExtensions: [
+            {
+              handlers: {
+                paragraph(this: unknown, node, parent, state, info) {
+                  calls.push(`paragraph ${this === state}`);
+                  return defaultHandlers.paragraph(node, parent, state, info);
+                },
+                root(this: unknown, node, parent, state, info) {
+                  calls.push(`root ${this === state}`);
+                  return defaultHandlers.root(node, parent, state, info);
+                },
               },
-            ],
-          },
-        ],
-      }),
-    );
-    editor.update(
-      () =>
-        $convertFromMarkdownString(
-          '(https://a.example) (www.b.example)\n\n(https://c.example) (www.d.example)',
+            },
+          ],
+        }),
+      );
+      editor.update(
+        () => {
+          $convertFromMarkdownString('> a (www.x.example)y\n\nb');
+          $selectAll();
+        },
+        {discrete: true},
+      );
+      editor.read(() =>
+        kind === 'document'
+          ? $convertToMarkdownString()
+          : kind === 'subtree'
+            ? $convertToMarkdownString(
+                $assertNodeType(
+                  $getRoot().getFirstChildOrThrow(),
+                  $isElementNode,
+                ),
+              )
+            : $convertSelectionToMarkdownString(),
+      );
+      // A subtree export of the quote writes its inline children directly.
+      expect(new Set(calls)).toEqual(
+        new Set(
+          kind === 'subtree' ? ['root true'] : ['paragraph true', 'root true'],
         ),
-      {discrete: true},
-    );
-    editor.read(() => $convertToMarkdownString());
+      );
+    },
+  );
+
+  describe('the containers subtree and selection exports keep', () => {
+    // An editor whose literal checks count their parses in `counter`.
+    const createCountingEditor = (
+      counter: {parses: number},
+      {
+        exportRules = [],
+        isGfm = false,
+        toMarkdownExtensions = [],
+      }: {
+        exportRules?: readonly MdastExportRule[];
+        isGfm?: boolean;
+        toMarkdownExtensions?: readonly ToMarkdownExtension[];
+      } = {},
+    ) =>
+      buildEditorFromExtensions(
+        MdastCommonMarkExtension,
+        isGfm ? MdastGfmExtension : MdastAutolinkLiteralExtension,
+        configExtension(MdastExtension, {
+          exportRules,
+          mdastExtensions: [
+            {
+              transforms: [
+                () => {
+                  counter.parses++;
+                },
+              ],
+            },
+          ],
+          toMarkdownExtensions,
+        }),
+      );
+    // Paragraphs whose literals touch their parentheses, so each is read back.
+    const paragraphs = (count: number) =>
+      Array.from(
+        {length: count},
+        (_, i) => `(https://a${i}.example) (www.b${i}.example)`,
+      ).join('\n\n');
     const $block = (index: number) =>
       $assertNodeType($getRoot().getChildAtIndex(index), $isElementNode);
-    editor.update(
-      () => {
-        $block(0).append($createTextNode(' z'));
-        $block(1).append($createTextNode(' z'));
-      },
-      {discrete: true},
-    );
-    parses = 0;
-    const $exportBlock = (index: number) =>
+    const exportBlock = (editor: LexicalEditor, index: number) =>
       editor.read(() => $convertToMarkdownString($block(index)));
-    $exportBlock(0);
-    $exportBlock(0);
-    expect(parses).toBe(1);
-    $exportBlock(1);
-    // Only the latest such export's containers are kept.
-    $exportBlock(0);
-    expect(parses).toBe(3);
-    // A selection that ends inside a paragraph writes a container that no
-    // document export writes; it stays kept across one.
-    editor.update(
-      () => {
-        const [first] = $block(0).getAllTextNodes();
-        const [, link] = $block(0).getChildren().filter($isLinkNode);
-        const last = $assertNodeType(link.getFirstChild(), $isTextNode);
-        $setSelectionFromCaretRange(
-          $getCaretRange(
-            $getTextPointCaret(first, 'next', 0),
-            $getTextPointCaret(last, 'next', 'next'),
+    // A bold run is not merged into the text before it, so it can be removed.
+    const $appendBold = (index: number) =>
+      $block(index).append($createTextNode('q').toggleFormat('bold'));
+    const $selectWithin = (index: number) => {
+      const texts = $block(index).getAllTextNodes();
+      $setSelectionFromCaretRange(
+        $getCaretRange(
+          $getTextPointCaret(texts[0], 'next', 1),
+          $getTextPointCaret(texts[texts.length - 1], 'next', 'next'),
+        ),
+      );
+    };
+
+    it('keeps the containers of every block exported in turn', () => {
+      const counter = {parses: 0};
+      using editor = createCountingEditor(counter);
+      const count = 3;
+      editor.update(() => $convertFromMarkdownString(paragraphs(count)), {
+        discrete: true,
+      });
+      for (let i = 0; i < count; i++) {
+        exportBlock(editor, i);
+      }
+      counter.parses = 0;
+      for (let i = 0; i < count; i++) {
+        exportBlock(editor, i);
+      }
+      expect(counter.parses).toBe(0);
+    });
+
+    it('drops the old containers of an edited block', () => {
+      const counter = {parses: 0};
+      using editor = createCountingEditor(counter);
+      editor.update(() => $convertFromMarkdownString(paragraphs(1)), {
+        discrete: true,
+      });
+      exportBlock(editor, 0);
+      editor.update(() => $appendBold(0), {discrete: true});
+      exportBlock(editor, 0);
+      editor.update(() => $block(0).getLastChildOrThrow().remove(), {
+        discrete: true,
+      });
+      counter.parses = 0;
+      exportBlock(editor, 0);
+      expect(counter.parses).toBe(1);
+    });
+
+    it('keeps an old container that another block read in the same export', () => {
+      const counter = {parses: 0};
+      using editor = createCountingEditor(counter);
+      editor.update(
+        () =>
+          $convertFromMarkdownString(`${paragraphs(1)}\n\n${paragraphs(1)}`),
+        {discrete: true},
+      );
+      exportBlock(editor, 0);
+      // The first block changes; the second still reads as the first did.
+      editor.update(
+        () => {
+          $appendBold(0);
+          $selectAll();
+        },
+        {discrete: true},
+      );
+      editor.read(() => $convertSelectionToMarkdownString());
+      counter.parses = 0;
+      exportBlock(editor, 1);
+      expect(counter.parses).toBe(0);
+    });
+
+    it('drops the containers of removed blocks at a document export', () => {
+      const counter = {parses: 0};
+      using editor = createCountingEditor(counter);
+      // The second block has the same literals, so the document export keeps
+      // what they read alone.
+      editor.update(
+        () =>
+          $convertFromMarkdownString(`${paragraphs(1)}\n\n${paragraphs(1)} z`),
+        {discrete: true},
+      );
+      exportBlock(editor, 0);
+      editor.update(() => $block(0).remove(), {discrete: true});
+      editor.read(() => $convertToMarkdownString());
+      editor.update(() => $convertFromMarkdownString(paragraphs(1)), {
+        discrete: true,
+      });
+      counter.parses = 0;
+      exportBlock(editor, 0);
+      expect(counter.parses).toBe(1);
+    });
+
+    it('drops the containers of removed blocks once twice as many are kept', () => {
+      const counter = {parses: 0};
+      using editor = createCountingEditor(counter);
+      editor.update(() => $convertFromMarkdownString(paragraphs(4)), {
+        discrete: true,
+      });
+      for (let i = 0; i < 4; i++) {
+        exportBlock(editor, i);
+      }
+      // New blocks, with no document export.
+      editor.update(
+        () =>
+          $convertFromMarkdownString(
+            paragraphs(20).replaceAll('www.b', 'www.c'),
           ),
+        {discrete: true},
+      );
+      for (let i = 0; i < 20; i++) {
+        exportBlock(editor, i);
+      }
+      editor.update(() => $convertFromMarkdownString(paragraphs(1)), {
+        discrete: true,
+      });
+      counter.parses = 0;
+      exportBlock(editor, 0);
+      expect(counter.parses).toBe(1);
+    });
+
+    it('counts only the blocks still kept toward the next check', () => {
+      const counter = {parses: 0};
+      using editor = createCountingEditor(counter);
+      // Each document replaces the blocks of the one before.
+      const exportDocument = (name: string, count: number) => {
+        editor.update(
+          () =>
+            $convertFromMarkdownString(
+              paragraphs(count).replaceAll('www.b', `www.${name}`),
+            ),
+          {discrete: true},
         );
+        for (let i = 0; i < count; i++) {
+          exportBlock(editor, i);
+        }
+      };
+      exportDocument('p', 1);
+      exportDocument('q', 2);
+      exportDocument('r', 3);
+      editor.update(
+        () =>
+          $convertFromMarkdownString(
+            paragraphs(1).replaceAll('www.b', 'www.q'),
+          ),
+        {discrete: true},
+      );
+      counter.parses = 0;
+      exportBlock(editor, 0);
+      expect(counter.parses).toBe(1);
+    });
+
+    it('drops a block that the update exporting the document removes', () => {
+      const counter = {parses: 0};
+      using editor = createCountingEditor(counter);
+      editor.update(
+        () =>
+          $convertFromMarkdownString(`${paragraphs(1)}\n\n${paragraphs(1)} z`),
+        {discrete: true},
+      );
+      exportBlock(editor, 0);
+      editor.update(
+        () => {
+          $block(0).remove();
+          $convertToMarkdownString();
+        },
+        {discrete: true},
+      );
+      editor.update(() => $convertFromMarkdownString(paragraphs(1)), {
+        discrete: true,
+      });
+      counter.parses = 0;
+      exportBlock(editor, 0);
+      expect(counter.parses).toBe(1);
+    });
+
+    it('keeps what an export read when a handler runs another export', () => {
+      const counter = {parses: 0};
+      using editor = createCountingEditor(counter, {
+        toMarkdownExtensions: [
+          {
+            handlers: {
+              paragraph: (node: Paragraph, parent, state, info) => {
+                if (
+                  node.children.some(
+                    child =>
+                      child.type === 'text' && child.value.includes('run'),
+                  )
+                ) {
+                  $convertToMarkdownString(
+                    $assertNodeType(
+                      $getRoot().getLastChildOrThrow(),
+                      $isElementNode,
+                    ),
+                  );
+                }
+                return defaultHandlers.paragraph(node, parent, state, info);
+              },
+            },
+          },
+        ],
+      });
+      editor.update(
+        () => {
+          $convertFromMarkdownString(
+            `${paragraphs(2)}\n\n(www.c.example) run\n\n(www.d.example) x`,
+          );
+          $selectAll();
+        },
+        {discrete: true},
+      );
+      editor.read(() => $convertSelectionToMarkdownString());
+      // The paragraph whose handler runs the other export, on its own (a
+      // subtree export of a paragraph does not run its handler).
+      exportBlock(editor, 2);
+      counter.parses = 0;
+      editor.read(() => $convertSelectionToMarkdownString());
+      expect(counter.parses).toBe(0);
+    });
+
+    // A rule that runs another export while the export's tree is built.
+    const runningRule: MdastExportRule = {
+      $export: (node: TextNode) => {
+        if (node.getTextContent().includes('run')) {
+          $convertToMarkdownString(
+            $assertNodeType($getRoot().getLastChildOrThrow(), $isElementNode),
+          );
+        }
+        return null;
       },
-      {discrete: true},
-    );
-    const selected = editor.read(() => $convertSelectionToMarkdownString());
-    expect(selected).toBe('(https://a.example) (www.b.example');
-    const afterSelection = parses;
-    editor.read(() => $convertToMarkdownString());
-    const afterDocument = parses;
-    expect(editor.read(() => $convertSelectionToMarkdownString())).toBe(
-      selected,
-    );
-    expect(parses).toBe(afterDocument);
-    expect(afterSelection).toBeGreaterThan(3);
+      type: 'text',
+    };
+
+    it('drops the old containers of an edited block after a rule runs another export', () => {
+      const counter = {parses: 0};
+      using editor = createCountingEditor(counter, {
+        exportRules: [runningRule],
+      });
+      editor.update(
+        () => {
+          $convertFromMarkdownString(
+            `${paragraphs(1)}\n\nrun\n\n(www.c.example) x`,
+          );
+          $selectAll();
+        },
+        {discrete: true},
+      );
+      editor.read(() => $convertSelectionToMarkdownString());
+      editor.update(() => $appendBold(0), {discrete: true});
+      exportBlock(editor, 0);
+      editor.update(() => $block(0).getLastChildOrThrow().remove(), {
+        discrete: true,
+      });
+      counter.parses = 0;
+      exportBlock(editor, 0);
+      expect(counter.parses).toBe(1);
+    });
+
+    it('keeps what another block reads when a block that read it reads none', () => {
+      const counter = {parses: 0};
+      using editor = createCountingEditor(counter);
+      editor.update(
+        () =>
+          $convertFromMarkdownString(`${paragraphs(1)}\n\n${paragraphs(1)} z`),
+        {discrete: true},
+      );
+      exportBlock(editor, 0);
+      // The first block reads nothing now; the second reads what it did.
+      editor.update(
+        () => {
+          $block(0).clear().append($createTextNode('x'));
+          $assertNodeType(
+            $block(1).getLastChildOrThrow(),
+            $isTextNode,
+          ).setTextContent(')');
+        },
+        {discrete: true},
+      );
+      exportBlock(editor, 0);
+      exportBlock(editor, 1);
+      exportBlock(editor, 0);
+      counter.parses = 0;
+      exportBlock(editor, 1);
+      expect(counter.parses).toBe(0);
+    });
+
+    it('drops the old containers of an edited block after an export throws', () => {
+      let isThrowing = false;
+      const counter = {parses: 0};
+      using editor = createCountingEditor(counter, {
+        toMarkdownExtensions: [
+          {
+            handlers: {
+              // Throws once the content is written and read back.
+              root: (node, parent, state, info) => {
+                const value = defaultHandlers.root(node, parent, state, info);
+                if (isThrowing) {
+                  throw new Error('root');
+                }
+                return value;
+              },
+            },
+          },
+        ],
+      });
+      editor.update(() => $convertFromMarkdownString(paragraphs(1)), {
+        discrete: true,
+      });
+      isThrowing = true;
+      expect(() => exportBlock(editor, 0)).toThrow('root');
+      isThrowing = false;
+      editor.update(() => $appendBold(0), {discrete: true});
+      exportBlock(editor, 0);
+      editor.update(() => $block(0).getLastChildOrThrow().remove(), {
+        discrete: true,
+      });
+      counter.parses = 0;
+      exportBlock(editor, 0);
+      expect(counter.parses).toBe(1);
+    });
+
+    it('drops the old containers of a block that reads none now', () => {
+      const counter = {parses: 0};
+      using editor = createCountingEditor(counter);
+      editor.update(() => $convertFromMarkdownString(paragraphs(1)), {
+        discrete: true,
+      });
+      exportBlock(editor, 0);
+      editor.update(() => $block(0).clear().append($createTextNode('x')), {
+        discrete: true,
+      });
+      exportBlock(editor, 0);
+      editor.update(() => $convertFromMarkdownString(paragraphs(1)), {
+        discrete: true,
+      });
+      counter.parses = 0;
+      exportBlock(editor, 0);
+      // Only the container: what its literals read alone is kept.
+      expect(counter.parses).toBe(1);
+    });
+
+    it('keeps the containers of selections within different blocks', () => {
+      const counter = {parses: 0};
+      using editor = createCountingEditor(counter);
+      editor.update(() => $convertFromMarkdownString(paragraphs(2)), {
+        discrete: true,
+      });
+      const exportWithin = (index: number) => {
+        editor.update(() => $selectWithin(index), {discrete: true});
+        return editor.read(() => $convertSelectionToMarkdownString());
+      };
+      expect(exportWithin(0)).toBe('https://a0.example) (www.b0.example)');
+      exportWithin(1);
+      counter.parses = 0;
+      exportWithin(0);
+      exportWithin(1);
+      expect(counter.parses).toBe(0);
+    });
+
+    it('keeps the containers of selections within different quotes', () => {
+      const counter = {parses: 0};
+      using editor = createCountingEditor(counter);
+      editor.update(
+        () =>
+          $convertFromMarkdownString(
+            '> (https://a0.example) (www.b0.example)\n\n> (www.c.example) x',
+          ),
+        {discrete: true},
+      );
+      const exportWithin = (index: number) => {
+        editor.update(() => $selectWithin(index), {discrete: true});
+        return editor.read(() => $convertSelectionToMarkdownString());
+      };
+      exportWithin(0);
+      exportWithin(1);
+      counter.parses = 0;
+      exportWithin(0);
+      exportWithin(1);
+      expect(counter.parses).toBe(0);
+    });
+
+    it('drops the old containers of a block a selection writes', () => {
+      const counter = {parses: 0};
+      using editor = createCountingEditor(counter);
+      const exportAll = () => {
+        editor.update(() => $selectAll(), {discrete: true});
+        editor.read(() => $convertSelectionToMarkdownString());
+      };
+      editor.update(() => $convertFromMarkdownString(paragraphs(2)), {
+        discrete: true,
+      });
+      exportAll();
+      editor.update(() => $appendBold(0), {discrete: true});
+      exportAll();
+      editor.update(() => $block(0).getLastChildOrThrow().remove(), {
+        discrete: true,
+      });
+      counter.parses = 0;
+      exportAll();
+      expect(counter.parses).toBe(1);
+    });
+
+    it('leaves what it finds in a document export to that export', () => {
+      const counter = {parses: 0};
+      using editor = createCountingEditor(counter);
+      const exportDocument = () =>
+        editor.read(() => $convertToMarkdownString());
+      editor.update(() => $convertFromMarkdownString(paragraphs(1)), {
+        discrete: true,
+      });
+      exportDocument();
+      // Found in what the document export read.
+      exportBlock(editor, 0);
+      editor.update(() => $appendBold(0), {discrete: true});
+      exportDocument();
+      editor.update(() => $block(0).getLastChildOrThrow().remove(), {
+        discrete: true,
+      });
+      counter.parses = 0;
+      exportBlock(editor, 0);
+      expect(counter.parses).toBe(1);
+    });
+
+    it('keeps only what the latest document export read', () => {
+      const counter = {parses: 0};
+      using editor = createCountingEditor(counter);
+      const exportDocument = () =>
+        editor.read(() => $convertToMarkdownString());
+      editor.update(() => $convertFromMarkdownString(paragraphs(1)), {
+        discrete: true,
+      });
+      exportDocument();
+      editor.update(() => $appendBold(0), {discrete: true});
+      exportDocument();
+      editor.update(() => $block(0).getLastChildOrThrow().remove(), {
+        discrete: true,
+      });
+      counter.parses = 0;
+      exportDocument();
+      expect(counter.parses).toBe(1);
+    });
+
+    it('keeps the containers of selections within different tables', () => {
+      const counter = {parses: 0};
+      using editor = createCountingEditor(counter, {isGfm: true});
+      editor.update(
+        () =>
+          $convertFromMarkdownString(
+            [0, 1]
+              .map(
+                i =>
+                  `| (https://a${i}.example) (www.b${i}.example) | x |\n| - | - |\n| (www.c${i}.example)y | z |`,
+              )
+              .join('\n\n'),
+          ),
+        {discrete: true},
+      );
+      const exportWithin = (index: number) => {
+        editor.update(() => $selectWithin(index), {discrete: true});
+        editor.read(() => $convertSelectionToMarkdownString());
+      };
+      exportWithin(0);
+      exportWithin(1);
+      counter.parses = 0;
+      exportWithin(0);
+      exportWithin(1);
+      expect(counter.parses).toBe(0);
+    });
+
+    it('keeps the containers of selections within tables whose first link holds a break', () => {
+      const counter = {parses: 0};
+      using editor = createCountingEditor(counter, {isGfm: true});
+      // The table writes a copy of a link that holds a break.
+      editor.update(
+        () =>
+          $convertFromMarkdownString(
+            [0, 1]
+              .map(
+                i =>
+                  `| [a<br>b](https://l${i}.example) (www.b${i}.example) | x |\n| - | - |\n| (www.c${i}.example)y | z |`,
+              )
+              .join('\n\n'),
+          ),
+        {discrete: true},
+      );
+      const exportWithin = (index: number) => {
+        editor.update(() => $selectWithin(index), {discrete: true});
+        editor.read(() => $convertSelectionToMarkdownString());
+      };
+      exportWithin(0);
+      exportWithin(1);
+      counter.parses = 0;
+      exportWithin(0);
+      exportWithin(1);
+      expect(counter.parses).toBe(0);
+    });
+
+    // A literal link node that a rule or a handler writes in more than one
+    // place, and the rule that writes it for a text that says LINK.
+    const sharedLink = (): Link => ({
+      children: [{type: 'text', value: 'www.k.example'}],
+      data: {mdastLinkStyle: 'literal'},
+      type: 'link',
+      url: 'http://www.k.example',
+    });
+    const linkRule = (link: Link): MdastExportRule => ({
+      $export: (node: TextNode) => {
+        const value = node.getTextContent();
+        return value.includes('LINK')
+          ? [
+              {type: 'text', value: '('},
+              link,
+              {type: 'text', value: ')' + value.replace('LINK', '')},
+            ]
+          : null;
+      },
+      type: 'text',
+    });
+
+    it('drops the old containers of a block whose rule hands back a node another block was written with', () => {
+      const counter = {parses: 0};
+      using editor = createCountingEditor(counter, {
+        exportRules: [linkRule(sharedLink())],
+      });
+      editor.update(() => $convertFromMarkdownString('- LINK\n\nLINK x'), {
+        discrete: true,
+      });
+      exportBlock(editor, 0);
+      exportBlock(editor, 1);
+      editor.update(() => $appendBold(1), {discrete: true});
+      exportBlock(editor, 1);
+      editor.update(() => $block(1).getLastChildOrThrow().remove(), {
+        discrete: true,
+      });
+      counter.parses = 0;
+      exportBlock(editor, 1);
+      expect(counter.parses).toBe(1);
+    });
+
+    it('drops the old containers of a block whose handler writes copies of its children', () => {
+      const counter = {parses: 0};
+      // A handler that writes copies of a paragraph's children, which are
+      // read for the block the paragraph is written for.
+      using editor = createCountingEditor(counter, {
+        toMarkdownExtensions: [
+          {
+            handlers: {
+              paragraph: (node: Paragraph, parent, state, info) =>
+                defaultHandlers.paragraph(
+                  {...node, children: node.children.map(child => ({...child}))},
+                  parent,
+                  state,
+                  info,
+                ),
+            },
+          },
+        ],
+      });
+      const exportAll = () => {
+        editor.update(() => $selectAll(), {discrete: true});
+        editor.read(() => $convertSelectionToMarkdownString());
+      };
+      editor.update(() => $convertFromMarkdownString(paragraphs(2)), {
+        discrete: true,
+      });
+      exportAll();
+      editor.update(() => $appendBold(0), {discrete: true});
+      exportAll();
+      editor.update(() => $block(0).getLastChildOrThrow().remove(), {
+        discrete: true,
+      });
+      counter.parses = 0;
+      exportAll();
+      expect(counter.parses).toBe(1);
+    });
+
+    it('keeps the containers of a block a rule writes as several nodes', () => {
+      const counter = {parses: 0};
+      using editor = createCountingEditor(counter, {
+        exportRules: [
+          {
+            // A thematic break before each paragraph.
+            $export: (_node, context) => [
+              {type: 'thematicBreak'},
+              ...context.next(),
+            ],
+            type: 'paragraph',
+          },
+        ],
+      });
+      editor.update(() => $convertFromMarkdownString(paragraphs(2)), {
+        discrete: true,
+      });
+      const exportWithin = (index: number) => {
+        editor.update(() => $selectWithin(index), {discrete: true});
+        editor.read(() => $convertSelectionToMarkdownString());
+      };
+      exportWithin(0);
+      exportWithin(1);
+      counter.parses = 0;
+      exportWithin(0);
+      exportWithin(1);
+      expect(counter.parses).toBe(0);
+    });
+
+    it('keeps the containers of blocks that a rule writes with the same node', () => {
+      const counter = {parses: 0};
+      using editor = createCountingEditor(counter, {
+        exportRules: [linkRule(sharedLink())],
+      });
+      editor.update(
+        () => {
+          $convertFromMarkdownString('LINK x\n\nLINK y');
+          $selectAll();
+        },
+        {discrete: true},
+      );
+      editor.read(() => $convertSelectionToMarkdownString());
+      // The second block no longer writes the link.
+      editor.update(() => $block(1).clear().append($createTextNode('z')), {
+        discrete: true,
+      });
+      exportBlock(editor, 1);
+      counter.parses = 0;
+      exportBlock(editor, 0);
+      expect(counter.parses).toBe(0);
+    });
+
+    it('drops the old containers of a block a handler writes with a node from an earlier export', () => {
+      const link = sharedLink();
+      const counter = {parses: 0};
+      using editor = createCountingEditor(counter, {
+        exportRules: [linkRule(link)],
+        toMarkdownExtensions: [
+          {
+            handlers: {
+              // Writes the link in place of a paragraph that says SWAP.
+              paragraph: (node: Paragraph, parent, state, info) => {
+                const [first] = node.children;
+                return defaultHandlers.paragraph(
+                  first && first.type === 'text' && first.value.includes('SWAP')
+                    ? {
+                        ...node,
+                        children: [
+                          {type: 'text', value: '('},
+                          link,
+                          {type: 'text', value: ') ' + first.value},
+                        ],
+                      }
+                    : node,
+                  parent,
+                  state,
+                  info,
+                );
+              },
+            },
+          },
+        ],
+      });
+      const exportAll = () => {
+        editor.update(() => $selectAll(), {discrete: true});
+        editor.read(() => $convertSelectionToMarkdownString());
+      };
+      const $swap = (text: string) =>
+        $block(0).clear().append($createTextNode(text));
+      editor.update(() => $convertFromMarkdownString('LINK a\n\nSWAP'), {
+        discrete: true,
+      });
+      exportAll();
+      // The block that wrote the link is gone.
+      editor.update(() => $block(0).remove(), {discrete: true});
+      exportAll();
+      editor.update(() => $swap('SWAP 1'), {discrete: true});
+      exportAll();
+      editor.update(() => $swap('SWAP'), {discrete: true});
+      counter.parses = 0;
+      exportAll();
+      expect(counter.parses).toBe(1);
+    });
+
+    it('drops the old containers the root keeps when a root handler writes copies of its children', () => {
+      const counter = {parses: 0};
+      using editor = createCountingEditor(counter, {
+        toMarkdownExtensions: [
+          {
+            handlers: {
+              root: (node: Root, parent, state, info) =>
+                defaultHandlers.root(
+                  {...node, children: node.children.map(child => ({...child}))},
+                  parent,
+                  state,
+                  info,
+                ),
+            },
+          },
+        ],
+      });
+      const exportAll = () => {
+        editor.update(() => $selectAll(), {discrete: true});
+        editor.read(() => $convertSelectionToMarkdownString());
+      };
+      editor.update(() => $convertFromMarkdownString(paragraphs(2)), {
+        discrete: true,
+      });
+      exportAll();
+      editor.update(() => $appendBold(0), {discrete: true});
+      exportAll();
+      editor.update(() => $block(0).getLastChildOrThrow().remove(), {
+        discrete: true,
+      });
+      counter.parses = 0;
+      exportAll();
+      expect(counter.parses).toBe(1);
+    });
+
+    // A paragraph handler that writes its node through state.handle again,
+    // as a copy, before the default handler writes it.
+    const copies = new WeakSet<Paragraph>();
+    const redispatchCopy: ToMarkdownExtension = {
+      handlers: {
+        paragraph: (node: Paragraph, parent, state, info) => {
+          if (copies.has(node)) {
+            return defaultHandlers.paragraph(node, parent, state, info);
+          }
+          const copy = {...node};
+          copies.add(copy);
+          return state.handle(copy, parent, state, info);
+        },
+      },
+    };
+
+    it('keeps the containers of a block a handler writes as a copy', () => {
+      const counter = {parses: 0};
+      using editor = createCountingEditor(counter, {
+        toMarkdownExtensions: [redispatchCopy],
+      });
+      editor.update(() => $convertFromMarkdownString(paragraphs(3)), {
+        discrete: true,
+      });
+      const exportWithin = (index: number) => {
+        editor.update(() => $selectWithin(index), {discrete: true});
+        editor.read(() => $convertSelectionToMarkdownString());
+      };
+      for (let i = 0; i < 3; i++) {
+        exportWithin(i);
+      }
+      counter.parses = 0;
+      for (let i = 0; i < 3; i++) {
+        exportWithin(i);
+      }
+      expect(counter.parses).toBe(0);
+    });
+
+    it('keeps the block of a container a handler writes after its next sibling', () => {
+      const counter = {parses: 0};
+      // Writes the next paragraph once, as if to measure it, before its own.
+      let isMeasuring = false;
+      using editor = createCountingEditor(counter, {
+        toMarkdownExtensions: [
+          {
+            handlers: {
+              paragraph: (node: Paragraph, parent, state, info) => {
+                const siblings: readonly Nodes[] = parent
+                  ? parent.children
+                  : [];
+                const next = siblings[siblings.indexOf(node) + 1];
+                if (next && next.type === 'paragraph' && !isMeasuring) {
+                  isMeasuring = true;
+                  state.handle(next, parent, state, info);
+                  isMeasuring = false;
+                }
+                return defaultHandlers.paragraph(node, parent, state, info);
+              },
+            },
+          },
+        ],
+      });
+      editor.update(() => $convertFromMarkdownString(paragraphs(2)), {
+        discrete: true,
+      });
+      const exportAll = () => {
+        editor.update(() => $selectAll(), {discrete: true});
+        editor.read(() => $convertSelectionToMarkdownString());
+      };
+      // All of the second paragraph, which reads as it does in the document.
+      const exportSecond = () => {
+        editor.update(
+          () => {
+            const texts = $block(1).getAllTextNodes();
+            $setSelectionFromCaretRange(
+              $getCaretRange(
+                $getTextPointCaret(texts[0], 'next', 0),
+                $getTextPointCaret(texts[texts.length - 1], 'next', 'next'),
+              ),
+            );
+          },
+          {discrete: true},
+        );
+        editor.read(() => $convertSelectionToMarkdownString());
+      };
+      exportAll();
+      exportSecond();
+      counter.parses = 0;
+      exportAll();
+      exportSecond();
+      expect(counter.parses).toBe(0);
+    });
+
+    it('keeps the block of a container a handler writes after its next sibling throws', () => {
+      const counter = {parses: 0};
+      // Writes the next paragraph first, which throws the first time, and
+      // goes on.
+      let isMeasuring = false;
+      let isThrowing = true;
+      using editor = createCountingEditor(counter, {
+        toMarkdownExtensions: [
+          {
+            handlers: {
+              paragraph: (node: Paragraph, parent, state, info) => {
+                if (isMeasuring && isThrowing) {
+                  isThrowing = false;
+                  throw new Error('measure');
+                }
+                const siblings: readonly Nodes[] = parent
+                  ? parent.children
+                  : [];
+                const next = siblings[siblings.indexOf(node) + 1];
+                if (next && next.type === 'paragraph' && !isMeasuring) {
+                  isMeasuring = true;
+                  try {
+                    state.handle(next, parent, state, info);
+                  } catch {
+                    // Written once more below, as the next child.
+                  } finally {
+                    isMeasuring = false;
+                  }
+                }
+                return defaultHandlers.paragraph(node, parent, state, info);
+              },
+            },
+          },
+        ],
+      });
+      editor.update(() => $convertFromMarkdownString(paragraphs(2)), {
+        discrete: true,
+      });
+      const exportAll = () => {
+        editor.update(() => $selectAll(), {discrete: true});
+        editor.read(() => $convertSelectionToMarkdownString());
+      };
+      exportAll();
+      exportBlock(editor, 1);
+      counter.parses = 0;
+      exportAll();
+      expect(counter.parses).toBe(0);
+    });
+
+    it('drops the old containers of a block a handler writes with a block from an earlier export', () => {
+      const counter = {parses: 0};
+      // Writes the first paragraph it saw in place of one that says SWAP.
+      let kept: Paragraph | null = null;
+      using editor = createCountingEditor(counter, {
+        toMarkdownExtensions: [
+          {
+            handlers: {
+              paragraph: (node: Paragraph, parent, state, info) => {
+                const [first] = node.children;
+                if (first && first.type === 'text') {
+                  if (first.value === 'SWAP' && kept) {
+                    return state.handle(kept, parent, state, info);
+                  }
+                  kept = kept || node;
+                }
+                return defaultHandlers.paragraph(node, parent, state, info);
+              },
+            },
+          },
+        ],
+      });
+      const exportAll = () => {
+        editor.update(() => $selectAll(), {discrete: true});
+        editor.read(() => $convertSelectionToMarkdownString());
+      };
+      editor.update(
+        () => $convertFromMarkdownString(`${paragraphs(1)}\n\nSWAP`),
+        {discrete: true},
+      );
+      exportAll();
+      // The first block is gone; the second writes it in its place.
+      editor.update(() => $block(0).remove(), {discrete: true});
+      exportAll();
+      editor.update(() => $block(0).clear().append($createTextNode('x')), {
+        discrete: true,
+      });
+      exportAll();
+      editor.update(() => $convertFromMarkdownString(paragraphs(1)), {
+        discrete: true,
+      });
+      counter.parses = 0;
+      exportBlock(editor, 0);
+      expect(counter.parses).toBe(1);
+    });
+
+    it('keeps one version of a block that subtree and selection exports both write', () => {
+      const counter = {parses: 0};
+      using editor = createCountingEditor(counter);
+      editor.update(() => $convertFromMarkdownString(paragraphs(1)), {
+        discrete: true,
+      });
+      exportBlock(editor, 0);
+      editor.update(
+        () => {
+          $appendBold(0);
+          $selectAll();
+        },
+        {discrete: true},
+      );
+      editor.read(() => $convertSelectionToMarkdownString());
+      editor.update(() => $block(0).getLastChildOrThrow().remove(), {
+        discrete: true,
+      });
+      counter.parses = 0;
+      exportBlock(editor, 0);
+      expect(counter.parses).toBe(1);
+    });
+
+    it('keeps what a selection read across a document export', () => {
+      const counter = {parses: 0};
+      using editor = createCountingEditor(counter);
+      editor.update(
+        () => {
+          $convertFromMarkdownString(paragraphs(2));
+          // Its container is one no document export writes.
+          $selectWithin(0);
+        },
+        {discrete: true},
+      );
+      editor.read(() => $convertSelectionToMarkdownString());
+      editor.read(() => $convertToMarkdownString());
+      counter.parses = 0;
+      editor.read(() => $convertSelectionToMarkdownString());
+      expect(counter.parses).toBe(0);
+    });
   });
 
   it.each<[mode: MdastPunctuationMode, expected: string]>([

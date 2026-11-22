@@ -35,6 +35,7 @@ import {
 } from '@lexical/html';
 import {$sliceSelectedTextNodeContent} from '@lexical/selection';
 import {
+  $getNodeByKey,
   $getRoot,
   $getSelection,
   $getSlot,
@@ -280,7 +281,7 @@ function checkLiterals(
         }
         return containerPhrasing.call(state, container, containerInfo);
       };
-      return root(node, parent, state, info);
+      return root.call(this, node, parent, state, info);
     },
   };
 }
@@ -1493,19 +1494,147 @@ export function createMdastExport(compiled: CompiledMdast): {
   // whole-document export; selection exports build a fresh one per call.
   const documentExporter = createNodeExporter(compiled);
   let parsedLinks = new Map<string, ParsedLinks>();
-  // The containers the latest subtree or selection export read, which it
-  // does not add to parsedLinks: only a document export prunes that.
-  let partLinks = new Map<string, ParsedLinks>();
+  // The containers that subtree and selection exports read, which they do
+  // not add to parsedLinks: only a document export prunes that. Each block
+  // such an export writes (or its root, for a container outside them) keeps
+  // the containers its latest export read, so an edited block's old versions
+  // go. Removed blocks are dropped by a document export, and whenever there
+  // are more than twice as many blocks as the last time they were checked.
+  const partLinks = new Map<string, ParsedLinks>();
+  const partBlocks = new Map<string, ReadonlySet<string>>();
+  let checkBlocksAt = 0;
+
+  const parse = (markdown: string): ParsedLinks => {
+    const doc = fromMarkdown(markdown, {
+      extensions: compiled.micromarkExtensions,
+      mdastExtensions: compiled.mdastExtensions,
+    });
+    const paragraph = doc.children[0];
+    const literal =
+      doc.children.length === 1 &&
+      paragraph.type === 'paragraph' &&
+      paragraph.children.length === 1
+        ? paragraph.children[0]
+        : null;
+    return {
+      keys: collectLinks(doc).map(linkKey),
+      url:
+        literal !== null &&
+        literal.type === 'link' &&
+        mdastToString(literal) === markdown
+          ? literal.url
+          : null,
+    };
+  };
+
+  const readPart = (markdown: string): ParsedLinks => {
+    let parsed = partLinks.get(markdown) || parsedLinks.get(markdown);
+    if (parsed === undefined) {
+      parsed = parse(markdown);
+      partLinks.set(markdown, parsed);
+    }
+    return parsed;
+  };
+
+  const dropContainers = (
+    containers: ReadonlySet<string>,
+    kept?: ReadonlySet<string>,
+  ): void => {
+    for (const markdown of containers) {
+      if (!(kept && kept.has(markdown))) {
+        partLinks.delete(markdown);
+      }
+    }
+  };
+
+  // A block that the state being exported lacks, or that the update which
+  // exports it has detached, counts as removed.
+  const $dropRemovedBlocks = (): void => {
+    for (const [key, containers] of partBlocks) {
+      const block = $getNodeByKey(key);
+      if (block === null || !block.isAttached()) {
+        partBlocks.delete(key);
+        dropContainers(containers);
+      }
+    }
+    checkBlocksAt = partBlocks.size * 2;
+  };
+
+  // The containers that the export in progress reads, by block, with any
+  // it runs; the blocks it writes; and how deep in exports that is.
+  const partRead = new Map<string, Set<string>>();
+  const partWritten = new Set<string>();
+  let depth = 0;
+
+  // Kept once the outermost export is done, or has thrown: an export that a
+  // rule or a handler runs while another is built or written must not drop
+  // what the outer one read.
+  const $exporting = (
+    isDocumentExport: boolean,
+    write: () => string,
+  ): string => {
+    depth++;
+    try {
+      return write();
+    } finally {
+      depth--;
+      if (depth === 0) {
+        const read = new Set([...partRead.values()].flatMap(set => [...set]));
+        for (const key of partWritten) {
+          const previous = partBlocks.get(key);
+          const containers = partRead.get(key);
+          if (containers) {
+            partBlocks.set(key, containers);
+          } else {
+            partBlocks.delete(key);
+          }
+          if (previous) {
+            dropContainers(previous, read);
+          }
+        }
+        partRead.clear();
+        partWritten.clear();
+      }
+      if (isDocumentExport || partBlocks.size > checkBlocksAt) {
+        $dropRemovedBlocks();
+      }
+    }
+  };
+
+  // The key of the block child of the export root that each top-level mdast
+  // node of a subtree or selection export was written for.
+  const blockOf = new WeakMap<object, string>();
 
   const $toMdast = (
     root: ElementNode,
     exporter: ReturnType<typeof createNodeExporter>,
-  ): Root => ({
-    // The registry erases types; root-level output is the dispatch contract
-    // for top-level children.
-    children: exporter.exportChildren(root) as RootContent[],
-    type: 'root',
-  });
+    isPartExport = false,
+  ): Root => {
+    if (!isPartExport) {
+      // The registry erases types; root-level output is the dispatch
+      // contract for top-level children.
+      return {
+        children: exporter.exportChildren(root) as RootContent[],
+        type: 'root',
+      };
+    }
+    // One child at a time, which the exporter writes on its own too, so that
+    // the nodes written for each block are known. The root keeps what is
+    // written outside them.
+    partWritten.add(root.getKey());
+    const children: RootContent[] = [];
+    for (const child of root.getChildren()) {
+      const isBlock = $isBlockLevelNode(child);
+      for (const node of exporter.exportChildren([child]) as RootContent[]) {
+        if (isBlock) {
+          blockOf.set(node, child.getKey());
+          partWritten.add(child.getKey());
+        }
+        children.push(node);
+      }
+    }
+    return {children, type: 'root'};
+  };
 
   const $serialize = (
     tree: Root,
@@ -1515,39 +1644,22 @@ export function createMdastExport(compiled: CompiledMdast): {
     const nextParsedLinks = isDocumentExport
       ? new Map<string, ParsedLinks>()
       : parsedLinks;
-    const nextPartLinks = new Map<string, ParsedLinks>();
+    // The block that a container read now is kept for: the child of the
+    // tree being written, or the root outside its children.
+    let block = root.getKey();
     // One parse of each string serves both checks.
     const read = (markdown: string, isContainer = false): ParsedLinks => {
-      const isPart = isContainer && !isDocumentExport;
-      let parsed =
-        parsedLinks.get(markdown) ||
-        (isPart ? partLinks.get(markdown) : undefined);
-      if (parsed === undefined) {
-        const doc = fromMarkdown(markdown, {
-          extensions: compiled.micromarkExtensions,
-          mdastExtensions: compiled.mdastExtensions,
-        });
-        const paragraph = doc.children[0];
-        const literal =
-          doc.children.length === 1 &&
-          paragraph.type === 'paragraph' &&
-          paragraph.children.length === 1
-            ? paragraph.children[0]
-            : null;
-        parsed = {
-          keys: collectLinks(doc).map(linkKey),
-          url:
-            literal !== null &&
-            literal.type === 'link' &&
-            mdastToString(literal) === markdown
-              ? literal.url
-              : null,
-        };
-        if (!isPart) {
-          parsedLinks.set(markdown, parsed);
-        }
+      if (isContainer && !isDocumentExport) {
+        const parsed = readPart(markdown);
+        partRead.set(block, (partRead.get(block) || new Set()).add(markdown));
+        return parsed;
       }
-      (isPart ? nextPartLinks : nextParsedLinks).set(markdown, parsed);
+      let parsed = parsedLinks.get(markdown);
+      if (parsed === undefined) {
+        parsed = parse(markdown);
+        parsedLinks.set(markdown, parsed);
+      }
+      nextParsedLinks.set(markdown, parsed);
       return parsed;
     };
     const getLiteralUrl = (text: string): string | null => read(text).url;
@@ -1572,10 +1684,44 @@ export function createMdastExport(compiled: CompiledMdast): {
       defaults.strong = strong;
     }
     const extensions = [defaults, ...compiled.toMarkdownExtensions];
+    const rootHandler = getHandlers(extensions).root;
+    // Each child the root writes, or that a handler writes in its place,
+    // sets the block of what is read while it is written, so that a container
+    // a handler or a table copies inside it is read for that block. A node
+    // that is not marked for a block this export writes leaves the block as
+    // it is, so a root handler that writes copies of the root's children, or
+    // replaces state.handle, reads everything for the root. The wrapper keeps
+    // the handlers that peeking looks up on it, and passes `this` on.
+    const writeRoot: Handle = function (
+      this: unknown,
+      node,
+      parent,
+      state,
+      info,
+    ) {
+      const handle = state.handle;
+      state.handle = Object.assign(function (
+        this: unknown,
+        ...args: Parameters<Handle>
+      ) {
+        const key = blockOf.get(args[0]);
+        if (key === undefined || !partWritten.has(key)) {
+          return handle.apply(this, args);
+        }
+        const previous = block;
+        block = key;
+        try {
+          return handle.apply(this, args);
+        } finally {
+          block = previous;
+        }
+      }, handle);
+      return rootHandler.call(this, node, parent, state, info);
+    };
     extensions.push(
       syntaxToMarkdown(
         collectHardBreaks(tree),
-        checkLiterals(getLiteralUrl, getLinkKeys, getHandlers(extensions).root),
+        checkLiterals(getLiteralUrl, getLinkKeys, writeRoot),
       ),
     );
     // toMarkdown always appends a trailing newline; drop it so callers get the
@@ -1604,8 +1750,6 @@ export function createMdastExport(compiled: CompiledMdast): {
     ).replace(/\n$/, '');
     if (isDocumentExport) {
       parsedLinks = nextParsedLinks;
-    } else {
-      partLinks = nextPartLinks;
     }
     return isCjkFriendly ? toCjkFriendly(markdown, compiled) : markdown;
   };
@@ -1615,10 +1759,13 @@ export function createMdastExport(compiled: CompiledMdast): {
 
   const $exportToMarkdown = (node?: ElementNode): string => {
     const root = node || $getRoot();
-    return $serialize(
-      $toMdast(root, documentExporter),
-      root,
-      $isRootNode(root),
+    const isDocumentExport = $isRootNode(root);
+    return $exporting(isDocumentExport, () =>
+      $serialize(
+        $toMdast(root, documentExporter, !isDocumentExport),
+        root,
+        isDocumentExport,
+      ),
     );
   };
 
@@ -1639,10 +1786,12 @@ export function createMdastExport(compiled: CompiledMdast): {
     return $withRenderContext([
       contextValue(RenderContextMarkdownSelection, selection),
     ])(() =>
-      $serialize(
-        $toMdast(root, createNodeExporter(compiled, selection)),
-        root,
-        false,
+      $exporting(false, () =>
+        $serialize(
+          $toMdast(root, createNodeExporter(compiled, selection), true),
+          root,
+          false,
+        ),
       ),
     );
   };
