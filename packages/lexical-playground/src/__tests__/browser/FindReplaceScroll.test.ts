@@ -47,11 +47,12 @@ function setupSearch() {
 }
 
 test('typing with the find panel open keeps the scroll position', async () => {
-  const {scrolledTo} = setupSearch();
+  const {editor, scrolledTo} = setupSearch();
 
   await typeText('x');
   await press('Enter');
 
+  expect(editor.read(() => $getRoot().getTextContent())).toContain('endx');
   expect(scrolledTo()).toEqual([]);
 });
 
