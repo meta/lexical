@@ -2224,6 +2224,60 @@ test.describe('Links', () => {
       );
     });
   });
+
+  test.describe(() => {
+    test.skip(
+      ({browserName, isCollab}) => browserName !== 'chromium' || isCollab,
+      'Pointer capture fixes this in Chromium only: WebKit ignores it for ' +
+        'native text selection and still shows #9940, and Firefox is ' +
+        'untested. Collab renders the editor in an iframe.',
+    );
+    test('Dragging a selection out of the link URL input keeps extending it (#9940)', async ({
+      page,
+    }) => {
+      await focusEditor(page);
+      await page.keyboard.type('Hello world ');
+      await pasteFromClipboard(page, {'text/plain': 'https://lexical.dev'});
+      await click(page, '.link-edit');
+      await focus(page, '.link-input');
+
+      const frame = getPageOrFrame(page);
+      const input = frame.locator('.link-input');
+      const length = (await input.inputValue()).length;
+      const box = await input.boundingBox();
+      const root = frame.locator('.ContentEditable__root').first();
+      const rootBox = await root.boundingBox();
+      const y = box.y + box.height / 2;
+      // A point left of the input but still inside the editor's
+      // contenteditable, which the link editor floats over; that is what used
+      // to move the selection. Clamped so layout tweaks don't move it outside.
+      const outsideX = Math.max(box.x - 60, (rootBox.x + box.x) / 2);
+      expect(
+        await root.evaluate(
+          (el, [x, yy]) => el.contains(document.elementFromPoint(x, yy)),
+          [outsideX, y],
+        ),
+      ).toBe(true);
+
+      const editorHTML = await root.innerHTML();
+
+      // Drag from the end of the URL to past the input's left edge: like any
+      // text input, the selection should then cover the whole URL.
+      await page.mouse.move(box.x + box.width - 5, y);
+      await page.mouse.down();
+      await page.mouse.move(outsideX, y, {steps: 10});
+      const selection = () =>
+        input.evaluate(el => [el.selectionStart, el.selectionEnd]);
+      await expect.poll(selection).toEqual([0, length]);
+      await page.mouse.up();
+      await expect.poll(selection).toEqual([0, length]);
+      await expect(input).toBeFocused();
+      // The drag stays in the URL input: the link editor is still editing,
+      // and the document under the pointer is untouched.
+      await expect(frame.locator('.link-view')).toHaveCount(0);
+      expect(await root.innerHTML()).toBe(editorHTML);
+    });
+  });
 });
 
 test.describe('Link attributes', () => {
