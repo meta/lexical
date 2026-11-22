@@ -403,14 +403,6 @@ function $updateHighlights(
   }
 }
 
-function $scrollMatchIntoView(editor: LexicalEditor, match: TextMatch): void {
-  const points = $resolveMatchToPoints(match, $buildOffsetMap());
-  if (points) {
-    const text = getDOMTextNode(editor.getElementByKey(points.anchorKey));
-    text?.parentElement?.scrollIntoView({behavior: 'smooth', block: 'nearest'});
-  }
-}
-
 function clearHighlights(state: HighlightState): void {
   if (state.allHighlight) {
     state.allHighlight.clear();
@@ -613,8 +605,18 @@ export const FindReplaceExtension = defineExtension({
     const highlightState = createHighlightState(editor.getKey());
     const scrollToCurrentMatch = () => {
       const match = output.matches.peek()[output.effectiveIndex.peek()];
-      if (match) {
-        editor.read('latest', () => $scrollMatchIntoView(editor, match));
+      if (!match) {
+        return;
+      }
+      const points = editor.read('latest', () =>
+        $resolveMatchToPoints(match, $buildOffsetMap()),
+      );
+      if (points) {
+        const text = getDOMTextNode(editor.getElementByKey(points.anchorKey));
+        text?.parentElement?.scrollIntoView({
+          behavior: 'smooth',
+          block: 'nearest',
+        });
       }
     };
 
