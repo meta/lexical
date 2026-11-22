@@ -21,7 +21,7 @@ import {
   contextValue,
   createImportState,
 } from '@lexical/html';
-import {$createLinkNode, $isLinkNode} from '@lexical/link';
+import {$createLinkNode, $isLinkNode, type LinkNode} from '@lexical/link';
 import {
   $createListItemNode,
   $createListNode,
@@ -51,6 +51,7 @@ import {
   defineExtension,
   type LexicalNode,
   TEXT_TYPE_TO_FORMAT,
+  type TextFormatType,
   type TextNode,
 } from 'lexical';
 import {$assertNodeType} from 'lexical/src/__tests__/utils';
@@ -69,7 +70,9 @@ import {
   MdastAutolinkLiteralExtension,
   MdastCommonMarkExtension,
   MdastExtension,
+  MdastGfmExtension,
   MdastHeadingExtension,
+  type MdastPunctuationMode,
   MdastShadowRootQuoteExtension,
   MdastStrikethroughExtension,
   MdastTaskListExtension,
@@ -90,6 +93,16 @@ function createEditor(): LexicalEditorWithDispose {
       name: '[root]',
     }),
   );
+}
+
+// The first link in the document.
+function $firstLink(): LinkNode {
+  const link = $getRoot()
+    .getAllTextNodes()
+    .map(node => node.getParent())
+    .find($isLinkNode);
+  assert(link);
+  return link;
 }
 
 function importExport(markdown: string): string {
@@ -770,6 +783,12 @@ describe('@lexical/mdast import/export', () => {
     for (const markdown of [
       'see https://lexical.dev today',
       'visit www.example.com now',
+      // Neighbours that the bare form reads back beside unchanged.
+      '(www.example.com), www.example.com.',
+      '# www.example.com',
+      'a->https://a.dev/x',
+      '[a\nb](http://u.dev) (www.example.com)',
+      '[🎉](http://u.dev) (www.example.com)',
       // A CommonMark autolink stays wrapped even with the literal grammar on.
       'wrapped <https://lexical.dev> stays',
     ]) {
@@ -970,6 +989,570 @@ describe('@lexical/mdast import/export', () => {
       ).toBe(true);
       expect($convertToMarkdownString()).toBe(markdown);
     });
+  });
+
+  it.each<
+    [
+      name: string,
+      markdown: string,
+      before: string | null,
+      after: [text: string, format?: TextFormatType] | null,
+      expected: string,
+    ]
+  >([
+    [
+      'bold after',
+      'www.example.com',
+      null,
+      ['y', 'bold'],
+      '[www.example.com](http://www.example.com)**y**',
+    ],
+    [
+      'code after',
+      'www.example.com',
+      null,
+      ['y', 'code'],
+      '[www.example.com](http://www.example.com)`y`',
+    ],
+    [
+      'a letter after',
+      'www.example.com',
+      null,
+      ['y'],
+      '[www.example.com](http://www.example.com)y',
+    ],
+    [
+      'bold after an https literal',
+      'https://example.com',
+      null,
+      ['y', 'bold'],
+      '<https://example.com>**y**',
+    ],
+    [
+      'a letter before',
+      'www.example.com',
+      'x',
+      null,
+      'x[www.example.com](http://www.example.com)',
+    ],
+    [
+      // The writer encodes the last character of the bare form.
+      'bold punctuation after',
+      'www.example.com',
+      null,
+      ['!', 'bold'],
+      '[www.example.com](http://www.example.com)**!**',
+    ],
+    [
+      // Written bare after `hi!`, the link extends over `<-`; in resource
+      // form, the `!` is escaped so as not to start an image.
+      '`!` before and `<` after',
+      'www.example.com',
+      'hi!',
+      ['<-'],
+      'hi\\![www.example.com](http://www.example.com)<-',
+    ],
+    [
+      'an escaped bracket before',
+      'https://a.dev/x',
+      '[',
+      ['y', 'bold'],
+      '\\[<https://a.dev/x>**y**',
+    ],
+    [
+      // Checked with the emoji the export writes, not its stand-in.
+      'an emoji before',
+      'www.example.com',
+      '🎉',
+      ['*', 'bold'],
+      '🎉[www.example.com](http://www.example.com)**\\***',
+    ],
+    [
+      // Both literals have the same text; the first is the one that breaks.
+      'a second literal with the same text',
+      'www.example.com and www.example.com',
+      'x',
+      null,
+      'x[www.example.com](http://www.example.com) and [www.example.com](http://www.example.com)',
+    ],
+    [
+      // GFM reads a link across an ideographic space.
+      'ideographic spaces around',
+      'www.example.com',
+      '日本\u3000',
+      ['\u3000です'],
+      '日本\u3000[www.example.com](http://www.example.com)\u3000です',
+    ],
+    [
+      // Code holding the literal's text does not stand in for it.
+      'the same text in code',
+      '`a www.example.com b` www.example.com',
+      null,
+      ['(', 'italic'],
+      '`a www.example.com b` [www.example.com](http://www.example.com)*(*',
+    ],
+    [
+      // GFM keeps a closing parenthesis in a link that opened one, and an
+      // entity-looking `;`, so neither is trailing punctuation here.
+      'a parenthesis after a literal that opened one',
+      'see https://a.dev/x(y now',
+      null,
+      [')'],
+      'see <https://a.dev/x(y>) now',
+    ],
+    [
+      'a semicolon after a literal ending in an entity name',
+      'see https://a.dev/x&amp now',
+      null,
+      [';'],
+      'see <https://a.dev/x&amp>; now',
+    ],
+    [
+      // A table cell writes a space at its end as a reference once its
+      // content is written.
+      'a space after a literal at the end of a table cell',
+      '| h |\n| - |\n| www.example.com |',
+      null,
+      [' '],
+      '| h                                               |\n| ----------------------------------------------- |\n| [www.example.com](http://www.example.com)&#x20; |',
+    ],
+    [
+      // Written again, the paragraph keeps the escape that stops it from
+      // starting a heading.
+      'a letter after a literal in an escaped heading marker',
+      '\\# www.example.com',
+      null,
+      ['x'],
+      '\\# [www.example.com](http://www.example.com)x',
+    ],
+    [
+      // A heading writes its leading tab as a reference once its content is
+      // written; the literals stay bare.
+      'a tab at the start of a heading',
+      '# a@b.co (www.example.com)',
+      '\t',
+      null,
+      '# &#x9;a@b.co (www.example.com)',
+    ],
+    [
+      // Read back after `\_`, the email literal is a www literal: the same
+      // text, another destination.
+      'an underscore before an email literal',
+      'www.example.coma@b.co',
+      '_',
+      null,
+      '\\_<www.example.coma@b.co>',
+    ],
+    [
+      // Unedited: the writer escapes what follows the literal.
+      'an escaped underscore after',
+      'www.example.com_',
+      null,
+      null,
+      '[www.example.com](http://www.example.com)\\_',
+    ],
+    [
+      'an escaped underscore after an https literal',
+      'see https://a.dev/x_ now',
+      null,
+      null,
+      'see <https://a.dev/x>\\_ now',
+    ],
+  ])(
+    'writes a literal in resource form when it would not read back bare: %s',
+    (_name, markdown, before, after, expected) => {
+      const modes: MdastPunctuationMode[] = [
+        'strict-commonmark',
+        'cjk-friendly',
+      ];
+      for (const mode of modes) {
+        const createLiteralEditor = () =>
+          buildEditorFromExtensions(
+            MdastGfmExtension,
+            MdastHeadingExtension,
+            configExtension(MdastExtension, {
+              exportPunctuation: mode,
+              importPunctuation: mode,
+            }),
+          );
+        // Each text with its format and the URL of the link around it.
+        const $runs = () =>
+          $getRoot()
+            .getAllTextNodes()
+            .map(node => {
+              const parent = node.getParent();
+              return [
+                node.getTextContent(),
+                node.getFormat(),
+                $isLinkNode(parent) ? parent.getURL() : null,
+              ];
+            });
+        using editor = createLiteralEditor();
+        editor.update(
+          () => {
+            $convertFromMarkdownString(markdown);
+            const link = $firstLink();
+            if (before !== null) {
+              link.insertBefore($createTextNode(before));
+            }
+            if (after !== null) {
+              const [text, format] = after;
+              const node = $createTextNode(text);
+              if (format) {
+                node.toggleFormat(format);
+              }
+              link.insertAfter(node);
+            }
+          },
+          {discrete: true},
+        );
+        const output = editor.read(() => $convertToMarkdownString());
+        expect(output).toBe(expected);
+        using reimported = createLiteralEditor();
+        reimported.update(() => $convertFromMarkdownString(output), {
+          discrete: true,
+        });
+        expect(reimported.read($runs)).toEqual(editor.read($runs));
+        expect(reimported.read(() => $convertToMarkdownString())).toBe(output);
+      }
+    },
+  );
+
+  it('reads each container back once across repeated exports', () => {
+    let parses = 0;
+    using editor = buildEditorFromExtensions(
+      MdastCommonMarkExtension,
+      MdastAutolinkLiteralExtension,
+      configExtension(MdastExtension, {
+        mdastExtensions: [
+          {
+            transforms: [
+              () => {
+                parses++;
+              },
+            ],
+          },
+        ],
+      }),
+    );
+    const markdown = '(https://a.dev) (www.b.com)';
+    editor.update(() => $convertFromMarkdownString(markdown), {
+      discrete: true,
+    });
+    parses = 0;
+    expect(editor.read(() => $convertToMarkdownString())).toBe(markdown);
+    // Each literal alone, and the paragraph they are written in.
+    expect(parses).toBe(3);
+    expect(editor.read(() => $convertToMarkdownString())).toBe(markdown);
+    expect(parses).toBe(3);
+    // A subtree export finds what the document export read.
+    const $paragraph = () =>
+      $assertNodeType($getRoot().getFirstChildOrThrow(), $isElementNode);
+    expect(editor.read(() => $convertToMarkdownString($paragraph()))).toBe(
+      markdown,
+    );
+    expect(parses).toBe(3);
+    // A subtree export keeps the containers it read until the next one,
+    // without adding them to what document exports keep.
+    editor.update(
+      () => {
+        $paragraph().append($createTextNode(' z'));
+      },
+      {discrete: true},
+    );
+    const edited = `${markdown} z`;
+    expect(editor.read(() => $convertToMarkdownString($paragraph()))).toBe(
+      edited,
+    );
+    expect(parses).toBe(4);
+    expect(editor.read(() => $convertToMarkdownString($paragraph()))).toBe(
+      edited,
+    );
+    expect(parses).toBe(4);
+    // A literal between spaces, with only trailing punctuation, needs no
+    // paragraph parse.
+    for (const isolated of [
+      'see www.a.example, then',
+      'see www.b.example. Then',
+      'see https://c.example/x? then',
+      'see www.d.example! then',
+      'see e@f.example: then',
+      'see www.g.example?! then',
+      'see WWW.H.EXAMPLE then',
+      'see\twww.i.example\tthen',
+      'see www.j.example\nthen',
+      'see www.l.example\rthen',
+      // An ampersand that starts no reference.
+      'see https://k.example/?a=1&b=2 then',
+    ]) {
+      editor.update(() => $convertFromMarkdownString(isolated), {
+        discrete: true,
+      });
+      parses = 0;
+      expect(editor.read(() => $convertToMarkdownString())).toBe(isolated);
+      expect(parses).toBe(1);
+    }
+  });
+
+  it.each<[name: string, markdown: string, edit: () => void, expected: string]>(
+    [
+      [
+        'a title',
+        '(www.example.com)',
+        () => $firstLink().setTitle('t'),
+        '([www.example.com](http://www.example.com "t"))',
+      ],
+      [
+        'a second child',
+        '(www.example.com)',
+        () => $firstLink().append($createTextNode('x').toggleFormat('bold')),
+        '([www.example.com**x**](http://www.example.com))',
+      ],
+      [
+        // Alone, the text reads as an autolink to the same URL, but as the
+        // URL, not as the text.
+        'text that is an autolink to its URL',
+        'https://a.dev x',
+        () =>
+          $assertNodeType(
+            $firstLink().getFirstChildOrThrow(),
+            $isTextNode,
+          ).setTextContent('<https://a.dev>'),
+        '[\\<https://a.dev>](https://a.dev) x',
+      ],
+    ],
+  )(
+    'writes an edited literal in resource form: %s',
+    (_name, markdown, edit, expected) => {
+      using editor = buildEditorFromExtensions(
+        MdastCommonMarkExtension,
+        MdastAutolinkLiteralExtension,
+        MdastExtension,
+      );
+      editor.update(
+        () => {
+          $convertFromMarkdownString(markdown);
+          edit();
+        },
+        {discrete: true},
+      );
+      expect(editor.read(() => $convertToMarkdownString())).toBe(expected);
+    },
+  );
+
+  it('keeps a literal bare when plain text after it reads back as a link', () => {
+    using editor = buildEditorFromExtensions(
+      MdastCommonMarkExtension,
+      MdastAutolinkLiteralExtension,
+      MdastExtension,
+    );
+    editor.update(
+      () => {
+        $convertFromMarkdownString('(www.example.com)');
+        $firstLink().insertAfter($createTextNode(' me@x.co'));
+      },
+      {discrete: true},
+    );
+    // `me\@x.co` reads back as a link too, as it does on main; the literal
+    // is not what changes it.
+    expect(editor.read(() => $convertToMarkdownString())).toBe(
+      '(www.example.com me\\@x.co)',
+    );
+  });
+
+  it('keeps the containers of the latest subtree or selection export only', () => {
+    let parses = 0;
+    using editor = buildEditorFromExtensions(
+      MdastCommonMarkExtension,
+      MdastAutolinkLiteralExtension,
+      configExtension(MdastExtension, {
+        mdastExtensions: [
+          {
+            transforms: [
+              () => {
+                parses++;
+              },
+            ],
+          },
+        ],
+      }),
+    );
+    editor.update(
+      () =>
+        $convertFromMarkdownString(
+          '(https://a.example) (www.b.example)\n\n(https://c.example) (www.d.example)',
+        ),
+      {discrete: true},
+    );
+    editor.read(() => $convertToMarkdownString());
+    const $block = (index: number) =>
+      $assertNodeType($getRoot().getChildAtIndex(index), $isElementNode);
+    editor.update(
+      () => {
+        $block(0).append($createTextNode(' z'));
+        $block(1).append($createTextNode(' z'));
+      },
+      {discrete: true},
+    );
+    parses = 0;
+    const $exportBlock = (index: number) =>
+      editor.read(() => $convertToMarkdownString($block(index)));
+    $exportBlock(0);
+    $exportBlock(0);
+    expect(parses).toBe(1);
+    $exportBlock(1);
+    // Only the latest such export's containers are kept.
+    $exportBlock(0);
+    expect(parses).toBe(3);
+    // A selection that ends inside a paragraph writes a container that no
+    // document export writes; it stays kept across one.
+    editor.update(
+      () => {
+        const [first] = $block(0).getAllTextNodes();
+        const [, link] = $block(0).getChildren().filter($isLinkNode);
+        const last = $assertNodeType(link.getFirstChild(), $isTextNode);
+        $setSelectionFromCaretRange(
+          $getCaretRange(
+            $getTextPointCaret(first, 'next', 0),
+            $getTextPointCaret(last, 'next', 'next'),
+          ),
+        );
+      },
+      {discrete: true},
+    );
+    const selected = editor.read(() => $convertSelectionToMarkdownString());
+    expect(selected).toBe('(https://a.example) (www.b.example');
+    const afterSelection = parses;
+    editor.read(() => $convertToMarkdownString());
+    const afterDocument = parses;
+    expect(editor.read(() => $convertSelectionToMarkdownString())).toBe(
+      selected,
+    );
+    expect(parses).toBe(afterDocument);
+    expect(afterSelection).toBeGreaterThan(3);
+  });
+
+  it.each<[mode: MdastPunctuationMode, expected: string]>([
+    // Strict readers need the last character as a reference beside the run,
+    // which the literal would take in.
+    ['strict-commonmark', '<a@b.co>**。**'],
+    // A CJK-friendly export writes it as the character again.
+    ['cjk-friendly', 'a@b.co**。**'],
+  ])('checks a literal as the %s export writes it', (mode, expected) => {
+    using editor = buildEditorFromExtensions(
+      MdastGfmExtension,
+      configExtension(MdastExtension, {
+        exportPunctuation: mode,
+        importPunctuation: mode,
+      }),
+    );
+    editor.update(
+      () => {
+        $convertFromMarkdownString('a@b.co');
+        $firstLink().insertAfter($createTextNode('。').toggleFormat('bold'));
+      },
+      {discrete: true},
+    );
+    expect(editor.read(() => $convertToMarkdownString())).toBe(expected);
+  });
+
+  it('keeps a literal bare beside a link whose text holds NUL', () => {
+    using editor = buildEditorFromExtensions(
+      MdastCommonMarkExtension,
+      MdastAutolinkLiteralExtension,
+      MdastExtension,
+    );
+    editor.update(
+      () => {
+        $convertFromMarkdownString('(www.example.com)');
+        $assertNodeType($getRoot().getFirstChildOrThrow(), $isElementNode)
+          .getLastChildOrThrow()
+          .insertBefore($createTextNode(' and '))
+          .insertAfter(
+            $createLinkNode('http://u.dev/').append(
+              $createTextNode('a\u0000b'),
+            ),
+          );
+      },
+      {discrete: true},
+    );
+    // NUL reads back as U+FFFD; the literal still reads back as itself.
+    expect(editor.read(() => $convertToMarkdownString())).toBe(
+      '(www.example.com and [a\u0000b](http://u.dev/))',
+    );
+  });
+
+  it('checks a literal exported while another export writes with stand-ins', () => {
+    // U+2E00 is the first stand-in an export picks for a character beyond
+    // the BMP.
+    using inner = buildEditorFromExtensions(MdastGfmExtension, MdastExtension);
+    inner.update(
+      () => {
+        $convertFromMarkdownString('www.example.com');
+        $assertNodeType(
+          $getRoot().getFirstChildOrThrow(),
+          $isElementNode,
+        ).splice(0, 0, [$createTextNode('\u2E00')]);
+      },
+      {discrete: true},
+    );
+    const alone = inner.read(() => $convertToMarkdownString());
+    expect(alone).toBe('\u2E00www.example.com');
+    let nested = '';
+    using outer = buildEditorFromExtensions(
+      MdastGfmExtension,
+      configExtension(MdastExtension, {
+        toMarkdownExtensions: [
+          {
+            handlers: {
+              strong: (node, parent, state, info) => {
+                nested = inner.read(() => $convertToMarkdownString());
+                return defaultHandlers.strong(node, parent, state, info);
+              },
+            },
+          },
+        ],
+      }),
+    );
+    outer.update(() => $convertFromMarkdownString('🎉 **b**'), {
+      discrete: true,
+    });
+    expect(outer.read(() => $convertToMarkdownString())).toBe('🎉 **b**');
+    expect(nested).toBe(alone);
+  });
+
+  it('checks a literal exported after another export wrote with stand-ins', () => {
+    using inner = buildEditorFromExtensions(MdastGfmExtension, MdastExtension);
+    inner.update(() => $convertFromMarkdownString('🎉 **b**'), {
+      discrete: true,
+    });
+    using outer = buildEditorFromExtensions(
+      MdastGfmExtension,
+      configExtension(MdastExtension, {
+        toMarkdownExtensions: [
+          {
+            handlers: {
+              strong: (node, parent, state, info) => {
+                inner.read(() => $convertToMarkdownString());
+                return defaultHandlers.strong(node, parent, state, info);
+              },
+            },
+          },
+        ],
+      }),
+    );
+    outer.update(
+      () => {
+        $convertFromMarkdownString('**b** www.example.com');
+        $firstLink().insertBefore($createTextNode('\u2E00'));
+      },
+      {discrete: true},
+    );
+    // The stand-ins of the inner export are put back before the outer
+    // literal is checked.
+    expect(outer.read(() => $convertToMarkdownString())).toBe(
+      '**b** \u2E00www.example.com',
+    );
   });
 
   describe('mdast tree interop', () => {
