@@ -617,6 +617,14 @@ export const FindReplaceExtension = defineExtension({
         editor.read('latest', () => $scrollMatchIntoView(editor, match));
       }
     };
+    const moveCurrentMatch = (isBackward: boolean) => {
+      const len = output.matches.peek().length;
+      if (len > 0) {
+        output.currentIndex.value =
+          (output.currentIndex.peek() + (isBackward ? -1 : 1) + len) % len;
+        scrollToCurrentMatch();
+      }
+    };
 
     return mergeRegister(
       editor.registerCommand(
@@ -640,11 +648,7 @@ export const FindReplaceExtension = defineExtension({
       editor.registerCommand(
         FIND_NEXT_COMMAND,
         () => {
-          const len = output.matches.peek().length;
-          if (len > 0) {
-            output.currentIndex.value = (output.currentIndex.peek() + 1) % len;
-            scrollToCurrentMatch();
-          }
+          moveCurrentMatch(false);
           return true;
         },
         COMMAND_PRIORITY_LOW,
@@ -653,12 +657,7 @@ export const FindReplaceExtension = defineExtension({
       editor.registerCommand(
         FIND_PREV_COMMAND,
         () => {
-          const len = output.matches.peek().length;
-          if (len > 0) {
-            output.currentIndex.value =
-              (output.currentIndex.peek() - 1 + len) % len;
-            scrollToCurrentMatch();
-          }
+          moveCurrentMatch(true);
           return true;
         },
         COMMAND_PRIORITY_LOW,
