@@ -122,11 +122,16 @@ in text between the tags of an HTML block, unless `toMarkdownExtensions`
 sets them), and link style (`[text](url)` vs `<autolink>` vs bare GFM
 literal). Some forms are normalized, such as a run of text both bold
 and italic on its own, written as emphasis around strong (`**_both_**`
-comes back as `_**both**_`), and GFM tables, padded so their columns
-line up and written as below. Nodes created in the editor defer to the
-document-level serialization options, which can be configured by
-contributing `mdast-util-to-markdown` options through
-`toMarkdownExtensions`.
+comes back as `_**both**_`), a bare GFM literal whose neighbours would
+make it read back differently, written as `[text](url)` or `<url>`
+instead, and GFM tables, padded so their columns line up and written as
+below. Whether a literal reads back unchanged is checked on
+the paragraph, heading or table cell it is written in, so text that a
+contributed handler writes outside that (such as a letter a `paragraph`
+handler appends) is not checked, and a literal can still run into it.
+Nodes created in the editor defer to the document-level serialization
+options, which can be configured by contributing `mdast-util-to-markdown`
+options through `toMarkdownExtensions`.
 
 Import reads emphasis and strikethrough as the
 [CommonMark CJK-friendly amendment](https://github.com/tats-u/markdown-cjk-friendly)

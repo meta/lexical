@@ -189,9 +189,10 @@ interface LiteralCheck {
  * `xwww.example.com`), and the writer can escape or encode a character beside
  * it. So each outermost phrasing container (a paragraph, a heading, a table
  * cell) is read back once it is written. When its links do not come back as
- * written, every literal in it is written again in resource or autolink form,
- * neither of which runs into its neighbours; writing the container again runs
- * its handlers again.
+ * written, the literals from the first that does not are written again in
+ * resource or autolink form, neither of which runs into its neighbours, and
+ * all of them if it still does not; writing the container again runs its
+ * handlers again.
  */
 function checkLiterals(
   getLiteralUrl: (text: string) => string | null,
@@ -262,19 +263,41 @@ function checkLiterals(
         // Read as the export puts its stand-ins back, and as a heading or a
         // table cell encodes a space or tab at its edges once its content is
         // written.
-        const markdown = (
-          standInRestore ? standInRestore(value) : value
-        ).replace(/^[\t ]|[\t ]$/g, space =>
-          space === ' ' ? '&#x20;' : '&#x9;',
-        );
+        const readable = (written: string): string =>
+          (standInRestore ? standInRestore(written) : written).replace(
+            /^[\t ]|[\t ]$/g,
+            space => (space === ' ' ? '&#x20;' : '&#x9;'),
+          );
+        // The first link that does not read back as it was written, or -1.
+        // Links read back after the last one written come from plain text,
+        // which the literals do not change.
+        const firstChanged = (markdown: string): number => {
+          const keys = getLinkKeys(markdown);
+          return links.findIndex((link, i) => keys[i] !== linkKey(link));
+        };
+        const markdown = readable(value);
         if (isIsolated(markdown, texts)) {
           return value;
         }
-        // Links read back after the last one written come from plain text,
-        // which the literals do not change.
-        const keys = getLinkKeys(markdown);
-        if (links.every((link, i) => keys[i] === linkKey(link))) {
+        const first = firstChanged(markdown);
+        if (first === -1) {
           return value;
+        }
+        // Only the literals from it on are written again. Links are matched in
+        // order, so one that reads back can stand in for an earlier literal
+        // with the same text that does not (`xwww.example.com and
+        // www.example.com`); when the container still does not read back, all
+        // of them are.
+        for (const link of links.slice(first)) {
+          demoted.add(link);
+        }
+        const rewritten = containerPhrasing.call(
+          state,
+          container,
+          containerInfo,
+        );
+        if (first === 0 || firstChanged(readable(rewritten)) === -1) {
+          return rewritten;
         }
         for (const link of links) {
           demoted.add(link);

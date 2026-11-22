@@ -1351,6 +1351,95 @@ describe('@lexical/mdast import/export', () => {
     },
   );
 
+  it('writes only the literals from the first that would read back differently', () => {
+    using editor = buildEditorFromExtensions(
+      MdastCommonMarkExtension,
+      MdastAutolinkLiteralExtension,
+      MdastExtension,
+    );
+    editor.update(
+      () => {
+        $convertFromMarkdownString(
+          'see www.a.example, www.b.example and www.c.example',
+        );
+        $assertNodeType($getRoot().getFirstChildOrThrow(), $isElementNode)
+          .getLastChildOrThrow()
+          .insertAfter($createTextNode('y'));
+      },
+      {discrete: true},
+    );
+    expect(editor.read(() => $convertToMarkdownString())).toBe(
+      'see www.a.example, www.b.example and [www.c.example](http://www.c.example)y',
+    );
+  });
+
+  it('writes every literal from the first that would read back differently', () => {
+    using editor = buildEditorFromExtensions(
+      MdastCommonMarkExtension,
+      MdastAutolinkLiteralExtension,
+      MdastExtension,
+    );
+    editor.update(
+      () => {
+        $convertFromMarkdownString(
+          'see www.a.example, www.b.example and www.c.example',
+        );
+        const [, second, third] = $assertNodeType(
+          $getRoot().getFirstChildOrThrow(),
+          $isElementNode,
+        )
+          .getChildren()
+          .filter($isLinkNode);
+        second.insertAfter($createTextNode('y'));
+        third.insertAfter($createTextNode('y'));
+      },
+      {discrete: true},
+    );
+    expect(editor.read(() => $convertToMarkdownString())).toBe(
+      'see www.a.example, [www.b.example](http://www.b.example)y and [www.c.example](http://www.c.example)y',
+    );
+  });
+
+  it('reads a container back once when its first literal is written again', () => {
+    let parses = 0;
+    using editor = buildEditorFromExtensions(
+      MdastCommonMarkExtension,
+      MdastAutolinkLiteralExtension,
+      configExtension(MdastExtension, {
+        mdastExtensions: [
+          {
+            transforms: [
+              () => {
+                parses++;
+              },
+            ],
+          },
+        ],
+      }),
+    );
+    editor.update(
+      () => {
+        $convertFromMarkdownString('see www.a.example then');
+        $firstLink().insertAfter($createTextNode('y'));
+      },
+      {discrete: true},
+    );
+    // What the literal reads alone is kept by now.
+    editor.read(() => $convertToMarkdownString());
+    editor.update(
+      () => {
+        const [text] = $getRoot().getAllTextNodes();
+        text.setTextContent(`so ${text.getTextContent()}`);
+      },
+      {discrete: true},
+    );
+    parses = 0;
+    expect(editor.read(() => $convertToMarkdownString())).toBe(
+      'so see [www.a.example](http://www.a.example)y then',
+    );
+    expect(parses).toBe(1);
+  });
+
   it('keeps a literal bare when plain text after it reads back as a link', () => {
     using editor = buildEditorFromExtensions(
       MdastCommonMarkExtension,
