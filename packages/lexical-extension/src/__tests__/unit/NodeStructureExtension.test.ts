@@ -86,9 +86,9 @@ import {
   type RangeSelection,
   type SerializedParagraphNode,
   stringValue,
-  type TextNode,
   withField,
 } from 'lexical';
+import {$assertNodeType} from 'lexical/src/__tests__/utils';
 import {assert, describe, expect, test} from 'vitest';
 
 function shape(node: LexicalNode): unknown {
@@ -369,9 +369,7 @@ describe('existing subclasses that inherit a declaration', () => {
       'title',
     ]);
     editor.read(() => {
-      expect($getRoot().getFirstChildOrThrow<ElementNode>().isInline()).toBe(
-        false,
-      );
+      expect($getRoot().getFirstChildOrThrow().isInline()).toBe(false);
     });
     // LinkNode itself still declares it.
     expect(getDeclaredNodeStructure(LinkNode).inline).toBe(true);
@@ -578,9 +576,10 @@ describe('NodeStructureExtension', () => {
       ['paragraph', 'within', ['overflow', 'over']],
     ]);
     editor.read(() => {
-      const overflow = $getRoot()
-        .getFirstChildOrThrow<ElementNode>()
-        .getLastChild<OverflowNode>();
+      const overflow = $assertNodeType(
+        $getRoot().getFirstChildOrThrow(),
+        $isElementNode,
+      ).getLastChild();
       // Its behaviour is unchanged: still not inline for the caret.
       expect(overflow!.isInline()).toBe(false);
     });
@@ -733,7 +732,7 @@ describe('NodeStructureExtension', () => {
       // The caret that was in the last (empty) paragraph is on that line.
       const selection = $getSelection();
       assert($isRangeSelection(selection));
-      const quote = $getRoot().getFirstChildOrThrow<QuoteNode>();
+      const quote = $getRoot().getFirstChildOrThrow();
       expect([selection.anchor.key, selection.anchor.offset]).toEqual([
         quote.getKey(),
         3,
@@ -996,9 +995,13 @@ describe('NodeStructureExtension', () => {
     using editor = build(() => $numbered(5, 'x', 'a', 'y'), true);
     editor.update(
       () => {
-        const item = $getRoot()
-          .getFirstChildOrThrow<ListNode>()
-          .getChildAtIndex<ListItemNode>(1)!;
+        const item = $assertNodeType(
+          $assertNodeType(
+            $getRoot().getFirstChildOrThrow(),
+            $isListNode,
+          ).getChildAtIndex(1),
+          $isElementNode,
+        );
         item.getFirstChildOrThrow().insertBefore($createHorizontalRuleNode());
       },
       {discrete: true},
@@ -1223,8 +1226,10 @@ describe('NodeStructureExtension', () => {
         ),
       ]);
     }, true);
+    // The nested list then moves into an item of its own (a list item
+    // holding a nested list holds nothing else).
     expect(rootShape(editor)).toEqual([
-      ['list', ['listitem', 'a', ['list', ['listitem', 'b']]]],
+      ['list', ['listitem', 'a'], ['listitem', ['list', ['listitem', 'b']]]],
     ]);
   });
 
@@ -1651,11 +1656,21 @@ describe('registration', () => {
       editor.read(() => {});
       editor.update(
         () => {
-          const cell = $getRoot()
-            .getFirstChildOrThrow<ElementNode>()
-            .getFirstChildOrThrow<ElementNode>()
-            .getFirstChildOrThrow<ElementNode>();
-          cell.getFirstChildOrThrow<ChipNode>().getWritable().__inline = true;
+          const table = $assertNodeType(
+            $getRoot().getFirstChildOrThrow(),
+            $isElementNode,
+          );
+          const row = $assertNodeType(
+            table.getFirstChildOrThrow(),
+            $isElementNode,
+          );
+          const cell = $assertNodeType(
+            row.getFirstChildOrThrow(),
+            $isElementNode,
+          );
+          const chip = cell.getFirstChildOrThrow();
+          assert(chip instanceof ChipNode);
+          chip.getWritable().__inline = true;
         },
         {discrete: true},
       );
@@ -2204,11 +2219,8 @@ describe('formatting, list seams, orphan list items and the root', () => {
         [
           [
             'list',
-            [
-              'listitem',
-              ['mark:c1', 'x'],
-              ['list', ['listitem', ['mark:c1', 'y']]],
-            ],
+            ['listitem', ['mark:c1', 'x']],
+            ['listitem', ['list', ['listitem', ['mark:c1', 'y']]]],
           ],
         ],
       ],
@@ -2301,6 +2313,9 @@ describe('formatting, list seams, orphan list items and the root', () => {
   });
 
   test('lists that merge keep what follows or precedes a nested list in an item at the seam', () => {
+    // That content moves into an item of its own (a list item holding a
+    // nested list holds nothing else), so the wrapper items that then meet
+    // join their nested lists.
     // Removing what separated them.
     {
       using editor = buildEditor();
@@ -2315,8 +2330,8 @@ describe('formatting, list seams, orphan list items and the root', () => {
       expect(rootShape(editor)).toEqual([
         [
           'list',
-          ['listitem', ['list', ['listitem', 'a']]],
-          ['listitem', ['list', ['listitem', 'b']], 'tail'],
+          ['listitem', ['list', ['listitem', 'a'], ['listitem', 'b']]],
+          ['listitem', 'tail'],
         ],
       ]);
     }
@@ -2327,7 +2342,8 @@ describe('formatting, list seams, orphan list items and the root', () => {
       expect(rootShape(editor)).toEqual([
         [
           'list',
-          ['listitem', ['list', ['listitem', 'a']], 'x'],
+          ['listitem', ['list', ['listitem', 'a']]],
+          ['listitem', 'x'],
           ['listitem', ['list', ['listitem', 'b']]],
         ],
       ]);
@@ -2344,8 +2360,11 @@ describe('formatting, list seams, orphan list items and the root', () => {
       expect(annotated(editor)).toEqual([
         [
           'list',
-          ['listitem', ['list', ['listitem', ['link:https://a', 'a']]]],
-          ['listitem', ['list', ['listitem', 'b']], 'tail'],
+          [
+            'listitem',
+            ['list', ['listitem', ['link:https://a', 'a']], ['listitem', 'b']],
+          ],
+          ['listitem', 'tail'],
         ],
       ]);
     }
@@ -2496,7 +2515,11 @@ describe('formatting, list seams, orphan list items and the root', () => {
     };
     const edits: (() => void)[] = [
       // An edit somewhere else.
-      () => $getRoot().getFirstDescendant<TextNode>()!.setTextContent('pp'),
+      () =>
+        $assertNodeType(
+          $getRoot().getFirstDescendant(),
+          $isTextNode,
+        ).setTextContent('pp'),
       // An update that only marks the root dirty.
       () => $getRoot().markDirty(),
     ];

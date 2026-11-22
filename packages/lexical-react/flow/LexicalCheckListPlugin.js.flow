@@ -7,6 +7,6 @@
  * @flow strict
  */
 
-declare export function CheckListPlugin({
+declare export function CheckListPlugin(v: {
     disableTakeFocusOnClick?: boolean
 }): null;

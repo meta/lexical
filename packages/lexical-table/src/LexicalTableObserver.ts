@@ -599,18 +599,21 @@ export class TableObserver {
 
     const selectedNodes = selection.getNodes().filter($isTableCellNode);
 
-    // Check if the entire table is selected by verifying first and last cells
-    const firstRow = tableNode.getFirstChild();
-    const lastRow = tableNode.getLastChild();
-
+    // The entire table is selected when the selection holds every cell. (In
+    // a table whose rows have different numbers of cells, a selection from
+    // the first cell to the last can leave out cells of a longer row.)
+    let cellCount = 0;
+    for (const row of tableNode.getChildren()) {
+      if ($isTableRowNode(row)) {
+        cellCount += row.getChildrenSize();
+      }
+    }
     const isEntireTableSelected =
-      selectedNodes.length > 0 &&
-      firstRow !== null &&
-      lastRow !== null &&
-      $isTableRowNode(firstRow) &&
-      $isTableRowNode(lastRow) &&
-      selectedNodes[0] === firstRow.getFirstChild() &&
-      selectedNodes[selectedNodes.length - 1] === lastRow.getLastChild();
+      cellCount > 0 &&
+      selectedNodes.filter(cell => {
+        const row = cell.getParent();
+        return row !== null && row.getParent() === tableNode;
+      }).length === cellCount;
 
     if (isEntireTableSelected) {
       tableNode.selectPrevious();

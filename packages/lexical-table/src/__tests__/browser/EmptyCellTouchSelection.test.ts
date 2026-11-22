@@ -25,7 +25,6 @@ import {
   $isRangeSelection,
   $setSelection,
   CONTROLLED_TEXT_INSERTION_COMMAND,
-  type ElementNode,
   KEY_BACKSPACE_COMMAND,
 } from 'lexical';
 import {assert, expect, onTestFinished, test} from 'vitest';
@@ -178,9 +177,7 @@ test.each([
     const fixture = mount();
     fixture.editor.update(
       () => {
-        const paragraph = $getNodeByKeyOrThrow<ElementNode>(
-          fixture.paragraphKey,
-        );
+        const paragraph = $getNodeByKeyOrThrow(fixture.paragraphKey);
         const empty = $createParagraphNode();
         if (emptyBefore) {
           paragraph.insertBefore(empty);
@@ -202,9 +199,7 @@ test.each([false, true])(
     const fixture = mount();
     fixture.editor.update(
       () => {
-        const paragraph = $getNodeByKeyOrThrow<ElementNode>(
-          fixture.paragraphKey,
-        );
+        const paragraph = $getNodeByKeyOrThrow(fixture.paragraphKey);
         const text = $createParagraphNode().append($createTextNode('Text'));
         if (textBefore) {
           paragraph.insertBefore(text);
@@ -258,7 +253,7 @@ test.each([
     if (multipleParagraphs) {
       fixture.editor.update(
         () => {
-          $getNodeByKeyOrThrow<ElementNode>(fixture.paragraphKey).insertAfter(
+          $getNodeByKeyOrThrow(fixture.paragraphKey).insertAfter(
             $createParagraphNode(),
           );
         },
@@ -356,11 +351,10 @@ test('preserves a programmatic cross-cell range after a touch tap', () => {
   fixture.tap();
   fixture.editor.update(
     () => {
-      const paragraph = $getNodeByKeyOrThrow<ElementNode>(fixture.paragraphKey);
-      const other = paragraph
-        .getParentOrThrow()
-        .getPreviousSibling<ElementNode>()!
-        .getFirstChildOrThrow();
+      const paragraph = $getNodeByKeyOrThrow(fixture.paragraphKey);
+      const previousCell = paragraph.getParentOrThrow().getPreviousSibling();
+      assert($isTableCellNode(previousCell));
+      const other = previousCell.getFirstChildOrThrow();
       const selection = $createRangeSelection();
       selection.anchor.set(fixture.paragraphKey, 0, 'element');
       selection.focus.set(other.getKey(), 0, 'element');
@@ -428,11 +422,10 @@ test('does not mistake a different empty cell for the tapped cell', () => {
   fixture.tap();
   fixture.editor.update(
     () => {
-      const paragraph = $getNodeByKeyOrThrow<ElementNode>(fixture.paragraphKey);
-      paragraph
-        .getParentOrThrow()
-        .getPreviousSibling<ElementNode>()!
-        .selectStart();
+      const paragraph = $getNodeByKeyOrThrow(fixture.paragraphKey);
+      const previousCell = paragraph.getParentOrThrow().getPreviousSibling();
+      assert($isTableCellNode(previousCell));
+      previousCell.selectStart();
     },
     {discrete: true},
   );

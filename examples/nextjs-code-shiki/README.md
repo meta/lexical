@@ -2,7 +2,7 @@
 
 A minimal [Next.js](https://nextjs.org/) app that drives a Lexical rich-text
 editor with Shiki-based code highlighting, wired entirely through the
-Lexical [Extension](https://lexical.dev/docs/concepts/extensions) system.
+Lexical [Extension](https://lexical.dev/docs/extensions/intro) system.
 
 ## What it demonstrates
 

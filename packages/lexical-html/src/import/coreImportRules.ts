@@ -36,7 +36,7 @@ import {
   TEXT_TYPE_TO_FORMAT,
 } from 'lexical';
 
-import {contextValue} from '../ContextRecord';
+import {contextValue} from '../internal/ContextRecord';
 import {defineImportRule} from './defineImportRule';
 import {
   ImportTextFormat,

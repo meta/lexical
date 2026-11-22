@@ -9,6 +9,7 @@
 import fs from 'fs-extra';
 import {globSync} from 'glob';
 import path from 'node:path';
+import {fileURLToPath} from 'node:url';
 import prettier from 'prettier';
 import ts from 'typescript';
 
@@ -76,7 +77,10 @@ async function updateTsconfig({
     if (test) {
       testPaths.push([`${pkg.getNpmName()}/src`, [resolveRelative('src')]]);
       for (const fn of globSync(
-        pkg.resolve('src', '__tests__', 'utils', '*.{ts,tsx,mjs,jsx}'),
+        // Only the directory's index module backs the bare
+        // `<pkg>/src/__tests__/utils` specifier. Matching every file let
+        // glob order pick a sibling module (e.g. assertNodeType.ts) instead.
+        pkg.resolve('src', '__tests__', 'utils', 'index.{ts,tsx,mjs,jsx}'),
         {windowsPathsNoEscape: true},
       )) {
         testPaths.push([
@@ -150,8 +154,13 @@ const WEBSITE_EXTRA_PATHS = [
 //   `source` export condition (customConditions) instead — it is not
 //   generated here.
 async function updateAllTsconfig() {
+  // fileURLToPath, not URL.pathname: pathname is a URI path, so on a checkout
+  // under a space, `#`, `%`, `~` or a non-ASCII directory prettier is asked to
+  // resolve its config from a folder that does not exist. It answers null, the
+  // fallback below takes over, and the files are rewritten with default options
+  // instead of the monorepo's.
   const prettierConfig =
-    (await prettier.resolveConfig(new URL(import.meta.url).pathname)) || {};
+    (await prettier.resolveConfig(fileURLToPath(import.meta.url))) || {};
   await updateTsconfig({
     extraPaths: [],
     jsonFileName: './tsconfig.test.json',

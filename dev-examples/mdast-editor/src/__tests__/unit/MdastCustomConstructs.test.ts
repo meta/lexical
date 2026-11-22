@@ -460,6 +460,20 @@ describe('footnotes', () => {
       'no refs here\n\n[^orphan]: kept anyway',
       'no refs here\n\n[^orphan]: kept anyway',
     ],
+    // A bold italic ref merges with the bold italic text around it.
+    ['***x[^a] y***\n\n[^a]: n', '***x[^a] y***\n\n[^a]: n'],
+    ['**a *b[^a]***\n\n[^a]: n', '**a *b[^a]***\n\n[^a]: n'],
+    ['**_x_[^a]**\n\n[^a]: n', '**_x_[^a]**\n\n[^a]: n'],
+    ['**a *b[^a]c***\n\n[^a]: n', '**a *b[^a]c***\n\n[^a]: n'],
+    ['**x *[^a]y***\n\n[^a]: n', '**x *[^a]y***\n\n[^a]: n'],
+    ['**x _[^a]_**_z_\n\n[^a]: n', '**x _[^a]_**_z_\n\n[^a]: n'],
+    ['*x __[^a]__*__z__\n\n[^a]: n', '*x __[^a]__*__z__\n\n[^a]: n'],
+    ['~~a **b[^a]**~~ c\n\n[^a]: n', '~~a **b[^a]**~~ c\n\n[^a]: n'],
+    ['*ld*~~***llo[^a]***~~\n\n[^a]: n', '*ld*~~***llo[^a]***~~\n\n[^a]: n'],
+    [
+      '*ld*~~***llo***~~ x[^a]\n\n[^a]: n',
+      '*ld*~~***llo***~~ x[^a]\n\n[^a]: n',
+    ],
     // Undefined refs stay literal, GitHub-style.
     ['no def[^ghost] here', 'no def\\[^ghost] here'],
     // Definitions serialize at the END regardless of source position.
@@ -778,6 +792,12 @@ describe('read-only', () => {
 });
 
 describe('HtmlTextFormatExtension', () => {
+  it('nests bold italic in an HTML format as the core text does', () => {
+    expect(importExport('***x*** <u>***y***</u>')).toBe(
+      '***x*** <u>***y***</u>',
+    );
+  });
+
   it('preserves a tab between formatted text through the custom text rule', () => {
     using editor = createEditor();
     editor.update(

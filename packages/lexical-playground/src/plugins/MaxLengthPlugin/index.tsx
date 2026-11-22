@@ -44,7 +44,7 @@ export const MaxLengthExtension = defineExtension({
           return;
         }
         const prevEditorState = editor.getEditorState();
-        const prevTextContentSize = prevEditorState.read(() =>
+        const prevTextContentSize = editor.read(prevEditorState, () =>
           rootNode.getTextContentSize(),
         );
         const textContentSize = rootNode.getTextContentSize();

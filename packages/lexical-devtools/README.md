@@ -48,22 +48,41 @@ The Safari extension is no longer published: the Mac App Store listing has been 
 
 Production (`latest`) npm releases submit Chrome and Firefox extensions for review from the released commit, with build version `0`. Update store screenshots/videos before releases that change the UI.
 
-For extension-only releases or retries, run [Publish DevTools extension to stores](https://github.com/facebook/lexical/actions/workflows/devtools-extension-publish.yml) on the release tag. Increase "Build version" for repeated uploads of the same Lexical version (`<version>.<build_version>`), and wait for pending Chrome reviews to finish. Store submissions can fail independently; retry this workflow without republishing npm packages.
+For extension-only releases or retries, run [Publish DevTools extension to stores](https://github.com/meta/lexical/actions/workflows/devtools-extension-publish.yml) on the release tag. Increase "Build version" for repeated uploads of the same Lexical version (`<version>.<build_version>`), and wait for pending Chrome reviews to finish. Store submissions can fail independently; retry this workflow without republishing npm packages.
 
 ### Store credentials
 
-Enable the Chrome Web Store API in Google Cloud and [link a publishing service account](https://developer.chrome.com/docs/webstore/service-accounts) to the listing's publisher. Configure these repository settings:
+Chrome publishes through the Chrome Web Store API with a [service account](https://console.cloud.google.com/iam-admin/serviceaccounts?project=lexical-devtools) from the `lexical-devtools` Google Cloud project, linked to the listing's publisher under **Service account** in the [Developer Dashboard Settings page](https://chrome.google.com/webstore/devconsole/f0fd8a71-2d57-4015-b897-d9e628e2e143/settings). Configure these [repository settings](https://github.com/meta/lexical/settings/variables/actions):
 
 | Setting | Type | Value |
 | --- | --- | --- |
 | `EXTENSION_CHROME_EXTENSION_ID` | Secret | Listing's extension ID |
-| `EXTENSION_CHROME_PUBLISHER_ID` | Variable | **Publisher > Settings** in the [Developer Dashboard](https://chrome.google.com/webstore/devconsole) |
-| `EXTENSION_CHROME_SERVICE_ACCOUNT_CLIENT_EMAIL` | Variable | Service account's `client_email` |
+| `EXTENSION_CHROME_PUBLISHER_ID` | Variable | Publisher ID on the [Developer Dashboard Settings page](https://chrome.google.com/webstore/devconsole/f0fd8a71-2d57-4015-b897-d9e628e2e143/settings) |
+| `EXTENSION_CHROME_SERVICE_ACCOUNT_CLIENT_EMAIL` | Variable | Service account's `client_email`, also listed under **Service account** on that page |
 | `EXTENSION_CHROME_SERVICE_ACCOUNT_PRIVATE_KEY` | Secret | Decoded `private_key` PEM with actual newlines, not the full JSON key |
 
 Firefox requires repository secrets `EXTENSION_FIREFOX_EXTENSION_ID`, `EXTENSION_FIREFOX_JWT_ISSUER`, and `EXTENSION_FIREFOX_JWT_SECRET`.
 
 Confirm Chrome visibility and rollout in the Developer Dashboard. Visibility changes require one manual publish before API publishing. `wxt submit --dry-run` contacts Google.
+
+#### Rotating the Chrome service account key
+
+The key does not expire, so rotate it only when it leaks or a key holder leaves. This needs the **Owner** role on the `lexical-devtools` project.
+
+1. On the service account's [Keys tab](https://console.cloud.google.com/iam-admin/serviceaccounts/details/103203520135244394615/keys?project=lexical-devtools), choose **Add key > Create new key > JSON**. The key file downloads.
+2. Print the PEM. The JSON holds it on one line with literal `\n`, and the secret needs real newlines:
+
+   ```bash
+   python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["private_key"])' ~/Downloads/<key>.json
+   ```
+
+3. Paste that output, including the `-----BEGIN PRIVATE KEY-----` and `-----END PRIVATE KEY-----` lines, into the `EXTENSION_CHROME_SERVICE_ACCOUNT_PRIVATE_KEY` secret.
+4. Delete the downloaded JSON file, then delete the superseded key from the Keys tab.
+5. Run the publish workflow with a higher build version to confirm the new key works.
+
+#### Google Cloud access (maintainers)
+
+Only project owners can create service account keys. To add one, open [IAM for `lexical-devtools`](https://console.cloud.google.com/iam-admin/iam?project=lexical-devtools), choose **Grant access**, enter the person's Google account, and assign the **Owner** role.
 
 ### Marketplace access
 

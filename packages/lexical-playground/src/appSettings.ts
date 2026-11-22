@@ -12,6 +12,7 @@ export const isDevPlayground: boolean =
   hostName !== 'lexical-playground.vercel.app';
 
 export const DEFAULT_SETTINGS = {
+  collabYOffline: false,
   emptyEditor: isDevPlayground,
   hasFitNestedTables: false,
   hasLinkAttributes: false,
@@ -41,6 +42,7 @@ export const DEFAULT_SETTINGS = {
   tableCellMerge: true,
   tableHorizontalScroll: true,
   useCollabV2: false,
+  useCollabY: false,
 } as const;
 
 // These are mutated in setupEnv

@@ -714,7 +714,7 @@ export const PagesExtension = defineExtension({
               (_mutations, {prevEditorState}) => {
                 const change = $getStateChange(
                   editor.read('latest', $getRoot),
-                  prevEditorState.read($getRoot),
+                  editor.read(prevEditorState, $getRoot),
                   pageSetupState,
                 );
                 if (!change) {

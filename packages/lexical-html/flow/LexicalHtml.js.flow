@@ -24,7 +24,7 @@ import type {Signal} from '@lexical/extension';
 
 type AnyContextSymbol = symbol;
 
-type ContextRecord<K extends symbol> = {readonly [string | symbol]: unknown};
+type ContextRecord<K extends symbol> = {readonly [key: string | symbol]: unknown};
 
 type ContextConfig<Sym extends symbol, V> = StateConfig<symbol, V>;
 
@@ -164,25 +164,6 @@ declare export var DOMRenderExtension: LexicalExtension<
   '@lexical/html/DOM',
   DOMRenderExtensionOutput,
   void,
->;
-
-// BlockIdHTMLExtension
-
-declare export var BLOCK_ID_ATTRIBUTE: 'data-block-id';
-
-export type BlockIdHTMLConfig = {
-  export: boolean,
-  import: boolean,
-};
-
-declare export var BlockIdHTMLExtension: LexicalExtension<
-  BlockIdHTMLConfig,
-  '@lexical/html/BlockIdHTML',
-  {
-    export: Signal<boolean>,
-    import: Signal<boolean>,
-  },
-  unknown,
 >;
 
 // RenderContext

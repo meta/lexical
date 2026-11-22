@@ -10,17 +10,23 @@
 export type {AutoFocusConfig} from '@lexical/extension/AutoFocusExtension';
 export {AutoFocusExtension} from '@lexical/extension/AutoFocusExtension';
 export type {
+  BlockHandleOptions,
+  BlockHandleResult,
   BlockIdConfig,
   BlockIdOutput,
 } from '@lexical/extension/BlockIdExtension';
 export {
   $defaultIsIdentifiedBlock,
   $getBlockById,
+  $getBlockHandle,
+  $getBlockHandles,
   $getBlockId,
   $isRootChildBlock,
+  $resolveBlockHandle,
   BlockIdExtension,
   blockIdState,
   generateBlockId,
+  MIN_BLOCK_HANDLE_LENGTH,
 } from '@lexical/extension/BlockIdExtension';
 export type {ClearEditorConfig} from '@lexical/extension/ClearEditorExtension';
 export {

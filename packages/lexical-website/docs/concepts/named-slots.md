@@ -428,6 +428,10 @@ concurrently setting *different* slot names for the first time merge
 per-entry instead of racing. Malformed or hostile remote entries are
 validated and skipped.
 
+The Yjs 14 binding, `@lexical/y`, stores each slot on its host's node under
+its own name, so slots of different names merge as well (see
+[How content is stored](../collaboration/y.md#how-content-is-stored)).
+
 :::caution
 
 Pre-slots clients receiving slot data from upgraded peers will error rather

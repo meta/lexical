@@ -386,7 +386,7 @@ Current:
   a different set of plugins based on context, etc.).
 - Pre-registration system for nodes to declare expected state
   and serialize them as top-level properties (`flat`) with `$config`
-  (see [#7260](https://github.com/facebook/lexical/issues/7260)).
+  (see [#7260](https://github.com/meta/lexical/issues/7260)).
 - Can be integrated with
   [DOMRenderExtension](../serialization/dom-render.md) for editor
   rendering and HTML export
@@ -397,12 +397,12 @@ Future:
 
 - Does not yet support direct integration with Yjs, e.g.
   you can not store a Y.Map as a NodeState value
-  (see [#7293](https://github.com/facebook/lexical/issues/7293))
+  (see [#7293](https://github.com/meta/lexical/issues/7293))
 
 ## Node State Style Example
 
 This example demonstrates an advanced use case of storing a style object on TextNode using NodeState.
 
-[![Open in StackBlitz](https://developer.stackblitz.com/img/open_in_stackblitz.svg)](https://stackblitz.com/github/facebook/lexical/tree/main/examples/node-state-style?file=src/main.tsx)
+[![Open in StackBlitz](https://developer.stackblitz.com/img/open_in_stackblitz.svg)](https://stackblitz.com/github/meta/lexical/tree/main/examples/node-state-style?file=src/main.tsx)
 
-<iframe width="100%" height="600" src="https://stackblitz.com/github/facebook/lexical/tree/main/examples/node-state-style?embed=1&file=src%2FApp.tsx&terminalHeight=0&ctl=1&showSidebar=0&devtoolsheight=0&view=preview" sandbox="allow-forms allow-modals allow-popups allow-popups-to-escape-sandbox allow-presentation allow-same-origin allow-scripts" title="Node State Style Example"></iframe>
+<iframe width="100%" height="600" src="https://stackblitz.com/github/meta/lexical/tree/main/examples/node-state-style?embed=1&file=src%2FApp.tsx&terminalHeight=0&ctl=1&showSidebar=0&devtoolsheight=0&view=preview" sandbox="allow-forms allow-modals allow-popups allow-popups-to-escape-sandbox allow-presentation allow-same-origin allow-scripts" title="Node State Style Example"></iframe>

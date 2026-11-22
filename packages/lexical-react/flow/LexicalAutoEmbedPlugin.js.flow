@@ -62,5 +62,5 @@ declare export class AutoEmbedOption extends MenuOption {
 }
 
 declare export function LexicalAutoEmbedPlugin<TEmbedConfig>(
-  LexicalAutoEmbedPluginProps<TEmbedConfig>,
+  v: LexicalAutoEmbedPluginProps<TEmbedConfig>,
 ): React.MixedElement | null;

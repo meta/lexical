@@ -71,7 +71,7 @@ Framework-agnostic accessibility extensions. See [Keyboard Accessibility](/docs/
 
 [@lexical/html](/docs/api/modules/lexical_html)
 
-- [BlockIdHTMLExtension](/docs/api/modules/lexical_html#blockidhtmlextension) - Exports block ids as `data-block-id` and reads them back on import, through the uniqueness rule (experimental)
+- [BlockIdHTMLExtension](/docs/api/modules/lexical_html/BlockIdHTMLExtension#blockidhtmlextension) - Exports block ids as `data-block-id` and reads them back on import, through the uniqueness rule (experimental)
 - [CoreImportExtension](/docs/api/modules/lexical_html#coreimportextension) - DOM import rules for the core nodes, included implicitly by node-providing extensions (experimental)
 - [DOMImportExtension](/docs/api/modules/lexical_html#domimportextension) - Extension-based replacement for `importDOM`/`DOMConversion`, rules are compiled into a dispatcher at editor build time (experimental)
 - [DOMRenderExtension](/docs/api/modules/lexical_html#domrenderextension) - Overrides the DOM render and export behavior for an editor (experimental)
@@ -91,6 +91,8 @@ Framework-agnostic accessibility extensions. See [Keyboard Accessibility](/docs/
 
 - [MarkExtension](/docs/api/modules/lexical_mark#markextension) - MarkNode
 - [MarkStateExtension](/docs/api/modules/lexical_mark#markstateextension) - Experimental: comment and annotation ids stored as NodeState on the leaves they cover, so marks overlap without wrapper nodes (see [Comments and Annotations](/docs/collaboration/comments))
+- [defineMarkExtension](/docs/api/modules/lexical_mark#definemarkextension) - Experimental: one extension like MarkStateExtension per kind of annotation (comments, suggestions), each on its own NodeState key (see [Mark flavors](/docs/collaboration/comments#mark-flavors))
+- [MarkBaseExtension](/docs/api/modules/lexical_mark#markbaseextension) - Experimental: the shared base of the mark flavors, with the registry of an editor's flavors
 
 [@lexical/mdast](/docs/api/modules/lexical_mdast)
 
@@ -111,7 +113,8 @@ Experimental micromark/mdast-based Markdown support (every extension in this pac
 - [MdastCommonMarkExtension](/docs/api/modules/lexical_mdast#mdastcommonmarkextension) - Bundle of the six CommonMark extensions
 - [MdastGfmExtension](/docs/api/modules/lexical_mdast#mdastgfmextension) - Bundle of the four GFM extensions
 - [MdastShadowRootQuoteExtension](/docs/api/modules/lexical_mdast#mdastshadowrootquoteextension) - Opt-in: blockquotes as block containers with full-fidelity nested content
-- [MdastHtmlExtension](/docs/api/modules/lexical_mdast#mdasthtmlextension) - Opt-in: raw HTML in Markdown routed through the `@lexical/html` DOM import rules (Markdown inside the tags included, GitHub-style), plus generic HTML-encoded export via `$exportViaDOM` / `rawHtmlBlock`
+- [MdastQuoteContainerExtension](/docs/api/modules/lexical_mdast#mdastquotecontainerextension) - Opt-in: blockquotes as QuoteContainerNodes, quotes that hold blocks and declare it
+- [MdastHtmlExtension](/docs/api/modules/lexical_mdast#mdasthtmlextension) - Opt-in: raw HTML in Markdown routed through the `@lexical/html` DOM import rules (Markdown inside the tags included), plus generic HTML-encoded export via `$exportViaDOM` / `rawHtmlBlock`
 - [MdastShortcutsExtension](/docs/api/modules/lexical_mdast#mdastshortcutsextension) - Streaming Markdown typing shortcuts, driven by the same grammar as import
 
 [@lexical/overflow](/docs/api/modules/lexical_overflow)
@@ -132,6 +135,8 @@ Experimental micromark/mdast-based Markdown support (every extension in this pac
 [@lexical/rich-text](/docs/api/modules/lexical_rich-text)
 
 - [RichTextExtension](/docs/api/modules/lexical_rich-text#richtextextension) - Rich Text editor (QuoteNode, HeadingNode), the return key creates a ParagraphNode by default (multiple ParagraphNode per document). Includes configurable `escapeFormatTriggers` to escape text formatting (e.g. code) at text node boundaries, and `shouldHandlePasteAsFiles` to control whether files win over incidental text/HTML clipboard entries on paste
+- [QuoteContainerExtension](/docs/api/modules/lexical_rich-text#quotecontainerextension) - Experimental: QuoteContainerNode, a quote that holds blocks (paragraphs, lists, other quotes), next to QuoteNode
+- [QuoteContainerReplacementExtension](/docs/api/modules/lexical_rich-text#quotecontainerreplacementextension) - Experimental: every quote of the editor is a QuoteContainerNode (a node replacement of QuoteNode)
 
 [@lexical/table](/docs/api/modules/lexical_table)
 
