@@ -643,6 +643,7 @@ export const FindReplaceExtension = defineExtension({
           const len = output.matches.peek().length;
           if (len > 0) {
             output.currentIndex.value = (output.currentIndex.peek() + 1) % len;
+            scrollToCurrentMatch();
           }
           return true;
         },
@@ -656,6 +657,7 @@ export const FindReplaceExtension = defineExtension({
           if (len > 0) {
             output.currentIndex.value =
               (output.currentIndex.peek() - 1 + len) % len;
+            scrollToCurrentMatch();
           }
           return true;
         },
@@ -803,13 +805,13 @@ export const FindReplaceExtension = defineExtension({
         });
       }),
 
-      // Scroll only when the search moves: an edit finds the matches again,
-      // which redraws the highlights above but keeps the scroll position.
+      // Scroll when the search changes. Find next, previous and replace scroll
+      // in their commands, since the index stays the same with a single match.
+      // An edit finds the matches again but keeps the scroll position.
       effect(() => {
         void output.searchTerm.value;
         void output.caseSensitive.value;
         void output.isRegex.value;
-        void output.currentIndex.value;
         if (output.isOpen.value) {
           scrollToCurrentMatch();
         }

@@ -12,6 +12,7 @@ import {expect, onTestFinished, test, vi} from 'vitest';
 
 import {
   FIND_NEXT_COMMAND,
+  FIND_PREV_COMMAND,
   FindReplaceExtension,
   REPLACE_CURRENT_COMMAND,
   SET_REPLACE_TERM_COMMAND,
@@ -79,6 +80,16 @@ test('finding the next match scrolls it into view', () => {
   editor.dispatchCommand(FIND_NEXT_COMMAND);
 
   expect(scrolledTo()).toEqual(['needle two']);
+});
+
+test('finding the next or previous match scrolls to it when it is the only match', () => {
+  const {editor, scrolledTo} = setupSearch();
+
+  editor.dispatchCommand(SET_SEARCH_TERM_COMMAND, 'two');
+  editor.dispatchCommand(FIND_NEXT_COMMAND);
+  editor.dispatchCommand(FIND_PREV_COMMAND);
+
+  expect(scrolledTo()).toEqual(['needle two', 'needle two', 'needle two']);
 });
 
 test('replacing the current match scrolls the next one into view', () => {
