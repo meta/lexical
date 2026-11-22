@@ -500,7 +500,26 @@ export const MdastAutolinkLiteralExtension = defineExtension({
       // literal, and gfmAutolinkLiteralFromMarkdown finds literals in the
       // decoded text, where a reference is its character.
       micromarkExtensions: [referenceAgnostic(gfmAutolinkLiteral)],
-      toMarkdownExtensions: [/* @__PURE__ */ gfmAutolinkLiteralToMarkdown()],
+      toMarkdownExtensions: [
+        /* @__PURE__ */ gfmAutolinkLiteralToMarkdown(),
+        // Its rule escapes the `.` of `www.` only before an ASCII letter or
+        // digit, `_`, `-` or `.` as typed, but micromark starts a literal
+        // before anything else the export writes there too, such as a
+        // character reference, an escape or the marker of a format, and
+        // reads it as part of the link. This rule has no `after`, because
+        // mdast-util-to-markdown skips a rule that has an `after` where a
+        // rule with no condition escapes the next character, as one does `*`.
+        {
+          unsafe: [
+            {
+              before: '[Ww]{3}',
+              character: '.',
+              inConstruct: 'phrasing',
+              notInConstruct: ['autolink', 'link', 'image', 'label'],
+            },
+          ],
+        },
+      ],
     }),
   ],
   name: '@lexical/mdast/AutolinkLiteral',
