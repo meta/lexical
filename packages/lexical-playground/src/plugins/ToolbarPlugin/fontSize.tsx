@@ -95,7 +95,11 @@ export default function FontSize({
   const handleInputBlur = () => {
     setIsMouseMode(false);
 
-    if (inputValue !== '' && inputChangeFlag) {
+    if (inputValue === '') {
+      // There is no size to apply; show the selection's size again.
+      setInputValue(selectionFontSize);
+      setInputChangeFlag(false);
+    } else if (inputChangeFlag) {
       const inputValueNumber = Number(inputValue);
       updateFontSizeByInputValue(inputValueNumber);
     }

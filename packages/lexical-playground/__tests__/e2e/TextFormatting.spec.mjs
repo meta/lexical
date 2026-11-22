@@ -482,6 +482,31 @@ test.describe('TextFormatting', () => {
     );
   });
 
+  test(`Leaving an emptied font size input shows the selection's font size again`, async ({
+    page,
+  }) => {
+    await focusEditor(page);
+    await page.keyboard.type('Hello world!');
+    await selectCharacters(page, 'left', 5);
+
+    const fontSizeInput = page.locator('.font-size-input');
+    const fontSize = await fontSizeInput.inputValue();
+    await click(page, '.font-size-input');
+    await fill(page, '.font-size-input', '');
+    await focusEditor(page);
+
+    await expect(fontSizeInput).toHaveValue(fontSize);
+    await expect(page.locator('.font-decrement')).toBeEnabled();
+    await assertHTML(
+      page,
+      html`
+        <p class="PlaygroundEditorTheme__paragraph" dir="auto">
+          <span data-lexical-text="true">Hello world!</span>
+        </p>
+      `,
+    );
+  });
+
   test(`Can select multiple text parts and format them with shortcuts`, async ({
     page,
   }) => {
