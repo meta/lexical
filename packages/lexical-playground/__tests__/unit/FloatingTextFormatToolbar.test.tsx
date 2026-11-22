@@ -108,4 +108,23 @@ describe('FloatingTextFormatToolbarPlugin', () => {
     });
     expect(formatButtonCount()).toBeGreaterThan(0);
   });
+
+  it.each(['drop', 'dragend'])(
+    'lays out and enables its buttons again after a drag ends with %s',
+    async endEvent => {
+      const popup = anchorElem.querySelector<HTMLElement>(
+        '.floating-text-format-popup',
+      )!;
+      // What the mousemove listener does when the mouse leaves the popup with
+      // the button held, as at the start of a drag.
+      popup.style.pointerEvents = 'none';
+
+      document.dispatchEvent(new Event('dragstart'));
+      expect(popup.style.display).toBe('none');
+
+      document.dispatchEvent(new Event(endEvent));
+      expect(popup.style.display).toBe('');
+      expect(popup.style.pointerEvents).toBe('auto');
+    },
+  );
 });
