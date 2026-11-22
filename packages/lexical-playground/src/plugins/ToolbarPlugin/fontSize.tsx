@@ -88,6 +88,13 @@ export default function FontSize({
     if (e.key === 'Enter' || e.key === 'Escape') {
       e.preventDefault();
 
+      if (inputValue === '') {
+        // An empty input is not a size (Number('') is 0, which would be
+        // clamped to the minimum); show the selection's size again instead.
+        setInputValue(selectionFontSize);
+        setInputChangeFlag(false);
+        return;
+      }
       updateFontSizeByInputValue(inputValueNumber, !isMouseMode);
     }
   };

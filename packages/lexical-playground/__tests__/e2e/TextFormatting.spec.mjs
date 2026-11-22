@@ -458,6 +458,31 @@ test.describe('TextFormatting', () => {
     });
   });
 
+  test(`Pressing Enter in an emptied font size input leaves the font size unchanged`, async ({
+    page,
+  }) => {
+    await focusEditor(page);
+    await page.keyboard.type('Hello world!');
+    await moveLeft(page);
+    await selectCharacters(page, 'left', 5);
+
+    const fontSizeInput = page.locator('.font-size-input');
+    const fontSize = await fontSizeInput.inputValue();
+    await click(page, '.font-size-input');
+    await fill(page, '.font-size-input', '');
+    await page.keyboard.press('Enter');
+
+    await assertHTML(
+      page,
+      html`
+        <p class="PlaygroundEditorTheme__paragraph" dir="auto">
+          <span data-lexical-text="true">Hello world!</span>
+        </p>
+      `,
+    );
+    await expect(fontSizeInput).toHaveValue(fontSize);
+  });
+
   test(`Can select text with different size and update font size by entering the value`, async ({
     page,
   }) => {
