@@ -8,6 +8,8 @@
 
 // @vitest-environment node
 
+import type {Link, Nodes, Paragraph, Root} from 'mdast';
+
 import {
   buildEditorFromExtensions,
   configExtension,
@@ -21,7 +23,7 @@ import {
   contextValue,
   createImportState,
 } from '@lexical/html';
-import {$createLinkNode, $isLinkNode} from '@lexical/link';
+import {$createLinkNode, $isLinkNode, type LinkNode} from '@lexical/link';
 import {
   $createListItemNode,
   $createListNode,
@@ -47,14 +49,20 @@ import {
   $isLineBreakNode,
   $isRangeSelection,
   $isTextNode,
+  $selectAll,
   $setSelectionFromCaretRange,
   defineExtension,
+  type LexicalEditor,
   type LexicalNode,
   TEXT_TYPE_TO_FORMAT,
+  type TextFormatType,
   type TextNode,
 } from 'lexical';
 import {$assertNodeType} from 'lexical/src/__tests__/utils';
-import {defaultHandlers} from 'mdast-util-to-markdown';
+import {
+  defaultHandlers,
+  type Options as ToMarkdownExtension,
+} from 'mdast-util-to-markdown';
 import {assert, describe, expect, it} from 'vitest';
 
 import {
@@ -68,8 +76,11 @@ import {
   ImportContextMarkdown,
   MdastAutolinkLiteralExtension,
   MdastCommonMarkExtension,
+  type MdastExportRule,
   MdastExtension,
+  MdastGfmExtension,
   MdastHeadingExtension,
+  type MdastPunctuationMode,
   MdastShadowRootQuoteExtension,
   MdastStrikethroughExtension,
   MdastTaskListExtension,
@@ -90,6 +101,16 @@ function createEditor(): LexicalEditorWithDispose {
       name: '[root]',
     }),
   );
+}
+
+// The first link in the document.
+function $firstLink(): LinkNode {
+  const link = $getRoot()
+    .getAllTextNodes()
+    .map(node => node.getParent())
+    .find($isLinkNode);
+  assert(link);
+  return link;
 }
 
 function importExport(markdown: string): string {
@@ -770,6 +791,12 @@ describe('@lexical/mdast import/export', () => {
     for (const markdown of [
       'see https://lexical.dev today',
       'visit www.example.com now',
+      // Neighbours that the bare form reads back beside unchanged.
+      '(www.example.com), www.example.com.',
+      '# www.example.com',
+      'a->https://a.dev/x',
+      '[a\nb](http://u.dev) (www.example.com)',
+      '[🎉](http://u.dev) (www.example.com)',
       // A CommonMark autolink stays wrapped even with the literal grammar on.
       'wrapped <https://lexical.dev> stays',
       // The `.` of `www.` is escaped in text only.
@@ -973,6 +1000,1534 @@ describe('@lexical/mdast import/export', () => {
       ).toBe(true);
       expect($convertToMarkdownString()).toBe(markdown);
     });
+  });
+
+  it.each<
+    [
+      name: string,
+      markdown: string,
+      before: string | null,
+      after: [text: string, format?: TextFormatType] | null,
+      expected: string,
+    ]
+  >([
+    [
+      'bold after',
+      'www.example.com',
+      null,
+      ['y', 'bold'],
+      '[www.example.com](http://www.example.com)**y**',
+    ],
+    [
+      'code after',
+      'www.example.com',
+      null,
+      ['y', 'code'],
+      '[www.example.com](http://www.example.com)`y`',
+    ],
+    [
+      'a letter after',
+      'www.example.com',
+      null,
+      ['y'],
+      '[www.example.com](http://www.example.com)y',
+    ],
+    [
+      'bold after an https literal',
+      'https://example.com',
+      null,
+      ['y', 'bold'],
+      '<https://example.com>**y**',
+    ],
+    [
+      'a letter before',
+      'www.example.com',
+      'x',
+      null,
+      'x[www.example.com](http://www.example.com)',
+    ],
+    [
+      // The writer encodes the last character of the bare form.
+      'bold punctuation after',
+      'www.example.com',
+      null,
+      ['!', 'bold'],
+      '[www.example.com](http://www.example.com)**!**',
+    ],
+    [
+      // Written bare after `hi!`, the link extends over `<-`; in resource
+      // form, the `!` is escaped so as not to start an image.
+      '`!` before and `<` after',
+      'www.example.com',
+      'hi!',
+      ['<-'],
+      'hi\\![www.example.com](http://www.example.com)<-',
+    ],
+    [
+      'an escaped bracket before',
+      'https://a.dev/x',
+      '[',
+      ['y', 'bold'],
+      '\\[<https://a.dev/x>**y**',
+    ],
+    [
+      // Checked with the emoji the export writes, not its stand-in.
+      'an emoji before',
+      'www.example.com',
+      '🎉',
+      ['*', 'bold'],
+      '🎉[www.example.com](http://www.example.com)**\\***',
+    ],
+    [
+      // Both literals have the same text; the first is the one that breaks.
+      'a second literal with the same text',
+      'www.example.com and www.example.com',
+      'x',
+      null,
+      'x[www.example.com](http://www.example.com) and [www.example.com](http://www.example.com)',
+    ],
+    [
+      // GFM reads a link across an ideographic space.
+      'ideographic spaces around',
+      'www.example.com',
+      '日本\u3000',
+      ['\u3000です'],
+      '日本\u3000[www.example.com](http://www.example.com)\u3000です',
+    ],
+    [
+      // Code holding the literal's text does not stand in for it.
+      'the same text in code',
+      '`a www.example.com b` www.example.com',
+      null,
+      ['(', 'italic'],
+      '`a www.example.com b` [www.example.com](http://www.example.com)*(*',
+    ],
+    [
+      // GFM keeps a closing parenthesis in a link that opened one, and an
+      // entity-looking `;`, so neither is trailing punctuation here.
+      'a parenthesis after a literal that opened one',
+      'see https://a.dev/x(y now',
+      null,
+      [')'],
+      'see <https://a.dev/x(y>) now',
+    ],
+    [
+      'a semicolon after a literal ending in an entity name',
+      'see https://a.dev/x&amp now',
+      null,
+      [';'],
+      'see <https://a.dev/x&amp>; now',
+    ],
+    [
+      // A table cell writes a space at its end as a reference once its
+      // content is written.
+      'a space after a literal at the end of a table cell',
+      '| h |\n| - |\n| www.example.com |',
+      null,
+      [' '],
+      '| h                                               |\n| ----------------------------------------------- |\n| [www.example.com](http://www.example.com)&#x20; |',
+    ],
+    [
+      // Written again, the paragraph keeps the escape that stops it from
+      // starting a heading.
+      'a letter after a literal in an escaped heading marker',
+      '\\# www.example.com',
+      null,
+      ['x'],
+      '\\# [www.example.com](http://www.example.com)x',
+    ],
+    [
+      // A heading writes its leading tab as a reference once its content is
+      // written; the literals stay bare.
+      'a tab at the start of a heading',
+      '# a@b.co (www.example.com)',
+      '\t',
+      null,
+      '# &#x9;a@b.co (www.example.com)',
+    ],
+    [
+      // Read back after `\_`, the email literal is a www literal: the same
+      // text, another destination.
+      'an underscore before an email literal',
+      'www.example.coma@b.co',
+      '_',
+      null,
+      '\\_<www.example.coma@b.co>',
+    ],
+    [
+      // Unedited: the writer escapes what follows the literal.
+      'an escaped underscore after',
+      'www.example.com_',
+      null,
+      null,
+      '[www.example.com](http://www.example.com)\\_',
+    ],
+    [
+      'an escaped underscore after an https literal',
+      'see https://a.dev/x_ now',
+      null,
+      null,
+      'see <https://a.dev/x>\\_ now',
+    ],
+  ])(
+    'writes a literal in resource form when it would not read back bare: %s',
+    (_name, markdown, before, after, expected) => {
+      const modes: MdastPunctuationMode[] = [
+        'strict-commonmark',
+        'cjk-friendly',
+      ];
+      for (const mode of modes) {
+        const createLiteralEditor = () =>
+          buildEditorFromExtensions(
+            MdastGfmExtension,
+            MdastHeadingExtension,
+            configExtension(MdastExtension, {
+              exportPunctuation: mode,
+              importPunctuation: mode,
+            }),
+          );
+        // Each text with its format and the URL of the link around it.
+        const $runs = () =>
+          $getRoot()
+            .getAllTextNodes()
+            .map(node => {
+              const parent = node.getParent();
+              return [
+                node.getTextContent(),
+                node.getFormat(),
+                $isLinkNode(parent) ? parent.getURL() : null,
+              ];
+            });
+        using editor = createLiteralEditor();
+        editor.update(
+          () => {
+            $convertFromMarkdownString(markdown);
+            const link = $firstLink();
+            if (before !== null) {
+              link.insertBefore($createTextNode(before));
+            }
+            if (after !== null) {
+              const [text, format] = after;
+              const node = $createTextNode(text);
+              if (format) {
+                node.toggleFormat(format);
+              }
+              link.insertAfter(node);
+            }
+          },
+          {discrete: true},
+        );
+        const output = editor.read(() => $convertToMarkdownString());
+        expect(output).toBe(expected);
+        using reimported = createLiteralEditor();
+        reimported.update(() => $convertFromMarkdownString(output), {
+          discrete: true,
+        });
+        expect(reimported.read($runs)).toEqual(editor.read($runs));
+        expect(reimported.read(() => $convertToMarkdownString())).toBe(output);
+      }
+    },
+  );
+
+  it('reads each container back once across repeated exports', () => {
+    let parses = 0;
+    using editor = buildEditorFromExtensions(
+      MdastCommonMarkExtension,
+      MdastAutolinkLiteralExtension,
+      configExtension(MdastExtension, {
+        mdastExtensions: [
+          {
+            transforms: [
+              () => {
+                parses++;
+              },
+            ],
+          },
+        ],
+      }),
+    );
+    const markdown = '(https://a.dev) (www.b.com)';
+    editor.update(() => $convertFromMarkdownString(markdown), {
+      discrete: true,
+    });
+    parses = 0;
+    expect(editor.read(() => $convertToMarkdownString())).toBe(markdown);
+    // Each literal alone, and the paragraph they are written in.
+    expect(parses).toBe(3);
+    expect(editor.read(() => $convertToMarkdownString())).toBe(markdown);
+    expect(parses).toBe(3);
+    // A subtree export finds what the document export read.
+    const $paragraph = () =>
+      $assertNodeType($getRoot().getFirstChildOrThrow(), $isElementNode);
+    expect(editor.read(() => $convertToMarkdownString($paragraph()))).toBe(
+      markdown,
+    );
+    expect(parses).toBe(3);
+    // A subtree export keeps the containers it read, without adding them to
+    // what document exports keep.
+    editor.update(
+      () => {
+        $paragraph().append($createTextNode(' z'));
+      },
+      {discrete: true},
+    );
+    const edited = `${markdown} z`;
+    expect(editor.read(() => $convertToMarkdownString($paragraph()))).toBe(
+      edited,
+    );
+    expect(parses).toBe(4);
+    expect(editor.read(() => $convertToMarkdownString($paragraph()))).toBe(
+      edited,
+    );
+    expect(parses).toBe(4);
+    // A literal between spaces, with only trailing punctuation, needs no
+    // paragraph parse.
+    for (const isolated of [
+      'see www.a.example, then',
+      'see www.b.example. Then',
+      'see https://c.example/x? then',
+      'see www.d.example! then',
+      'see e@f.example: then',
+      'see www.g.example?! then',
+      'see WWW.H.EXAMPLE then',
+      'see\twww.i.example\tthen',
+      'see www.j.example\nthen',
+      'see www.l.example\rthen',
+      // An ampersand that starts no reference.
+      'see https://k.example/?a=1&b=2 then',
+    ]) {
+      editor.update(() => $convertFromMarkdownString(isolated), {
+        discrete: true,
+      });
+      parses = 0;
+      expect(editor.read(() => $convertToMarkdownString())).toBe(isolated);
+      expect(parses).toBe(1);
+    }
+  });
+
+  it.each<[name: string, markdown: string, edit: () => void, expected: string]>(
+    [
+      [
+        'a title',
+        '(www.example.com)',
+        () => $firstLink().setTitle('t'),
+        '([www.example.com](http://www.example.com "t"))',
+      ],
+      [
+        'a second child',
+        '(www.example.com)',
+        () => $firstLink().append($createTextNode('x').toggleFormat('bold')),
+        '([www.example.com**x**](http://www.example.com))',
+      ],
+      [
+        // Alone, the text reads as an autolink to the same URL, but as the
+        // URL, not as the text.
+        'text that is an autolink to its URL',
+        'https://a.dev x',
+        () =>
+          $assertNodeType(
+            $firstLink().getFirstChildOrThrow(),
+            $isTextNode,
+          ).setTextContent('<https://a.dev>'),
+        '[\\<https://a.dev>](https://a.dev) x',
+      ],
+    ],
+  )(
+    'writes an edited literal in resource form: %s',
+    (_name, markdown, edit, expected) => {
+      using editor = buildEditorFromExtensions(
+        MdastCommonMarkExtension,
+        MdastAutolinkLiteralExtension,
+        MdastExtension,
+      );
+      editor.update(
+        () => {
+          $convertFromMarkdownString(markdown);
+          edit();
+        },
+        {discrete: true},
+      );
+      expect(editor.read(() => $convertToMarkdownString())).toBe(expected);
+    },
+  );
+
+  it('keeps a literal bare when plain text after it reads back as a link', () => {
+    using editor = buildEditorFromExtensions(
+      MdastCommonMarkExtension,
+      MdastAutolinkLiteralExtension,
+      MdastExtension,
+    );
+    editor.update(
+      () => {
+        $convertFromMarkdownString('(www.example.com)');
+        $firstLink().insertAfter($createTextNode(' me@x.co'));
+      },
+      {discrete: true},
+    );
+    // `me\@x.co` reads back as a link too, as it does on main; the literal
+    // is not what changes it.
+    expect(editor.read(() => $convertToMarkdownString())).toBe(
+      '(www.example.com me\\@x.co)',
+    );
+  });
+
+  it.each(['document', 'subtree', 'selection'] as const)(
+    'calls contributed root and paragraph handlers with the state as this in a %s export',
+    kind => {
+      const calls: string[] = [];
+      using editor = buildEditorFromExtensions(
+        MdastCommonMarkExtension,
+        MdastAutolinkLiteralExtension,
+        configExtension(MdastExtension, {
+          toMarkdownExtensions: [
+            {
+              handlers: {
+                paragraph(this: unknown, node, parent, state, info) {
+                  calls.push(`paragraph ${this === state}`);
+                  return defaultHandlers.paragraph(node, parent, state, info);
+                },
+                root(this: unknown, node, parent, state, info) {
+                  calls.push(`root ${this === state}`);
+                  return defaultHandlers.root(node, parent, state, info);
+                },
+              },
+            },
+          ],
+        }),
+      );
+      editor.update(
+        () => {
+          $convertFromMarkdownString('> a (www.x.example)y\n\nb');
+          $selectAll();
+        },
+        {discrete: true},
+      );
+      editor.read(() =>
+        kind === 'document'
+          ? $convertToMarkdownString()
+          : kind === 'subtree'
+            ? $convertToMarkdownString(
+                $assertNodeType(
+                  $getRoot().getFirstChildOrThrow(),
+                  $isElementNode,
+                ),
+              )
+            : $convertSelectionToMarkdownString(),
+      );
+      // A subtree export of the quote writes its inline children directly.
+      expect(new Set(calls)).toEqual(
+        new Set(
+          kind === 'subtree' ? ['root true'] : ['paragraph true', 'root true'],
+        ),
+      );
+    },
+  );
+
+  describe('the containers subtree and selection exports keep', () => {
+    // An editor whose literal checks count their parses in `counter`.
+    const createCountingEditor = (
+      counter: {parses: number},
+      {
+        exportRules = [],
+        isGfm = false,
+        toMarkdownExtensions = [],
+      }: {
+        exportRules?: readonly MdastExportRule[];
+        isGfm?: boolean;
+        toMarkdownExtensions?: readonly ToMarkdownExtension[];
+      } = {},
+    ) =>
+      buildEditorFromExtensions(
+        MdastCommonMarkExtension,
+        isGfm ? MdastGfmExtension : MdastAutolinkLiteralExtension,
+        configExtension(MdastExtension, {
+          exportRules,
+          mdastExtensions: [
+            {
+              transforms: [
+                () => {
+                  counter.parses++;
+                },
+              ],
+            },
+          ],
+          toMarkdownExtensions,
+        }),
+      );
+    // Paragraphs whose literals touch their parentheses, so each is read back.
+    const paragraphs = (count: number) =>
+      Array.from(
+        {length: count},
+        (_, i) => `(https://a${i}.example) (www.b${i}.example)`,
+      ).join('\n\n');
+    const $block = (index: number) =>
+      $assertNodeType($getRoot().getChildAtIndex(index), $isElementNode);
+    const exportBlock = (editor: LexicalEditor, index: number) =>
+      editor.read(() => $convertToMarkdownString($block(index)));
+    // A bold run is not merged into the text before it, so it can be removed.
+    const $appendBold = (index: number) =>
+      $block(index).append($createTextNode('q').toggleFormat('bold'));
+    const $selectWithin = (index: number) => {
+      const texts = $block(index).getAllTextNodes();
+      $setSelectionFromCaretRange(
+        $getCaretRange(
+          $getTextPointCaret(texts[0], 'next', 1),
+          $getTextPointCaret(texts[texts.length - 1], 'next', 'next'),
+        ),
+      );
+    };
+
+    it('keeps the containers of every block exported in turn', () => {
+      const counter = {parses: 0};
+      using editor = createCountingEditor(counter);
+      const count = 3;
+      editor.update(() => $convertFromMarkdownString(paragraphs(count)), {
+        discrete: true,
+      });
+      for (let i = 0; i < count; i++) {
+        exportBlock(editor, i);
+      }
+      counter.parses = 0;
+      for (let i = 0; i < count; i++) {
+        exportBlock(editor, i);
+      }
+      expect(counter.parses).toBe(0);
+    });
+
+    it('drops the old containers of an edited block', () => {
+      const counter = {parses: 0};
+      using editor = createCountingEditor(counter);
+      editor.update(() => $convertFromMarkdownString(paragraphs(1)), {
+        discrete: true,
+      });
+      exportBlock(editor, 0);
+      editor.update(() => $appendBold(0), {discrete: true});
+      exportBlock(editor, 0);
+      editor.update(() => $block(0).getLastChildOrThrow().remove(), {
+        discrete: true,
+      });
+      counter.parses = 0;
+      exportBlock(editor, 0);
+      expect(counter.parses).toBe(1);
+    });
+
+    it('keeps an old container that another block read in the same export', () => {
+      const counter = {parses: 0};
+      using editor = createCountingEditor(counter);
+      editor.update(
+        () =>
+          $convertFromMarkdownString(`${paragraphs(1)}\n\n${paragraphs(1)}`),
+        {discrete: true},
+      );
+      exportBlock(editor, 0);
+      // The first block changes; the second still reads as the first did.
+      editor.update(
+        () => {
+          $appendBold(0);
+          $selectAll();
+        },
+        {discrete: true},
+      );
+      editor.read(() => $convertSelectionToMarkdownString());
+      counter.parses = 0;
+      exportBlock(editor, 1);
+      expect(counter.parses).toBe(0);
+    });
+
+    it('drops the containers of removed blocks at a document export', () => {
+      const counter = {parses: 0};
+      using editor = createCountingEditor(counter);
+      // The second block has the same literals, so the document export keeps
+      // what they read alone.
+      editor.update(
+        () =>
+          $convertFromMarkdownString(`${paragraphs(1)}\n\n${paragraphs(1)} z`),
+        {discrete: true},
+      );
+      exportBlock(editor, 0);
+      editor.update(() => $block(0).remove(), {discrete: true});
+      editor.read(() => $convertToMarkdownString());
+      editor.update(() => $convertFromMarkdownString(paragraphs(1)), {
+        discrete: true,
+      });
+      counter.parses = 0;
+      exportBlock(editor, 0);
+      expect(counter.parses).toBe(1);
+    });
+
+    it('drops the containers of removed blocks once twice as many are kept', () => {
+      const counter = {parses: 0};
+      using editor = createCountingEditor(counter);
+      editor.update(() => $convertFromMarkdownString(paragraphs(4)), {
+        discrete: true,
+      });
+      for (let i = 0; i < 4; i++) {
+        exportBlock(editor, i);
+      }
+      // New blocks, with no document export.
+      editor.update(
+        () =>
+          $convertFromMarkdownString(
+            paragraphs(20).replaceAll('www.b', 'www.c'),
+          ),
+        {discrete: true},
+      );
+      for (let i = 0; i < 20; i++) {
+        exportBlock(editor, i);
+      }
+      editor.update(() => $convertFromMarkdownString(paragraphs(1)), {
+        discrete: true,
+      });
+      counter.parses = 0;
+      exportBlock(editor, 0);
+      expect(counter.parses).toBe(1);
+    });
+
+    it('counts only the blocks still kept toward the next check', () => {
+      const counter = {parses: 0};
+      using editor = createCountingEditor(counter);
+      // Each document replaces the blocks of the one before.
+      const exportDocument = (name: string, count: number) => {
+        editor.update(
+          () =>
+            $convertFromMarkdownString(
+              paragraphs(count).replaceAll('www.b', `www.${name}`),
+            ),
+          {discrete: true},
+        );
+        for (let i = 0; i < count; i++) {
+          exportBlock(editor, i);
+        }
+      };
+      exportDocument('p', 1);
+      exportDocument('q', 2);
+      exportDocument('r', 3);
+      editor.update(
+        () =>
+          $convertFromMarkdownString(
+            paragraphs(1).replaceAll('www.b', 'www.q'),
+          ),
+        {discrete: true},
+      );
+      counter.parses = 0;
+      exportBlock(editor, 0);
+      expect(counter.parses).toBe(1);
+    });
+
+    it('drops a block that the update exporting the document removes', () => {
+      const counter = {parses: 0};
+      using editor = createCountingEditor(counter);
+      editor.update(
+        () =>
+          $convertFromMarkdownString(`${paragraphs(1)}\n\n${paragraphs(1)} z`),
+        {discrete: true},
+      );
+      exportBlock(editor, 0);
+      editor.update(
+        () => {
+          $block(0).remove();
+          $convertToMarkdownString();
+        },
+        {discrete: true},
+      );
+      editor.update(() => $convertFromMarkdownString(paragraphs(1)), {
+        discrete: true,
+      });
+      counter.parses = 0;
+      exportBlock(editor, 0);
+      expect(counter.parses).toBe(1);
+    });
+
+    it('keeps what an export read when a handler runs another export', () => {
+      const counter = {parses: 0};
+      using editor = createCountingEditor(counter, {
+        toMarkdownExtensions: [
+          {
+            handlers: {
+              paragraph: (node: Paragraph, parent, state, info) => {
+                if (
+                  node.children.some(
+                    child =>
+                      child.type === 'text' && child.value.includes('run'),
+                  )
+                ) {
+                  $convertToMarkdownString(
+                    $assertNodeType(
+                      $getRoot().getLastChildOrThrow(),
+                      $isElementNode,
+                    ),
+                  );
+                }
+                return defaultHandlers.paragraph(node, parent, state, info);
+              },
+            },
+          },
+        ],
+      });
+      editor.update(
+        () => {
+          $convertFromMarkdownString(
+            `${paragraphs(2)}\n\n(www.c.example) run\n\n(www.d.example) x`,
+          );
+          $selectAll();
+        },
+        {discrete: true},
+      );
+      editor.read(() => $convertSelectionToMarkdownString());
+      // The paragraph whose handler runs the other export, on its own (a
+      // subtree export of a paragraph does not run its handler).
+      exportBlock(editor, 2);
+      counter.parses = 0;
+      editor.read(() => $convertSelectionToMarkdownString());
+      expect(counter.parses).toBe(0);
+    });
+
+    // A rule that runs another export while the export's tree is built.
+    const runningRule: MdastExportRule = {
+      $export: (node: TextNode) => {
+        if (node.getTextContent().includes('run')) {
+          $convertToMarkdownString(
+            $assertNodeType($getRoot().getLastChildOrThrow(), $isElementNode),
+          );
+        }
+        return null;
+      },
+      type: 'text',
+    };
+
+    it('drops the old containers of an edited block after a rule runs another export', () => {
+      const counter = {parses: 0};
+      using editor = createCountingEditor(counter, {
+        exportRules: [runningRule],
+      });
+      editor.update(
+        () => {
+          $convertFromMarkdownString(
+            `${paragraphs(1)}\n\nrun\n\n(www.c.example) x`,
+          );
+          $selectAll();
+        },
+        {discrete: true},
+      );
+      editor.read(() => $convertSelectionToMarkdownString());
+      editor.update(() => $appendBold(0), {discrete: true});
+      exportBlock(editor, 0);
+      editor.update(() => $block(0).getLastChildOrThrow().remove(), {
+        discrete: true,
+      });
+      counter.parses = 0;
+      exportBlock(editor, 0);
+      expect(counter.parses).toBe(1);
+    });
+
+    it('keeps what another block reads when a block that read it reads none', () => {
+      const counter = {parses: 0};
+      using editor = createCountingEditor(counter);
+      editor.update(
+        () =>
+          $convertFromMarkdownString(`${paragraphs(1)}\n\n${paragraphs(1)} z`),
+        {discrete: true},
+      );
+      exportBlock(editor, 0);
+      // The first block reads nothing now; the second reads what it did.
+      editor.update(
+        () => {
+          $block(0).clear().append($createTextNode('x'));
+          $assertNodeType(
+            $block(1).getLastChildOrThrow(),
+            $isTextNode,
+          ).setTextContent(')');
+        },
+        {discrete: true},
+      );
+      exportBlock(editor, 0);
+      exportBlock(editor, 1);
+      exportBlock(editor, 0);
+      counter.parses = 0;
+      exportBlock(editor, 1);
+      expect(counter.parses).toBe(0);
+    });
+
+    it('drops the old containers of an edited block after an export throws', () => {
+      let isThrowing = false;
+      const counter = {parses: 0};
+      using editor = createCountingEditor(counter, {
+        toMarkdownExtensions: [
+          {
+            handlers: {
+              // Throws once the content is written and read back.
+              root: (node, parent, state, info) => {
+                const value = defaultHandlers.root(node, parent, state, info);
+                if (isThrowing) {
+                  throw new Error('root');
+                }
+                return value;
+              },
+            },
+          },
+        ],
+      });
+      editor.update(() => $convertFromMarkdownString(paragraphs(1)), {
+        discrete: true,
+      });
+      isThrowing = true;
+      expect(() => exportBlock(editor, 0)).toThrow('root');
+      isThrowing = false;
+      editor.update(() => $appendBold(0), {discrete: true});
+      exportBlock(editor, 0);
+      editor.update(() => $block(0).getLastChildOrThrow().remove(), {
+        discrete: true,
+      });
+      counter.parses = 0;
+      exportBlock(editor, 0);
+      expect(counter.parses).toBe(1);
+    });
+
+    it('drops the old containers of a block that reads none now', () => {
+      const counter = {parses: 0};
+      using editor = createCountingEditor(counter);
+      editor.update(() => $convertFromMarkdownString(paragraphs(1)), {
+        discrete: true,
+      });
+      exportBlock(editor, 0);
+      editor.update(() => $block(0).clear().append($createTextNode('x')), {
+        discrete: true,
+      });
+      exportBlock(editor, 0);
+      editor.update(() => $convertFromMarkdownString(paragraphs(1)), {
+        discrete: true,
+      });
+      counter.parses = 0;
+      exportBlock(editor, 0);
+      // Only the container: what its literals read alone is kept.
+      expect(counter.parses).toBe(1);
+    });
+
+    it('keeps the containers of selections within different blocks', () => {
+      const counter = {parses: 0};
+      using editor = createCountingEditor(counter);
+      editor.update(() => $convertFromMarkdownString(paragraphs(2)), {
+        discrete: true,
+      });
+      const exportWithin = (index: number) => {
+        editor.update(() => $selectWithin(index), {discrete: true});
+        return editor.read(() => $convertSelectionToMarkdownString());
+      };
+      expect(exportWithin(0)).toBe('https://a0.example) (www.b0.example)');
+      exportWithin(1);
+      counter.parses = 0;
+      exportWithin(0);
+      exportWithin(1);
+      expect(counter.parses).toBe(0);
+    });
+
+    it('keeps the containers of selections within different quotes', () => {
+      const counter = {parses: 0};
+      using editor = createCountingEditor(counter);
+      editor.update(
+        () =>
+          $convertFromMarkdownString(
+            '> (https://a0.example) (www.b0.example)\n\n> (www.c.example) x',
+          ),
+        {discrete: true},
+      );
+      const exportWithin = (index: number) => {
+        editor.update(() => $selectWithin(index), {discrete: true});
+        return editor.read(() => $convertSelectionToMarkdownString());
+      };
+      exportWithin(0);
+      exportWithin(1);
+      counter.parses = 0;
+      exportWithin(0);
+      exportWithin(1);
+      expect(counter.parses).toBe(0);
+    });
+
+    it('drops the old containers of a block a selection writes', () => {
+      const counter = {parses: 0};
+      using editor = createCountingEditor(counter);
+      const exportAll = () => {
+        editor.update(() => $selectAll(), {discrete: true});
+        editor.read(() => $convertSelectionToMarkdownString());
+      };
+      editor.update(() => $convertFromMarkdownString(paragraphs(2)), {
+        discrete: true,
+      });
+      exportAll();
+      editor.update(() => $appendBold(0), {discrete: true});
+      exportAll();
+      editor.update(() => $block(0).getLastChildOrThrow().remove(), {
+        discrete: true,
+      });
+      counter.parses = 0;
+      exportAll();
+      expect(counter.parses).toBe(1);
+    });
+
+    it('leaves what it finds in a document export to that export', () => {
+      const counter = {parses: 0};
+      using editor = createCountingEditor(counter);
+      const exportDocument = () =>
+        editor.read(() => $convertToMarkdownString());
+      editor.update(() => $convertFromMarkdownString(paragraphs(1)), {
+        discrete: true,
+      });
+      exportDocument();
+      // Found in what the document export read.
+      exportBlock(editor, 0);
+      editor.update(() => $appendBold(0), {discrete: true});
+      exportDocument();
+      editor.update(() => $block(0).getLastChildOrThrow().remove(), {
+        discrete: true,
+      });
+      counter.parses = 0;
+      exportBlock(editor, 0);
+      expect(counter.parses).toBe(1);
+    });
+
+    it('keeps only what the latest document export read', () => {
+      const counter = {parses: 0};
+      using editor = createCountingEditor(counter);
+      const exportDocument = () =>
+        editor.read(() => $convertToMarkdownString());
+      editor.update(() => $convertFromMarkdownString(paragraphs(1)), {
+        discrete: true,
+      });
+      exportDocument();
+      editor.update(() => $appendBold(0), {discrete: true});
+      exportDocument();
+      editor.update(() => $block(0).getLastChildOrThrow().remove(), {
+        discrete: true,
+      });
+      counter.parses = 0;
+      exportDocument();
+      expect(counter.parses).toBe(1);
+    });
+
+    it('keeps the containers of selections within different tables', () => {
+      const counter = {parses: 0};
+      using editor = createCountingEditor(counter, {isGfm: true});
+      editor.update(
+        () =>
+          $convertFromMarkdownString(
+            [0, 1]
+              .map(
+                i =>
+                  `| (https://a${i}.example) (www.b${i}.example) | x |\n| - | - |\n| (www.c${i}.example)y | z |`,
+              )
+              .join('\n\n'),
+          ),
+        {discrete: true},
+      );
+      const exportWithin = (index: number) => {
+        editor.update(() => $selectWithin(index), {discrete: true});
+        editor.read(() => $convertSelectionToMarkdownString());
+      };
+      exportWithin(0);
+      exportWithin(1);
+      counter.parses = 0;
+      exportWithin(0);
+      exportWithin(1);
+      expect(counter.parses).toBe(0);
+    });
+
+    it('keeps the containers of selections within tables whose first link holds a break', () => {
+      const counter = {parses: 0};
+      using editor = createCountingEditor(counter, {isGfm: true});
+      // The table writes a copy of a link that holds a break.
+      editor.update(
+        () =>
+          $convertFromMarkdownString(
+            [0, 1]
+              .map(
+                i =>
+                  `| [a<br>b](https://l${i}.example) (www.b${i}.example) | x |\n| - | - |\n| (www.c${i}.example)y | z |`,
+              )
+              .join('\n\n'),
+          ),
+        {discrete: true},
+      );
+      const exportWithin = (index: number) => {
+        editor.update(() => $selectWithin(index), {discrete: true});
+        editor.read(() => $convertSelectionToMarkdownString());
+      };
+      exportWithin(0);
+      exportWithin(1);
+      counter.parses = 0;
+      exportWithin(0);
+      exportWithin(1);
+      expect(counter.parses).toBe(0);
+    });
+
+    // A literal link node that a rule or a handler writes in more than one
+    // place, and the rule that writes it for a text that says LINK.
+    const sharedLink = (): Link => ({
+      children: [{type: 'text', value: 'www.k.example'}],
+      data: {mdastLinkStyle: 'literal'},
+      type: 'link',
+      url: 'http://www.k.example',
+    });
+    const linkRule = (link: Link): MdastExportRule => ({
+      $export: (node: TextNode) => {
+        const value = node.getTextContent();
+        return value.includes('LINK')
+          ? [
+              {type: 'text', value: '('},
+              link,
+              {type: 'text', value: ')' + value.replace('LINK', '')},
+            ]
+          : null;
+      },
+      type: 'text',
+    });
+
+    it('drops the old containers of a block whose rule hands back a node another block was written with', () => {
+      const counter = {parses: 0};
+      using editor = createCountingEditor(counter, {
+        exportRules: [linkRule(sharedLink())],
+      });
+      editor.update(() => $convertFromMarkdownString('- LINK\n\nLINK x'), {
+        discrete: true,
+      });
+      exportBlock(editor, 0);
+      exportBlock(editor, 1);
+      editor.update(() => $appendBold(1), {discrete: true});
+      exportBlock(editor, 1);
+      editor.update(() => $block(1).getLastChildOrThrow().remove(), {
+        discrete: true,
+      });
+      counter.parses = 0;
+      exportBlock(editor, 1);
+      expect(counter.parses).toBe(1);
+    });
+
+    it('drops the old containers of a block whose handler writes copies of its children', () => {
+      const counter = {parses: 0};
+      // A handler that writes copies of a paragraph's children, which are
+      // read for the block the paragraph is written for.
+      using editor = createCountingEditor(counter, {
+        toMarkdownExtensions: [
+          {
+            handlers: {
+              paragraph: (node: Paragraph, parent, state, info) =>
+                defaultHandlers.paragraph(
+                  {...node, children: node.children.map(child => ({...child}))},
+                  parent,
+                  state,
+                  info,
+                ),
+            },
+          },
+        ],
+      });
+      const exportAll = () => {
+        editor.update(() => $selectAll(), {discrete: true});
+        editor.read(() => $convertSelectionToMarkdownString());
+      };
+      editor.update(() => $convertFromMarkdownString(paragraphs(2)), {
+        discrete: true,
+      });
+      exportAll();
+      editor.update(() => $appendBold(0), {discrete: true});
+      exportAll();
+      editor.update(() => $block(0).getLastChildOrThrow().remove(), {
+        discrete: true,
+      });
+      counter.parses = 0;
+      exportAll();
+      expect(counter.parses).toBe(1);
+    });
+
+    it('keeps the containers of a block a rule writes as several nodes', () => {
+      const counter = {parses: 0};
+      using editor = createCountingEditor(counter, {
+        exportRules: [
+          {
+            // A thematic break before each paragraph.
+            $export: (_node, context) => [
+              {type: 'thematicBreak'},
+              ...context.next(),
+            ],
+            type: 'paragraph',
+          },
+        ],
+      });
+      editor.update(() => $convertFromMarkdownString(paragraphs(2)), {
+        discrete: true,
+      });
+      const exportWithin = (index: number) => {
+        editor.update(() => $selectWithin(index), {discrete: true});
+        editor.read(() => $convertSelectionToMarkdownString());
+      };
+      exportWithin(0);
+      exportWithin(1);
+      counter.parses = 0;
+      exportWithin(0);
+      exportWithin(1);
+      expect(counter.parses).toBe(0);
+    });
+
+    it('keeps the containers of blocks that a rule writes with the same node', () => {
+      const counter = {parses: 0};
+      using editor = createCountingEditor(counter, {
+        exportRules: [linkRule(sharedLink())],
+      });
+      editor.update(
+        () => {
+          $convertFromMarkdownString('LINK x\n\nLINK y');
+          $selectAll();
+        },
+        {discrete: true},
+      );
+      editor.read(() => $convertSelectionToMarkdownString());
+      // The second block no longer writes the link.
+      editor.update(() => $block(1).clear().append($createTextNode('z')), {
+        discrete: true,
+      });
+      exportBlock(editor, 1);
+      counter.parses = 0;
+      exportBlock(editor, 0);
+      expect(counter.parses).toBe(0);
+    });
+
+    it('drops the old containers of a block a handler writes with a node from an earlier export', () => {
+      const link = sharedLink();
+      const counter = {parses: 0};
+      using editor = createCountingEditor(counter, {
+        exportRules: [linkRule(link)],
+        toMarkdownExtensions: [
+          {
+            handlers: {
+              // Writes the link in place of a paragraph that says SWAP.
+              paragraph: (node: Paragraph, parent, state, info) => {
+                const [first] = node.children;
+                return defaultHandlers.paragraph(
+                  first && first.type === 'text' && first.value.includes('SWAP')
+                    ? {
+                        ...node,
+                        children: [
+                          {type: 'text', value: '('},
+                          link,
+                          {type: 'text', value: ') ' + first.value},
+                        ],
+                      }
+                    : node,
+                  parent,
+                  state,
+                  info,
+                );
+              },
+            },
+          },
+        ],
+      });
+      const exportAll = () => {
+        editor.update(() => $selectAll(), {discrete: true});
+        editor.read(() => $convertSelectionToMarkdownString());
+      };
+      const $swap = (text: string) =>
+        $block(0).clear().append($createTextNode(text));
+      editor.update(() => $convertFromMarkdownString('LINK a\n\nSWAP'), {
+        discrete: true,
+      });
+      exportAll();
+      // The block that wrote the link is gone.
+      editor.update(() => $block(0).remove(), {discrete: true});
+      exportAll();
+      editor.update(() => $swap('SWAP 1'), {discrete: true});
+      exportAll();
+      editor.update(() => $swap('SWAP'), {discrete: true});
+      counter.parses = 0;
+      exportAll();
+      expect(counter.parses).toBe(1);
+    });
+
+    it('drops the old containers the root keeps when a root handler writes copies of its children', () => {
+      const counter = {parses: 0};
+      using editor = createCountingEditor(counter, {
+        toMarkdownExtensions: [
+          {
+            handlers: {
+              root: (node: Root, parent, state, info) =>
+                defaultHandlers.root(
+                  {...node, children: node.children.map(child => ({...child}))},
+                  parent,
+                  state,
+                  info,
+                ),
+            },
+          },
+        ],
+      });
+      const exportAll = () => {
+        editor.update(() => $selectAll(), {discrete: true});
+        editor.read(() => $convertSelectionToMarkdownString());
+      };
+      editor.update(() => $convertFromMarkdownString(paragraphs(2)), {
+        discrete: true,
+      });
+      exportAll();
+      editor.update(() => $appendBold(0), {discrete: true});
+      exportAll();
+      editor.update(() => $block(0).getLastChildOrThrow().remove(), {
+        discrete: true,
+      });
+      counter.parses = 0;
+      exportAll();
+      expect(counter.parses).toBe(1);
+    });
+
+    // A paragraph handler that writes its node through state.handle again,
+    // as a copy, before the default handler writes it.
+    const copies = new WeakSet<Paragraph>();
+    const redispatchCopy: ToMarkdownExtension = {
+      handlers: {
+        paragraph: (node: Paragraph, parent, state, info) => {
+          if (copies.has(node)) {
+            return defaultHandlers.paragraph(node, parent, state, info);
+          }
+          const copy = {...node};
+          copies.add(copy);
+          return state.handle(copy, parent, state, info);
+        },
+      },
+    };
+
+    it('keeps the containers of a block a handler writes as a copy', () => {
+      const counter = {parses: 0};
+      using editor = createCountingEditor(counter, {
+        toMarkdownExtensions: [redispatchCopy],
+      });
+      editor.update(() => $convertFromMarkdownString(paragraphs(3)), {
+        discrete: true,
+      });
+      const exportWithin = (index: number) => {
+        editor.update(() => $selectWithin(index), {discrete: true});
+        editor.read(() => $convertSelectionToMarkdownString());
+      };
+      for (let i = 0; i < 3; i++) {
+        exportWithin(i);
+      }
+      counter.parses = 0;
+      for (let i = 0; i < 3; i++) {
+        exportWithin(i);
+      }
+      expect(counter.parses).toBe(0);
+    });
+
+    it('keeps the block of a container a handler writes after its next sibling', () => {
+      const counter = {parses: 0};
+      // Writes the next paragraph once, as if to measure it, before its own.
+      let isMeasuring = false;
+      using editor = createCountingEditor(counter, {
+        toMarkdownExtensions: [
+          {
+            handlers: {
+              paragraph: (node: Paragraph, parent, state, info) => {
+                const siblings: readonly Nodes[] = parent
+                  ? parent.children
+                  : [];
+                const next = siblings[siblings.indexOf(node) + 1];
+                if (next && next.type === 'paragraph' && !isMeasuring) {
+                  isMeasuring = true;
+                  state.handle(next, parent, state, info);
+                  isMeasuring = false;
+                }
+                return defaultHandlers.paragraph(node, parent, state, info);
+              },
+            },
+          },
+        ],
+      });
+      editor.update(() => $convertFromMarkdownString(paragraphs(2)), {
+        discrete: true,
+      });
+      const exportAll = () => {
+        editor.update(() => $selectAll(), {discrete: true});
+        editor.read(() => $convertSelectionToMarkdownString());
+      };
+      // All of the second paragraph, which reads as it does in the document.
+      const exportSecond = () => {
+        editor.update(
+          () => {
+            const texts = $block(1).getAllTextNodes();
+            $setSelectionFromCaretRange(
+              $getCaretRange(
+                $getTextPointCaret(texts[0], 'next', 0),
+                $getTextPointCaret(texts[texts.length - 1], 'next', 'next'),
+              ),
+            );
+          },
+          {discrete: true},
+        );
+        editor.read(() => $convertSelectionToMarkdownString());
+      };
+      exportAll();
+      exportSecond();
+      counter.parses = 0;
+      exportAll();
+      exportSecond();
+      expect(counter.parses).toBe(0);
+    });
+
+    it('keeps the block of a container a handler writes after its next sibling throws', () => {
+      const counter = {parses: 0};
+      // Writes the next paragraph first, which throws the first time, and
+      // goes on.
+      let isMeasuring = false;
+      let isThrowing = true;
+      using editor = createCountingEditor(counter, {
+        toMarkdownExtensions: [
+          {
+            handlers: {
+              paragraph: (node: Paragraph, parent, state, info) => {
+                if (isMeasuring && isThrowing) {
+                  isThrowing = false;
+                  throw new Error('measure');
+                }
+                const siblings: readonly Nodes[] = parent
+                  ? parent.children
+                  : [];
+                const next = siblings[siblings.indexOf(node) + 1];
+                if (next && next.type === 'paragraph' && !isMeasuring) {
+                  isMeasuring = true;
+                  try {
+                    state.handle(next, parent, state, info);
+                  } catch {
+                    // Written once more below, as the next child.
+                  } finally {
+                    isMeasuring = false;
+                  }
+                }
+                return defaultHandlers.paragraph(node, parent, state, info);
+              },
+            },
+          },
+        ],
+      });
+      editor.update(() => $convertFromMarkdownString(paragraphs(2)), {
+        discrete: true,
+      });
+      const exportAll = () => {
+        editor.update(() => $selectAll(), {discrete: true});
+        editor.read(() => $convertSelectionToMarkdownString());
+      };
+      exportAll();
+      exportBlock(editor, 1);
+      counter.parses = 0;
+      exportAll();
+      expect(counter.parses).toBe(0);
+    });
+
+    it('drops the old containers of a block a handler writes with a block from an earlier export', () => {
+      const counter = {parses: 0};
+      // Writes the first paragraph it saw in place of one that says SWAP.
+      let kept: Paragraph | null = null;
+      using editor = createCountingEditor(counter, {
+        toMarkdownExtensions: [
+          {
+            handlers: {
+              paragraph: (node: Paragraph, parent, state, info) => {
+                const [first] = node.children;
+                if (first && first.type === 'text') {
+                  if (first.value === 'SWAP' && kept) {
+                    return state.handle(kept, parent, state, info);
+                  }
+                  kept = kept || node;
+                }
+                return defaultHandlers.paragraph(node, parent, state, info);
+              },
+            },
+          },
+        ],
+      });
+      const exportAll = () => {
+        editor.update(() => $selectAll(), {discrete: true});
+        editor.read(() => $convertSelectionToMarkdownString());
+      };
+      editor.update(
+        () => $convertFromMarkdownString(`${paragraphs(1)}\n\nSWAP`),
+        {discrete: true},
+      );
+      exportAll();
+      // The first block is gone; the second writes it in its place.
+      editor.update(() => $block(0).remove(), {discrete: true});
+      exportAll();
+      editor.update(() => $block(0).clear().append($createTextNode('x')), {
+        discrete: true,
+      });
+      exportAll();
+      editor.update(() => $convertFromMarkdownString(paragraphs(1)), {
+        discrete: true,
+      });
+      counter.parses = 0;
+      exportBlock(editor, 0);
+      expect(counter.parses).toBe(1);
+    });
+
+    it('keeps one version of a block that subtree and selection exports both write', () => {
+      const counter = {parses: 0};
+      using editor = createCountingEditor(counter);
+      editor.update(() => $convertFromMarkdownString(paragraphs(1)), {
+        discrete: true,
+      });
+      exportBlock(editor, 0);
+      editor.update(
+        () => {
+          $appendBold(0);
+          $selectAll();
+        },
+        {discrete: true},
+      );
+      editor.read(() => $convertSelectionToMarkdownString());
+      editor.update(() => $block(0).getLastChildOrThrow().remove(), {
+        discrete: true,
+      });
+      counter.parses = 0;
+      exportBlock(editor, 0);
+      expect(counter.parses).toBe(1);
+    });
+
+    it('keeps what a selection read across a document export', () => {
+      const counter = {parses: 0};
+      using editor = createCountingEditor(counter);
+      editor.update(
+        () => {
+          $convertFromMarkdownString(paragraphs(2));
+          // Its container is one no document export writes.
+          $selectWithin(0);
+        },
+        {discrete: true},
+      );
+      editor.read(() => $convertSelectionToMarkdownString());
+      editor.read(() => $convertToMarkdownString());
+      counter.parses = 0;
+      editor.read(() => $convertSelectionToMarkdownString());
+      expect(counter.parses).toBe(0);
+    });
+  });
+
+  it.each<[mode: MdastPunctuationMode, expected: string]>([
+    // Strict readers need the last character as a reference beside the run,
+    // which the literal would take in.
+    ['strict-commonmark', '<a@b.co>**。**'],
+    // A CJK-friendly export writes it as the character again.
+    ['cjk-friendly', 'a@b.co**。**'],
+  ])('checks a literal as the %s export writes it', (mode, expected) => {
+    using editor = buildEditorFromExtensions(
+      MdastGfmExtension,
+      configExtension(MdastExtension, {
+        exportPunctuation: mode,
+        importPunctuation: mode,
+      }),
+    );
+    editor.update(
+      () => {
+        $convertFromMarkdownString('a@b.co');
+        $firstLink().insertAfter($createTextNode('。').toggleFormat('bold'));
+      },
+      {discrete: true},
+    );
+    expect(editor.read(() => $convertToMarkdownString())).toBe(expected);
+  });
+
+  it('keeps a literal bare beside a link whose text holds NUL', () => {
+    using editor = buildEditorFromExtensions(
+      MdastCommonMarkExtension,
+      MdastAutolinkLiteralExtension,
+      MdastExtension,
+    );
+    editor.update(
+      () => {
+        $convertFromMarkdownString('(www.example.com)');
+        $assertNodeType($getRoot().getFirstChildOrThrow(), $isElementNode)
+          .getLastChildOrThrow()
+          .insertBefore($createTextNode(' and '))
+          .insertAfter(
+            $createLinkNode('http://u.dev/').append(
+              $createTextNode('a\u0000b'),
+            ),
+          );
+      },
+      {discrete: true},
+    );
+    // NUL reads back as U+FFFD; the literal still reads back as itself.
+    expect(editor.read(() => $convertToMarkdownString())).toBe(
+      '(www.example.com and [a\u0000b](http://u.dev/))',
+    );
+  });
+
+  it('checks a literal exported while another export writes with stand-ins', () => {
+    // U+2E00 is the first stand-in an export picks for a character beyond
+    // the BMP.
+    using inner = buildEditorFromExtensions(MdastGfmExtension, MdastExtension);
+    inner.update(
+      () => {
+        $convertFromMarkdownString('www.example.com');
+        $assertNodeType(
+          $getRoot().getFirstChildOrThrow(),
+          $isElementNode,
+        ).splice(0, 0, [$createTextNode('\u2E00')]);
+      },
+      {discrete: true},
+    );
+    const alone = inner.read(() => $convertToMarkdownString());
+    expect(alone).toBe('\u2E00www.example.com');
+    let nested = '';
+    using outer = buildEditorFromExtensions(
+      MdastGfmExtension,
+      configExtension(MdastExtension, {
+        toMarkdownExtensions: [
+          {
+            handlers: {
+              strong: (node, parent, state, info) => {
+                nested = inner.read(() => $convertToMarkdownString());
+                return defaultHandlers.strong(node, parent, state, info);
+              },
+            },
+          },
+        ],
+      }),
+    );
+    outer.update(() => $convertFromMarkdownString('🎉 **b**'), {
+      discrete: true,
+    });
+    expect(outer.read(() => $convertToMarkdownString())).toBe('🎉 **b**');
+    expect(nested).toBe(alone);
+  });
+
+  it('checks a literal exported after another export wrote with stand-ins', () => {
+    using inner = buildEditorFromExtensions(MdastGfmExtension, MdastExtension);
+    inner.update(() => $convertFromMarkdownString('🎉 **b**'), {
+      discrete: true,
+    });
+    using outer = buildEditorFromExtensions(
+      MdastGfmExtension,
+      configExtension(MdastExtension, {
+        toMarkdownExtensions: [
+          {
+            handlers: {
+              strong: (node, parent, state, info) => {
+                inner.read(() => $convertToMarkdownString());
+                return defaultHandlers.strong(node, parent, state, info);
+              },
+            },
+          },
+        ],
+      }),
+    );
+    outer.update(
+      () => {
+        $convertFromMarkdownString('**b** www.example.com');
+        $firstLink().insertBefore($createTextNode('\u2E00'));
+      },
+      {discrete: true},
+    );
+    // The stand-ins of the inner export are put back before the outer
+    // literal is checked.
+    expect(outer.read(() => $convertToMarkdownString())).toBe(
+      '**b** \u2E00www.example.com',
+    );
   });
 
   describe('mdast tree interop', () => {
