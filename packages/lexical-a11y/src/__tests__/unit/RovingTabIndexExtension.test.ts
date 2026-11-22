@@ -151,4 +151,54 @@ describe('RovingTabIndexExtension', () => {
     );
     expect(document.activeElement).toBe(b);
   });
+
+  test('arrow, Home and End keys in an input inside the group stay in the input', () => {
+    using editor = buildEditorFromExtensions(
+      defineExtension({
+        dependencies: [RovingTabIndexExtension, RichTextExtension],
+        name: '[root]',
+      }),
+    );
+    const toolbar = createToolbar();
+    const input = document.createElement('input');
+    toolbar.insertBefore(input, toolbar.lastChild);
+    onTestFinished(getRegistry(editor).register(toolbar));
+
+    input.focus();
+    for (const key of [
+      'ArrowLeft',
+      'ArrowRight',
+      'ArrowUp',
+      'ArrowDown',
+      'Home',
+      'End',
+    ]) {
+      const event = new KeyboardEvent('keydown', {
+        bubbles: true,
+        cancelable: true,
+        key,
+      });
+      input.dispatchEvent(event);
+      expect(event.defaultPrevented).toBe(false);
+      expect(document.activeElement).toBe(input);
+    }
+  });
+
+  test('an arrow key on the focused container enters the group at the first item', () => {
+    using editor = buildEditorFromExtensions(
+      defineExtension({
+        dependencies: [RovingTabIndexExtension, RichTextExtension],
+        name: '[root]',
+      }),
+    );
+    const toolbar = createToolbar();
+    toolbar.tabIndex = -1;
+    onTestFinished(getRegistry(editor).register(toolbar));
+
+    toolbar.focus();
+    toolbar.dispatchEvent(
+      new KeyboardEvent('keydown', {bubbles: true, key: 'ArrowRight'}),
+    );
+    expect(document.activeElement).toBe(toolbar.querySelector('button'));
+  });
 });
