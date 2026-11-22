@@ -18,7 +18,6 @@ import {
   DELETE_CHARACTER_COMMAND,
   type ElementNode,
   HISTORIC_TAG,
-  HISTORY_MERGE_TAG,
   HISTORY_PUSH_TAG,
   type LexicalEditor,
   mergeRegister,
@@ -88,7 +87,7 @@ interface SubstitutionRecord {
  * re-substituted, and a custom entry such as `{':)': '::)'}` cannot
  * loop either.
  */
-const TEXT_SUBSTITUTION_TAG = 'text-substitution';
+export const TEXT_SUBSTITUTION_TAG = 'text-substitution';
 
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -105,6 +104,12 @@ interface SubstitutionMatcher {
   ): {alias: string; replacement: string; start: number} | null;
   /** The replacement for one alias, or `undefined` when it is not one. */
   getReplacement(alias: string): string | undefined;
+  /**
+   * Whether the alias is a proper prefix of a longer alias. A prefix
+   * alias is not substituted at once: the next character may extend
+   * it into the longer alias, so it is held as pending until then.
+   */
+  isPrefix(alias: string): boolean;
 }
 
 /**
@@ -127,15 +132,27 @@ function buildSubstitutionMatcher(
     )
     .sort((a, b) => b[0].length - a[0].length);
   if (entries.length === 0) {
-    return {getReplacement: () => undefined, match: () => null};
+    return {
+      getReplacement: () => undefined,
+      isPrefix: () => false,
+      match: () => null,
+    };
   }
   const pattern = new RegExp(
     `(${entries.map(([alias]) => escapeRegExp(alias)).join('|')})$`,
   );
   const replacements = new Map(entries);
+  const aliases = entries.map(([alias]) => alias);
   return {
     getReplacement(alias: string): string | undefined {
       return replacements.get(alias);
+    },
+    isPrefix(alias: string): boolean {
+      // A proper prefix is strictly shorter and a prefix of another
+      // alias. The longest aliases are never prefixes.
+      return aliases.some(
+        other => other.length > alias.length && other.startsWith(alias),
+      );
     },
     match(text: string) {
       const result = pattern.exec(text);
@@ -145,6 +162,17 @@ function buildSubstitutionMatcher(
       const alias = result[1];
       const replacement = replacements.get(alias);
       if (replacement === undefined) {
+        return null;
+      }
+      // A word alias (one starting with a word character) only fires
+      // at a word boundary: typing 'xteh' must not trigger the 'teh'
+      // alias. Punctuation aliases ('--', '(c)') are unaffected, since
+      // they do not start with a word character.
+      if (
+        result.index > 0 &&
+        /\w/.test(alias[0]) &&
+        /\w/.test(text[result.index - 1])
+      ) {
         return null;
       }
       return {alias, replacement, start: result.index};
@@ -171,6 +199,13 @@ function registerTextSubstitution(
 ) {
   const matcher = buildSubstitutionMatcher(substitutions);
   let lastSubstitution: SubstitutionRecord | null = null;
+  // An alias that matched but was held back because it is a proper
+  // prefix of a longer alias: the next typed character may extend it
+  // into that longer alias, so the substitution waits one keystroke.
+  // Resolved on the next update: extended into the longer alias, applied
+  // as-is when the next character cannot extend it, or dropped when the
+  // next character makes it part of a longer word or a markdown pattern.
+  let pendingSubstitution: SubstitutionRecord | null = null;
 
   function $isSubstitutableNode(node: TextNode): boolean {
     const parent = node.getParent();
@@ -180,6 +215,47 @@ function registerTextSubstitution(
     // Inline code formatting is left alone: substitutions are a prose
     // feature, and code text must stay verbatim.
     return !node.hasFormat('code');
+  }
+
+  // Splice a substitution into its node at the recorded position and
+  // place the caret after the replacement. `caretOffset` is the caret
+  // in the text as it stands before this splice; the caret moves left
+  // by the length change, so a substitution applied one keystroke late
+  // (after a held-back alias) still leaves the typed character after
+  // it in place.
+  function applySubstitution(
+    record: SubstitutionRecord,
+    caretOffset: number,
+  ): void {
+    editor.update(() => {
+      const selection = $getSelection();
+      if (!$isRangeSelection(selection)) {
+        return;
+      }
+      const target = selection.anchor.getNode();
+      if (!$isTextNode(target) || !$isSubstitutableNode(target)) {
+        return;
+      }
+      const current = target.getTextContent();
+      if (
+        current.slice(record.start, record.start + record.alias.length) !==
+        record.alias
+      ) {
+        return;
+      }
+      target.spliceText(record.start, record.alias.length, record.replacement);
+      const newOffset =
+        caretOffset - (record.alias.length - record.replacement.length);
+      target.select(newOffset, newOffset);
+      $addUpdateTag(HISTORY_PUSH_TAG);
+      $addUpdateTag(TEXT_SUBSTITUTION_TAG);
+      lastSubstitution = {
+        alias: record.alias,
+        nodeKey: target.getKey(),
+        replacement: record.replacement,
+        start: record.start,
+      };
+    });
   }
 
   return mergeRegister(
@@ -224,116 +300,74 @@ function registerTextSubstitution(
         );
         if (
           anchorText === null ||
-          // Only fire on a single typed character, at the end of the
-          // node: typing in the middle of a word must not substitute.
+          // Only fire on a single typed character. The caret need
+          // not be at the end of the node: the alias is matched
+          // against the text before the caret, so typing in the
+          // middle of a word substitutes too.
           prevSelection.anchor.key !== anchorKey ||
-          anchorOffset !== prevSelection.anchor.offset + 1 ||
-          anchorOffset !== anchorText.length
+          anchorOffset !== prevSelection.anchor.offset + 1
         ) {
           // A caret move (or any other non-typing update) that is not
-          // the chained-substitution case invalidates the record.
+          // the chained-substitution case invalidates the records.
           lastSubstitution = null;
+          pendingSubstitution = null;
           return;
         }
-        const text = anchorText;
-        // Longest-alias-wins, second chance: typing '--' already fired
-        // the '--' -> '—' substitution, so a following '>' makes the
-        // text '—>'. If alias + typed char is itself an alias, replace
-        // the replacement (plus the typed char) with the longer alias's
-        // replacement instead of leaving '—>' behind.
+        // The text before the caret is what the alias is matched
+        // against, so a substitution can fire in the middle of a node
+        // as well as at its end.
+        const text = anchorText.slice(0, anchorOffset);
+        // Resolve a held-back alias first: the character just typed
+        // decides whether it extends into a longer alias, stands on
+        // its own, or is part of a longer word or a markdown pattern.
         if (
-          lastSubstitution !== null &&
-          lastSubstitution.nodeKey === anchorKey &&
-          dirtyLeaves.has(anchorKey)
+          pendingSubstitution !== null &&
+          pendingSubstitution.nodeKey === anchorKey
         ) {
-          const typedChar = text[anchorOffset - 1];
-          const extendedAlias = lastSubstitution.alias + typedChar;
-          const extendedReplacement = matcher.getReplacement(extendedAlias);
-          if (
-            extendedReplacement !== undefined &&
-            text.slice(lastSubstitution.start, anchorOffset) ===
-              lastSubstitution.replacement + typedChar
-          ) {
-            const record = lastSubstitution;
-            // Undo for a chained alias works in one step by splitting
-            // the rewrite in two. First, rewrite the intermediate text
-            // (e.g. '—>') back to the full alias ('-->') in an update
-            // tagged HISTORY_MERGE_TAG (and NOT HISTORY_PUSH_TAG, which
-            // would defeat the merge): history folds it into the
-            // keystroke entry that typed the final character, so that
-            // entry now ends at '-->' instead of '—>'. Then, from that
-            // update's onUpdate, apply the longer replacement in its
-            // own HISTORY_PUSH_TAG update. One Ctrl+Z therefore
-            // restores '-->', and a second undo reverts the keystroke
-            // that produced it — instead of the old '—>' residue.
-            editor.update(
-              () => {
-                const currentSelection = $getSelection();
-                if (!$isRangeSelection(currentSelection)) {
-                  return;
-                }
-                const target = currentSelection.anchor.getNode();
-                if (!$isTextNode(target) || !$isSubstitutableNode(target)) {
-                  return;
-                }
-                target.spliceText(
-                  record.start,
-                  record.replacement.length + 1,
-                  extendedAlias,
-                );
-                target.select(
-                  record.start + extendedAlias.length,
-                  record.start + extendedAlias.length,
-                );
-                $addUpdateTag(HISTORY_MERGE_TAG);
-                $addUpdateTag(TEXT_SUBSTITUTION_TAG);
-              },
-              {
-                onUpdate: () => {
-                  editor.update(() => {
-                    const currentSelection = $getSelection();
-                    if (!$isRangeSelection(currentSelection)) {
-                      return;
-                    }
-                    const target = currentSelection.anchor.getNode();
-                    if (!$isTextNode(target) || !$isSubstitutableNode(target)) {
-                      return;
-                    }
-                    const current = target.getTextContent();
-                    if (
-                      current.slice(
-                        record.start,
-                        record.start + extendedAlias.length,
-                      ) !== extendedAlias
-                    ) {
-                      return;
-                    }
-                    target.spliceText(
-                      record.start,
-                      extendedAlias.length,
-                      extendedReplacement,
-                    );
-                    target.select(
-                      record.start + extendedReplacement.length,
-                      record.start + extendedReplacement.length,
-                    );
-                    $addUpdateTag(HISTORY_PUSH_TAG);
-                    $addUpdateTag(TEXT_SUBSTITUTION_TAG);
-                    lastSubstitution = {
-                      alias: extendedAlias,
-                      nodeKey: target.getKey(),
-                      replacement: extendedReplacement,
-                      start: record.start,
-                    };
-                  });
-                },
-              },
-            );
-            return;
+          const pending = pendingSubstitution;
+          pendingSubstitution = null;
+          const longer = matcher.match(text);
+          const extendsPending =
+            longer !== null &&
+            longer.alias.length > pending.alias.length &&
+            longer.alias.startsWith(pending.alias) &&
+            longer.start === pending.start;
+          if (!extendsPending) {
+            const typedChar = text[text.length - 1];
+            const isWordAlias = /\w/.test(pending.alias[0]);
+            const isWordChar = typedChar !== undefined && /\w/.test(typedChar);
+            // A line of only dashes may become a markdown horizontal
+            // rule, which needs exactly three dashes. While the line
+            // is three dashes or fewer, keep the alias held back: the
+            // markdown transform may claim it, and if the user types
+            // a fourth dash the alias is applied below instead.
+            const isShortDashesLine =
+              pending.alias === '--' && /^-+$/.test(text) && text.length <= 3;
+            if (isShortDashesLine) {
+              pendingSubstitution = pending;
+              return;
+            }
+            if (!(isWordAlias && isWordChar)) {
+              // The alias was not extended, so it stands: apply it
+              // now, one keystroke late. The alias sits at
+              // pending.start and the typed character follows it, so
+              // the caret moves left by the length change.
+              applySubstitution(pending, anchorOffset);
+              return;
+            }
+            // Otherwise the alias is dropped: a word character after
+            // a word alias means it is part of a longer word (typing
+            // 'tehran' must not trigger 'teh').
           }
+          // When the alias extends into a longer one, the normal match
+          // below finds that longer alias; the pending record is
+          // already cleared.
         }
-        // Any other typed character is a new edit, not a continuation
-        // of the previous substitution: the old record is stale.
+        // The chained-substitution rewrite is gone: a prefix alias is
+        // held back as pending instead of being substituted at once,
+        // so there is no intermediate replacement to undo when the
+        // next character extends it into the longer alias. The pending
+        // resolution above finds the longer alias directly.
         lastSubstitution = null;
         if (!dirtyLeaves.has(anchorKey)) {
           return;
@@ -342,33 +376,30 @@ function registerTextSubstitution(
         if (match === null) {
           return;
         }
-        editor.update(() => {
-          const node = $getSelection();
-          if (!$isRangeSelection(node)) {
-            return;
-          }
-          const target = node.anchor.getNode();
-          if (!$isTextNode(target) || !$isSubstitutableNode(target)) {
-            return;
-          }
-          const current = target.getTextContent();
-          if (!current.endsWith(match.alias)) {
-            return;
-          }
-          target.spliceText(match.start, match.alias.length, match.replacement);
-          target.select(
-            match.start + match.replacement.length,
-            match.start + match.replacement.length,
-          );
-          $addUpdateTag(HISTORY_PUSH_TAG);
-          $addUpdateTag(TEXT_SUBSTITUTION_TAG);
-          lastSubstitution = {
+        // Hold the alias back when it may still grow: a proper prefix
+        // of a longer alias (so '--' can become '-->'), or a word
+        // alias (so 'teh' does not fire inside 'tehran'). The next
+        // typed character decides whether it extends, stands, or is
+        // dropped. Anything else substitutes at once.
+        const isWordAlias = /\w/.test(match.alias[0]);
+        if (matcher.isPrefix(match.alias) || isWordAlias) {
+          pendingSubstitution = {
             alias: match.alias,
-            nodeKey: target.getKey(),
+            nodeKey: anchorKey,
             replacement: match.replacement,
             start: match.start,
           };
-        });
+          return;
+        }
+        applySubstitution(
+          {
+            alias: match.alias,
+            nodeKey: anchorKey,
+            replacement: match.replacement,
+            start: match.start,
+          },
+          anchorOffset,
+        );
       },
     ),
     editor.registerCommand(
@@ -442,25 +473,34 @@ function registerTextSubstitution(
  * character.
  *
  * To turn off a single default, map it to `null`, e.g. `{'--': null}`.
- * Substitutions only fire at the end of a text node, so typing `--` in
- * the middle of an existing sentence does not substitute.
+ * Substitutions fire wherever the caret is, at the end of a text node
+ * or in the middle of one: the alias is matched against the text
+ * before the caret.
+ *
+ * An alias that may still grow is held back one keystroke: one that is
+ * a proper prefix of a longer alias (so `--` can become `-->`), or a
+ * word alias (so `teh` does not fire inside `tehran`). The next typed
+ * character decides: it extends into the longer alias, the held-back
+ * alias is applied as-is, or it is dropped when the character makes it
+ * part of a longer word. A held-back alias is dropped when the caret
+ * moves away before the next character is typed.
  *
  * By default, substitutions do not fire inside code blocks. Pass
  * {@link TextSubstitutionConfig.excludeParents} to skip substitution
  * inside other parents, following the `excludeParents` setting in
  * AutoLinkExtension.
  *
- * Known interactions: typing `---` cannot trigger a horizontal-rule
- * markdown shortcut alongside this extension, because `--` is replaced
- * with `—` before the third `-` is typed. A chained substitution
- * (`--` then `>` producing `→`) is arranged so that one Ctrl+Z
- * restores the full alias (`-->`), and a second Ctrl+Z reverts the
- * keystroke that produced it. In collaborative editors, undo ignores the
- * history-push boundary. On Android Chrome, Backspace is handled
- * natively by the browser, so the Backspace-restore behaviour may not
- * apply there. IME input may also skip substitution: when an IME
- * composition commits the alias's final character, the composition-end
- * update is not treated as typed input, so the alias is left as typed.
+ * Known interactions: `--` is not substituted when the line is only
+ * dashes, so typing `---` still triggers a horizontal-rule markdown
+ * shortcut. A held-back `--` is dropped on a line of only dashes, so
+ * typing `---->` substitutes the `-->` at the end (`--→`): the leading
+ * `--` stays as typed because the line was only dashes when it was
+ * typed. In collaborative editors, undo ignores the history-push
+ * boundary. On Android Chrome, Backspace is handled natively by the
+ * browser, so the Backspace-restore behaviour may not apply there. IME
+ * input may also skip substitution: when an IME composition commits the
+ * alias's final character, the composition-end update is not treated as
+ * typed input, so the alias is left as typed.
  */
 export const TextSubstitutionExtension = defineExtension({
   build(editor, config, state) {
@@ -474,19 +514,13 @@ export const TextSubstitutionExtension = defineExtension({
   mergeConfig(config, overrides) {
     const merged = shallowMergeConfig(config, overrides);
     if (overrides.substitutions !== undefined) {
-      const substitutions = {
+      // A `null` value removes the substitution, including a default:
+      // buildSubstitutionMatcher filters nulls out, so there is no
+      // need to delete them here.
+      merged.substitutions = {
         ...config.substitutions,
         ...overrides.substitutions,
       };
-      // A `null` value removes the substitution, including a default.
-      for (const [alias, replacement] of Object.entries(
-        overrides.substitutions,
-      )) {
-        if (replacement === null) {
-          delete substitutions[alias];
-        }
-      }
-      merged.substitutions = substitutions;
     }
     if (Array.isArray(overrides.excludeParents)) {
       merged.excludeParents = [

@@ -88,8 +88,7 @@ export function TextSubstitutionDialog({
   return (
     <>
       <p className="TextSubstitutionDialog__note">
-        Substitutions replace text as you type. Changes apply immediately, so
-        you can keep typing in the editor while this dialog is open.
+        Substitutions replace text as you type.
       </p>
       <ul className="TextSubstitutionDialog__list">
         {entries.map(([entryAlias, entryReplacement]) => (

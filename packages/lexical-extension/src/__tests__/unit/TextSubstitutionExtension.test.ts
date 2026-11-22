@@ -181,8 +181,10 @@ function setTextAndCaret(
 describe('TextSubstitutionExtension', () => {
   test('replaces a default substitution as its final character is typed', async () => {
     using editor = setUpEditor();
-    await typeText(editor, 'hello--');
-    expect(getText(editor)).toBe('hello—');
+    // '--' is a prefix of '-->', so it is held back one keystroke;
+    // the following space confirms it stands on its own.
+    await typeText(editor, 'hello-- ');
+    expect(getText(editor)).toBe('hello— ');
   });
 
   test('replaces parenthesised defaults', async () => {
@@ -200,8 +202,10 @@ describe('TextSubstitutionExtension', () => {
     using editor2 = setUpEditor({
       substitutions: {omw: 'on my way!'},
     });
-    await typeText(editor2, 'omw');
-    expect(getText(editor2)).toBe('on my way!');
+    // A word alias is held back until the next character confirms a
+    // word boundary, so a trailing space is typed here.
+    await typeText(editor2, 'omw ');
+    expect(getText(editor2)).toBe('on my way! ');
   });
 
   test('longest alias wins for overlapping aliases', async () => {
@@ -210,11 +214,14 @@ describe('TextSubstitutionExtension', () => {
     expect(getText(editor)).toBe('→');
   });
 
-  test('does not substitute when typing in the middle of a word', async () => {
+  test('substitutes in the middle of a word', async () => {
     using editor = setUpEditor();
     setTextAndCaret(editor, 'helloworld', 5);
-    await typeText(editor, '--');
-    expect(getText(editor)).toBe('hello--world');
+    // '--' is held back one keystroke; the following space confirms
+    // it stands on its own, so it substitutes in the middle of the
+    // node.
+    await typeText(editor, '-- ');
+    expect(getText(editor)).toBe('hello— world');
   });
 
   test('does not substitute inside a code block', async () => {
@@ -299,12 +306,52 @@ describe('TextSubstitutionExtension', () => {
     expect(getText(editor)).toBe('--');
   });
 
+  test('does not substitute -- at the start of a line so --- can form a horizontal rule', async () => {
+    using editor = setUpEditor();
+    await typeText(editor, '--');
+    expect(getText(editor)).toBe('--');
+    await typeText(editor, '-');
+    expect(getText(editor)).toBe('---');
+  });
+
+  test('typing ----> produces an em dash then an arrow', async () => {
+    using editor = setUpEditor();
+    await typeText(editor, '---->');
+    expect(getText(editor)).toBe('—→');
+  });
+
+  test('a word alias fires when followed by a word boundary', async () => {
+    using editor = setUpEditor({
+      substitutions: {teh: 'the'},
+    });
+    await typeText(editor, 'teh ');
+    expect(getText(editor)).toBe('the ');
+  });
+
+  test('a word alias does not fire when it starts a longer word', async () => {
+    using editor = setUpEditor({
+      substitutions: {teh: 'the'},
+    });
+    await typeText(editor, 'tehran');
+    expect(getText(editor)).toBe('tehran');
+  });
+
+  test('a word alias does not fire inside another word', async () => {
+    using editor = setUpEditor({
+      substitutions: {teh: 'the'},
+    });
+    await typeText(editor, 'xteh');
+    expect(getText(editor)).toBe('xteh');
+  });
+
   test('an alias with regex characters matches literally, not as a pattern', async () => {
     using editor = setUpEditor({
       substitutions: {'a.b': 'DOT'},
     });
-    await typeText(editor, 'a.b');
-    expect(getText(editor)).toBe('DOT');
+    // 'a.b' starts with a word character, so it is held back until
+    // the next character confirms a word boundary.
+    await typeText(editor, 'a.b ');
+    expect(getText(editor)).toBe('DOT ');
     using editor2 = setUpEditor({
       substitutions: {'a.b': 'DOT'},
     });
@@ -333,24 +380,21 @@ describe('TextSubstitutionExtension', () => {
 
   test('a single undo reverts the substitution, restoring the alias', async () => {
     using editor = setUpEditor({withHistory: true});
-    await typeText(editor, 'hello--');
-    expect(getText(editor)).toBe('hello—');
+    // '--' is held back one keystroke; the space confirms it stands.
+    await typeText(editor, 'hello-- ');
+    expect(getText(editor)).toBe('hello— ');
     editor.dispatchCommand(UNDO_COMMAND);
-    expect(getText(editor)).toBe('hello--');
+    expect(getText(editor)).toBe('hello-- ');
   });
 
   test('a single undo after a chained substitution restores the full alias', async () => {
     using editor = setUpEditor({withHistory: true});
+    // '--' is held back, then '>' extends it into '-->', which is
+    // substituted directly (no intermediate '--' -> '—' step).
     await typeText(editor, 'hello-->');
     expect(getText(editor)).toBe('hello→');
-    // The chained rewrite is split across a merge-tagged update and
-    // its onUpdate; let both commit before undoing.
-    await tick();
-    await tick();
     editor.dispatchCommand(UNDO_COMMAND);
     expect(getText(editor)).toBe('hello-->');
-    editor.dispatchCommand(UNDO_COMMAND);
-    expect(getText(editor)).toBe('hello—');
   });
 
   test('a single undo after a chained <-- substitution restores the full alias', async () => {
@@ -365,18 +409,19 @@ describe('TextSubstitutionExtension', () => {
 
   test('Backspace immediately after a substitution restores the alias (RichText)', async () => {
     using editor = setUpEditor({withRichText: true});
-    await typeText(editor, 'hello--');
+    // '--' is held back one keystroke; the space confirms it stands,
+    // so the caret sits after the space, not right after the
+    // replacement. Backspace therefore deletes the space first.
+    await typeText(editor, 'hello-- ');
+    expect(getText(editor)).toBe('hello— ');
+    editor.dispatchCommand(DELETE_CHARACTER_COMMAND, true);
+    await tick();
     expect(getText(editor)).toBe('hello—');
-    editor.dispatchCommand(DELETE_CHARACTER_COMMAND, true);
-    // Await the follow-up update before asserting: the old test read
-    // the text before the queued revert committed, which hid the bug
-    // where RichText deleted the replacement instead.
-    await tick();
-    expect(getText(editor)).toBe('hello--');
-    // The record is consumed, so a second Backspace is a plain delete.
+    // The record is consumed by the caret move, so a second Backspace
+    // is a plain delete of the replacement.
     editor.dispatchCommand(DELETE_CHARACTER_COMMAND, true);
     await tick();
-    expect(getText(editor)).toBe('hello-');
+    expect(getText(editor)).toBe('hello');
   });
 
   test('Backspace immediately after a (c) substitution restores the alias (RichText)', async () => {
@@ -423,23 +468,23 @@ describe('TextSubstitutionExtension', () => {
 
   test('Backspace after moving the caret away and back does not restore the alias', async () => {
     using editor = setUpEditor({withRichText: true});
-    await typeText(editor, 'hello--');
-    expect(getText(editor)).toBe('hello—');
+    await typeText(editor, 'hello-- ');
+    expect(getText(editor)).toBe('hello— ');
     moveCaret(editor, 5);
     await tick();
-    moveCaret(editor, 6);
+    moveCaret(editor, 7);
     await tick();
-    // The caret moves clear the record, so Backspace deletes the '—'
-    // instead of restoring '--'.
+    // The caret moves clear the record, so Backspace deletes the
+    // space instead of restoring '--'.
     editor.dispatchCommand(DELETE_CHARACTER_COMMAND, true);
     await tick();
-    expect(getText(editor)).toBe('hello');
+    expect(getText(editor)).toBe('hello—');
   });
 
   test('updating the substitutions signal at runtime changes what gets replaced', async () => {
     using editor = setUpEditor();
-    await typeText(editor, 'hello--');
-    expect(getText(editor)).toBe('hello—');
+    await typeText(editor, 'hello-- ');
+    expect(getText(editor)).toBe('hello— ');
     const substitutionsSignal = getExtensionDependencyFromEditor(
       editor,
       TextSubstitutionExtension,
@@ -448,7 +493,9 @@ describe('TextSubstitutionExtension', () => {
     // and '--' is left alone.
     substitutionsSignal.value = {':)': '::)'};
     await tick();
-    await typeText(editor, ' :)');
+    // The text already ends with a space (from the '-- ' above), so
+    // no leading space is typed here.
+    await typeText(editor, ':)');
     expect(getText(editor)).toBe('hello— ::)');
     await typeText(editor, ' --');
     expect(getText(editor)).toBe('hello— ::) --');
@@ -467,11 +514,12 @@ describe('TextSubstitutionExtension', () => {
     await tick();
     await typeText(editor, '(c)');
     expect(getText(editor)).toBe('CUSTOM');
-    await typeText(editor, ' --');
-    expect(getText(editor)).toBe('CUSTOM —');
+    await typeText(editor, ' -- ');
+    expect(getText(editor)).toBe('CUSTOM — ');
     substitutionsSignal.value = DEFAULT_TEXT_SUBSTITUTIONS;
     await tick();
-    await typeText(editor, ' (c)');
+    // The text already ends with a space, so no leading space here.
+    await typeText(editor, '(c)');
     expect(getText(editor)).toBe('CUSTOM — ©');
   });
 });

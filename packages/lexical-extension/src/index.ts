@@ -136,6 +136,7 @@ export {
 } from './TabIndentationExtension';
 export {
   DEFAULT_TEXT_SUBSTITUTIONS,
+  TEXT_SUBSTITUTION_TAG,
   type TextSubstitutionConfig,
   TextSubstitutionExtension,
 } from './TextSubstitutionExtension';
