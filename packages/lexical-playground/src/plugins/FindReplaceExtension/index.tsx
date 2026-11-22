@@ -623,6 +623,7 @@ export const FindReplaceExtension = defineExtension({
         TOGGLE_FIND_REPLACE_COMMAND,
         () => {
           output.isOpen.value = !output.isOpen.peek();
+          scrollToCurrentMatch();
           return true;
         },
         COMMAND_PRIORITY_LOW,
@@ -726,6 +727,7 @@ export const FindReplaceExtension = defineExtension({
         term => {
           output.searchTerm.value = term;
           output.currentIndex.value = 0;
+          scrollToCurrentMatch();
           return true;
         },
         COMMAND_PRIORITY_LOW,
@@ -745,6 +747,7 @@ export const FindReplaceExtension = defineExtension({
         () => {
           output.caseSensitive.value = !output.caseSensitive.peek();
           output.currentIndex.value = 0;
+          scrollToCurrentMatch();
           return true;
         },
         COMMAND_PRIORITY_LOW,
@@ -755,6 +758,7 @@ export const FindReplaceExtension = defineExtension({
         () => {
           output.isRegex.value = !output.isRegex.peek();
           output.currentIndex.value = 0;
+          scrollToCurrentMatch();
           return true;
         },
         COMMAND_PRIORITY_LOW,
@@ -803,18 +807,6 @@ export const FindReplaceExtension = defineExtension({
         editor.read(() => {
           $updateHighlights(editor, m, idx, highlightState);
         });
-      }),
-
-      // Scroll when the search changes. Find next, previous and replace scroll
-      // in their commands, since the index stays the same with a single match.
-      // An edit finds the matches again but keeps the scroll position.
-      effect(() => {
-        void output.searchTerm.value;
-        void output.caseSensitive.value;
-        void output.isRegex.value;
-        if (output.isOpen.value) {
-          scrollToCurrentMatch();
-        }
       }),
 
       () => disposeHighlightState(highlightState),

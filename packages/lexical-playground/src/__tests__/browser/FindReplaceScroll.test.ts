@@ -65,6 +65,15 @@ test('a new search scrolls to its first match', () => {
   expect(scrolledTo()).toEqual(['needle two']);
 });
 
+test('a new search scrolls to its first match after finding the next one', () => {
+  const {editor, scrolledTo} = setupSearch();
+
+  editor.dispatchCommand(FIND_NEXT_COMMAND);
+  editor.dispatchCommand(SET_SEARCH_TERM_COMMAND, 'needle ');
+
+  expect(scrolledTo()).toEqual(['needle two', 'needle one']);
+});
+
 test('reopening the find panel scrolls to the current match', () => {
   const {editor, scrolledTo} = setupSearch();
 
