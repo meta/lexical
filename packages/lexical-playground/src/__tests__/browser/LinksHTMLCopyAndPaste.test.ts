@@ -108,10 +108,7 @@ test('Copy + paste empty link #3193', async () => {
         <span data-lexical-text="true">Line 0</span>
       </p>
       <ul class="PlaygroundEditorTheme__ul" dir="auto">
-        <li
-          class="PlaygroundEditorTheme__listItem"
-          style="text-align: left"
-          value="1">
+        <li class="PlaygroundEditorTheme__listItem" style="text-align: left">
           <span data-lexical-text="true">â..ï¸.Â&nbsp;Line 1Â&nbsp;</span>
           <a
             class="PlaygroundEditorTheme__link"
@@ -122,10 +119,7 @@ test('Copy + paste empty link #3193', async () => {
           </a>
           <span data-lexical-text="true">.</span>
         </li>
-        <li
-          class="PlaygroundEditorTheme__listItem"
-          style="text-align: left"
-          value="2">
+        <li class="PlaygroundEditorTheme__listItem" style="text-align: left">
           <span data-lexical-text="true">â..ï¸.Â&nbsp;Line 2.</span>
         </li>
       </ul>

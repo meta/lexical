@@ -102,7 +102,7 @@ describe('@lexical/list tests', () => {
           style="user-select: text; white-space: pre-wrap; word-break: break-word;"
           data-lexical-editor="true">
           <ul dir="auto">
-            <li value="1">
+            <li>
               <br data-lexical-managed-linebreak="true" />
             </li>
           </ul>
@@ -157,7 +157,7 @@ describe('@lexical/list tests', () => {
           style="user-select: text; white-space: pre-wrap; word-break: break-word;"
           data-lexical-editor="true">
           <ul dir="auto">
-            <li value="1">
+            <li>
               <br data-lexical-managed-linebreak="true" />
             </li>
           </ul>
@@ -182,9 +182,9 @@ describe('@lexical/list tests', () => {
           style="user-select: text; white-space: pre-wrap; word-break: break-word;"
           data-lexical-editor="true">
           <ul dir="auto">
-            <li value="1">
+            <li>
               <ul>
-                <li value="1"><br data-lexical-managed-linebreak="true" /></li>
+                <li><br data-lexical-managed-linebreak="true" /></li>
               </ul>
             </li>
           </ul>
@@ -209,7 +209,7 @@ describe('@lexical/list tests', () => {
           style="user-select: text; white-space: pre-wrap; word-break: break-word;"
           data-lexical-editor="true">
           <ul dir="auto">
-            <li value="1">
+            <li>
               <br data-lexical-managed-linebreak="true" />
             </li>
           </ul>
@@ -245,12 +245,12 @@ describe('@lexical/list tests', () => {
           style="user-select: text; white-space: pre-wrap; word-break: break-word;"
           data-lexical-editor="true">
           <ul dir="auto">
-            <li value="1">
+            <li>
               <span data-lexical-text="true">First item</span>
             </li>
-            <li value="2">
+            <li>
               <ul>
-                <li value="1">
+                <li>
                   <span data-lexical-text="true">Nested item</span>
                 </li>
               </ul>
@@ -281,12 +281,12 @@ describe('@lexical/list tests', () => {
           style="user-select: text; white-space: pre-wrap; word-break: break-word;"
           data-lexical-editor="true">
           <ul dir="auto">
-            <li value="1">
+            <li>
               <span data-lexical-text="true">First item</span>
             </li>
-            <li value="2">
+            <li>
               <ul>
-                <li value="1">
+                <li>
                   <span data-lexical-text="true">Nested item</span>
                 </li>
               </ul>

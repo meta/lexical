@@ -8,7 +8,12 @@
 
 // @vitest-environment node
 
-import {buildEditorFromExtensions} from '@lexical/extension';
+import {
+  $isHorizontalRuleNode,
+  buildEditorFromExtensions,
+  HorizontalRuleNode,
+} from '@lexical/extension';
+import {$isListNode, ListItemNode, ListNode} from '@lexical/list';
 import {
   $convertFromMarkdownString,
   $convertToMarkdownString,
@@ -38,7 +43,72 @@ import {
   BLOCK_EQUATION,
   EQUATION,
   IMAGE,
+  PLAYGROUND_TRANSFORMERS,
 } from '../../src/plugins/MarkdownTransformers';
+
+describe('playground HR markdown transformer', () => {
+  it.each([
+    '---',
+    '***',
+    '___',
+    '----',
+    '*****',
+    '______',
+    '- - -',
+    '* * *',
+    '_ _ _',
+    '   -  -  -  -   ',
+    '*\t*\t*\t',
+  ])('imports %j as a horizontal rule before list transformers', markdown => {
+    const editor = createEditor({
+      nodes: [HorizontalRuleNode, ListNode, ListItemNode],
+    });
+
+    editor.update(
+      () => $convertFromMarkdownString(markdown, PLAYGROUND_TRANSFORMERS),
+      {discrete: true},
+    );
+
+    editor.read(() => {
+      expect($isHorizontalRuleNode($getRoot().getFirstChild())).toBe(true);
+      expect($convertToMarkdownString(PLAYGROUND_TRANSFORMERS)).toBe('***');
+    });
+  });
+
+  it.each(['--', '**', '__', '-*-', '_ _ -', '--- text', '    ---'])(
+    'does not recognize %j as a horizontal rule',
+    markdown => {
+      const editor = createEditor({
+        nodes: [HorizontalRuleNode, ListNode, ListItemNode],
+      });
+
+      editor.update(
+        () => $convertFromMarkdownString(markdown, PLAYGROUND_TRANSFORMERS),
+        {discrete: true},
+      );
+
+      editor.read(() => {
+        expect($isHorizontalRuleNode($getRoot().getFirstChild())).toBe(false);
+      });
+    },
+  );
+
+  it('preserves ordinary list items', () => {
+    const editor = createEditor({
+      nodes: [HorizontalRuleNode, ListNode, ListItemNode],
+    });
+
+    editor.update(
+      () => $convertFromMarkdownString('- item', PLAYGROUND_TRANSFORMERS),
+      {discrete: true},
+    );
+
+    editor.read(() => {
+      expect($isListNode($getRoot().getFirstChild())).toBe(true);
+      expect($getRoot().getTextContent()).toBe('item');
+    });
+  });
+});
 
 const EQUATION_TRANSFORMERS = [BLOCK_EQUATION, EQUATION];
 const MarkdownShortcutTestExtension = defineExtension({
