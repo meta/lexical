@@ -93,6 +93,10 @@ export default function FontSize({
         // clamped to the minimum); show the selection's size again instead.
         setInputValue(selectionFontSize);
         setInputChangeFlag(false);
+        if (isMouseMode) {
+          // Like a valid Enter after a click, hand focus back to the editor.
+          editor.focus();
+        }
         return;
       }
       updateFontSizeByInputValue(inputValueNumber, !isMouseMode);

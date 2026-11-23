@@ -28,6 +28,7 @@ import {
   html,
   initialize,
   insertDateTime,
+  locate,
   test,
 } from '../utils/index.mjs';
 
@@ -458,30 +459,33 @@ test.describe('TextFormatting', () => {
     });
   });
 
-  test(`Pressing Enter in an emptied font size input leaves the font size unchanged`, async ({
-    page,
-  }) => {
-    await focusEditor(page);
-    await page.keyboard.type('Hello world!');
-    await moveLeft(page);
-    await selectCharacters(page, 'left', 5);
-
-    const fontSizeInput = page.locator('.font-size-input');
-    const fontSize = await fontSizeInput.inputValue();
-    await click(page, '.font-size-input');
-    await fill(page, '.font-size-input', '');
-    await page.keyboard.press('Enter');
-
-    await assertHTML(
+  for (const key of ['Enter', 'Escape']) {
+    test(`Pressing ${key} in an emptied font size input leaves the font size unchanged`, async ({
       page,
-      html`
-        <p class="PlaygroundEditorTheme__paragraph" dir="auto">
-          <span data-lexical-text="true">Hello world!</span>
-        </p>
-      `,
-    );
-    await expect(fontSizeInput).toHaveValue(fontSize);
-  });
+    }) => {
+      await focusEditor(page);
+      await page.keyboard.type('Hello world!');
+      await moveLeft(page);
+      await selectCharacters(page, 'left', 5);
+
+      const fontSizeInput = locate(page, '.font-size-input');
+      const fontSize = await fontSizeInput.inputValue();
+      await click(page, '.font-size-input');
+      await fill(page, '.font-size-input', '');
+      await page.keyboard.press(key);
+
+      await assertHTML(
+        page,
+        html`
+          <p class="PlaygroundEditorTheme__paragraph" dir="auto">
+            <span data-lexical-text="true">Hello world!</span>
+          </p>
+        `,
+      );
+      await expect(fontSizeInput).toHaveValue(fontSize);
+      await expect(fontSizeInput).not.toBeFocused();
+    });
+  }
 
   test(`Can select text with different size and update font size by entering the value`, async ({
     page,
