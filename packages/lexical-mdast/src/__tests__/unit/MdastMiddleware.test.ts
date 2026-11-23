@@ -8,6 +8,8 @@
 
 // @vitest-environment node
 
+import type {Strong} from 'mdast';
+
 import {buildEditorFromExtensions} from '@lexical/extension';
 import {
   $create,
@@ -24,6 +26,7 @@ import {
   ParagraphNode,
   TextNode,
 } from 'lexical';
+import {defaultHandlers} from 'mdast-util-to-markdown';
 import {assert, describe, expect, it} from 'vitest';
 
 import {
@@ -527,6 +530,57 @@ describe('mdast middleware', () => {
     );
     expect(editor.read(() => $convertToMarkdownString())).toBe('x**ab**');
   });
+
+  it.each([
+    ['one text child', '', 'marked: **b**'],
+    ['two text children, which are joined', 'c', 'marked: **bc**'],
+  ])(
+    'passes a symbol key from export rule output to a toMarkdownExtensions handler (%s)',
+    (_name, added, expected) => {
+      const marker = Symbol('marker');
+      using editor = createEditor({
+        exportRules: [
+          {
+            $export: (_node, context) =>
+              context.next().map(node =>
+                node.type === 'strong'
+                  ? {
+                      ...node,
+                      children:
+                        added === ''
+                          ? node.children
+                          : [...node.children, {type: 'text', value: added}],
+                      [marker]: true,
+                    }
+                  : node,
+              ),
+            type: TextNode,
+          },
+        ],
+        toMarkdownExtensions: [
+          {
+            handlers: {
+              strong: (node: Strong, parent, state, info) =>
+                (marker in node ? 'marked: ' : '') +
+                defaultHandlers.strong(node, parent, state, info),
+            },
+          },
+        ],
+      });
+      editor.update(
+        () =>
+          $getRoot()
+            .clear()
+            .append(
+              $createParagraphNode().append(
+                $createTextNode('b').toggleFormat('bold'),
+              ),
+            ),
+        {discrete: true},
+      );
+      expect(editor.read(() => $convertToMarkdownString())).toBe(expected);
+    },
+  );
 
   it.each([
     ['string', 'marker'],
