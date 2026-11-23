@@ -115,9 +115,15 @@ describe('FloatingTextFormatToolbarPlugin', () => {
       const popup = anchorElem.querySelector<HTMLElement>(
         '.floating-text-format-popup',
       )!;
-      // What the mousemove listener does when the mouse leaves the popup with
-      // the button held, as at the start of a drag.
-      popup.style.pointerEvents = 'none';
+      // A held-button mousemove outside the popup, as at the start of a drag,
+      // turns its pointer events off. jsdom has no elementFromPoint.
+      document.elementFromPoint = () => document.body;
+      try {
+        document.dispatchEvent(new MouseEvent('mousemove', {buttons: 1}));
+      } finally {
+        Reflect.deleteProperty(document, 'elementFromPoint');
+      }
+      expect(popup.style.pointerEvents).toBe('none');
 
       document.dispatchEvent(new Event('dragstart'));
       expect(popup.style.display).toBe('none');
