@@ -281,6 +281,23 @@ describe('@lexical/mdast import/export', () => {
         '**a`b`c**',
       );
     });
+
+    it('writes code texts that differ only in a format Markdown does not write as one code span', () => {
+      using editor = overlapEditor([
+        ['a', CODE | TEXT_TYPE_TO_FORMAT.highlight],
+        ['b', CODE],
+      ]);
+      const markdown = editor.read(() => $convertToMarkdownString());
+      expect(markdown).toBe('`ab`');
+      using reimported = createEditor();
+      reimported.update(
+        () => {
+          $convertFromMarkdownString(markdown);
+        },
+        {discrete: true},
+      );
+      expect(reimported.read($textRuns)).toEqual([['ab', CODE]]);
+    });
   });
 
   it('with NodeStructureExtension, leaves no break where a nested block is lifted out', () => {
