@@ -127,12 +127,13 @@ make it read back differently, or that only GFM's transform would link
 where it is, written as `[text](url)` or `<url>` instead, and GFM tables,
 padded so their columns line up and written as below. GFM starts a
 `www.` literal only at the start of a line or after whitespace, `*`,
-`_`, `~`, `(`, `[` or `]`, so after `.`, `!`, a code span and most other
-characters only its transform links one. Whether a literal reads back
-unchanged is checked on the paragraph, heading or table cell it is
-written in, so text that a contributed handler writes outside that (such
-as a letter a `paragraph` handler appends) is not checked, and a literal
-can still run into it.
+`_`, `~`, `(`, `[` or `]`, so after other punctuation such as `.` or
+`!`, after other whitespace or after a code span only its transform
+links one, and after a letter or digit neither does. Whether a literal
+reads back unchanged is checked on the paragraph, heading or table cell
+it is written in, so text that a contributed handler writes outside that
+(such as a letter a `paragraph` handler appends) is not checked, and a
+literal can still run into it.
 Nodes created in the editor defer to the document-level serialization
 options, which can be configured by contributing `mdast-util-to-markdown`
 options through `toMarkdownExtensions`.
