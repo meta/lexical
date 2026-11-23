@@ -26,9 +26,14 @@ import {
   TextNode,
 } from 'lexical';
 import {expect, onTestFinished, test} from 'vitest';
-import {cdp} from 'vitest/browser';
+import {cdp, server} from 'vitest/browser';
 
 import {$item, LIST_EDIT_CASES} from '../unit/listEditCases';
+
+// The number the browser draws is only readable through the Accessibility
+// tree over CDP, and `cdp()` is Chromium-only: Playwright rejects
+// `newCDPSession` on Firefox and WebKit. Skip there rather than fail.
+const chromiumTest = test.skipIf(server.browser !== 'chromium');
 
 interface FrameTree {
   frame: {id: string};
@@ -146,7 +151,7 @@ function mount({hideWrapperMarkers = true} = {}): LexicalEditor {
   return editor;
 }
 
-test.each(LIST_EDIT_CASES.map(c => [c.name, c] as const))(
+chromiumTest.each(LIST_EDIT_CASES.map(c => [c.name, c] as const))(
   '%s: the browser draws every item’s own number',
   async (_name, c) => {
     const editor = mount();
@@ -159,7 +164,7 @@ test.each(LIST_EDIT_CASES.map(c => [c.name, c] as const))(
   },
 );
 
-test.each(LIST_EDIT_CASES.map(c => [c.name, c] as const))(
+chromiumTest.each(LIST_EDIT_CASES.map(c => [c.name, c] as const))(
   '%s: with wrapper markers shown, each wrapper draws its own number too',
   async (_name, c) => {
     const editor = mount({hideWrapperMarkers: false});
@@ -177,45 +182,51 @@ test.each(LIST_EDIT_CASES.map(c => [c.name, c] as const))(
 
 // Documented in the changeset: the browser counts what it draws, so a
 // `reversed` list and a hidden item number from the browser's own count.
-test('documented: a reversed list counts down from the browser count', async () => {
-  const editor = mount();
-  const root = editor.getRootElement()!;
-  editor.update(
-    () => {
-      $getRoot().append(
-        $createListNode('number').append($item('a'), $item('b'), $item('c')),
-      );
-    },
-    {discrete: true},
-  );
-  root.querySelector('ol')!.setAttribute('reversed', '');
-  // The model says 1, 2, 3; with no `value` the browser counts 3, 2, 1.
-  expect(await drawnMarkers(root)).toEqual(
-    new Map([
-      [0, 3],
-      [1, 2],
-      [2, 1],
-    ]),
-  );
-});
+chromiumTest(
+  'documented: a reversed list counts down from the browser count',
+  async () => {
+    const editor = mount();
+    const root = editor.getRootElement()!;
+    editor.update(
+      () => {
+        $getRoot().append(
+          $createListNode('number').append($item('a'), $item('b'), $item('c')),
+        );
+      },
+      {discrete: true},
+    );
+    root.querySelector('ol')!.setAttribute('reversed', '');
+    // The model says 1, 2, 3; with no `value` the browser counts 3, 2, 1.
+    expect(await drawnMarkers(root)).toEqual(
+      new Map([
+        [0, 3],
+        [1, 2],
+        [2, 1],
+      ]),
+    );
+  },
+);
 
-test('documented: an item hidden with display: none shifts the numbers after it', async () => {
-  const editor = mount();
-  const root = editor.getRootElement()!;
-  editor.update(
-    () => {
-      $getRoot().append(
-        $createListNode('number').append($item('a'), $item('b'), $item('c')),
-      );
-    },
-    {discrete: true},
-  );
-  (root.querySelector('ol > li') as HTMLElement).style.display = 'none';
-  // b and c are 2 and 3 in the model; the browser no longer counts a.
-  expect(await drawnMarkers(root)).toEqual(
-    new Map([
-      [1, 1],
-      [2, 2],
-    ]),
-  );
-});
+chromiumTest(
+  'documented: an item hidden with display: none shifts the numbers after it',
+  async () => {
+    const editor = mount();
+    const root = editor.getRootElement()!;
+    editor.update(
+      () => {
+        $getRoot().append(
+          $createListNode('number').append($item('a'), $item('b'), $item('c')),
+        );
+      },
+      {discrete: true},
+    );
+    (root.querySelector('ol > li') as HTMLElement).style.display = 'none';
+    // b and c are 2 and 3 in the model; the browser no longer counts a.
+    expect(await drawnMarkers(root)).toEqual(
+      new Map([
+        [1, 1],
+        [2, 2],
+      ]),
+    );
+  },
+);
