@@ -484,6 +484,12 @@ test.describe('TextFormatting', () => {
       );
       await expect(fontSizeInput).toHaveValue(fontSize);
       await expect(fontSizeInput).not.toBeFocused();
+      await assertSelection(page, {
+        anchorOffset: 11,
+        anchorPath: [0, 0, 0],
+        focusOffset: 6,
+        focusPath: [0, 0, 0],
+      });
     });
   }
 
