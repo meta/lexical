@@ -30,21 +30,40 @@ import {namedSignals} from './namedSignals';
 import {effect} from './signals';
 
 /**
- * Default text substitutions, applied in the style of Word and Google Docs
- * auto-replace: the alias is replaced the moment its final character is
- * typed. User-supplied {@link TextSubstitutionConfig.substitutions} are
- * merged on top of these, so a user entry for an existing alias wins.
+ * Default text substitutions, in the style of Google Docs
+ * (Tools > Preferences > Substitutions): the alias is replaced the
+ * moment its final character is typed. User-supplied
+ * {@link TextSubstitutionConfig.substitutions} are merged on top of
+ * these, so a user entry for an existing alias wins.
  */
 export const DEFAULT_TEXT_SUBSTITUTIONS: Readonly<Record<string, string>> = {
   '(c)': '©',
   '(r)': '®',
   '(tm)': '™',
-  '--': '—',
+  '--': '–',
+  '---': '—',
   '-->': '→',
-  '->': '→',
   '...': '…',
-  '<-': '←',
+  '1/2': '½',
+  '1/3': '⅓',
+  '1/4': '¼',
+  '1/5': '⅕',
+  '1/6': '⅙',
+  '1/8': '⅛',
+  '2/3': '⅔',
+  '2/5': '⅖',
+  '3/4': '¾',
+  '3/5': '⅗',
+  '3/8': '⅜',
+  '4/5': '⅘',
+  '5/6': '⅚',
+  '5/8': '⅝',
+  '7/8': '⅞',
   '<--': '←',
+  '<==': '⇐',
+  '<=>': '⇔',
+  '==>': '⇒',
+  'c/o': '℅',
 };
 
 export interface TextSubstitutionConfig {
@@ -110,6 +129,18 @@ interface SubstitutionMatcher {
    * it into the longer alias, so it is held as pending until then.
    */
   isPrefix(alias: string): boolean;
+  /**
+   * The longest alias (with its replacement) that the text starting
+   * at `start` begins with, or `null` when none does. Used when a
+   * held-back alias is resolved: the longer alias may start at the
+   * held-back alias's position rather than at the end of the text
+   * (for example, a held-back `--` followed by a third dash forms
+   * `---`, which starts where the `--` started).
+   */
+  matchAt(
+    text: string,
+    start: number,
+  ): {alias: string; replacement: string; start: number} | null;
 }
 
 /**
@@ -136,6 +167,7 @@ function buildSubstitutionMatcher(
       getReplacement: () => undefined,
       isPrefix: () => false,
       match: () => null,
+      matchAt: () => null,
     };
   }
   const pattern = new RegExp(
@@ -176,6 +208,26 @@ function buildSubstitutionMatcher(
         return null;
       }
       return {alias, replacement, start: result.index};
+    },
+    matchAt(text: string, start: number) {
+      // Aliases are sorted longest first, so the first match is the
+      // longest alias starting at `start`.
+      for (const alias of aliases) {
+        if (!text.startsWith(alias, start)) {
+          continue;
+        }
+        const replacement = replacements.get(alias);
+        if (replacement === undefined) {
+          continue;
+        }
+        // The same word-boundary rule as match(): a word alias only
+        // fires when the character before it is not a word character.
+        if (start > 0 && /\w/.test(alias[0]) && /\w/.test(text[start - 1])) {
+          continue;
+        }
+        return {alias, replacement, start};
+      }
+      return null;
     },
   };
 }
@@ -326,6 +378,20 @@ function registerTextSubstitution(
         ) {
           const pending = pendingSubstitution;
           pendingSubstitution = null;
+          // A line of only dashes may become a markdown horizontal
+          // rule, which needs exactly three dashes. While the line
+          // is three dashes or fewer, keep the alias held back: the
+          // markdown transform may claim it, and if the user types
+          // a fourth dash the alias is applied below instead. This
+          // check comes before the longer-alias check, so that typing
+          // the third dash keeps '---' as-is rather than substituting
+          // it into an em dash at once.
+          const isShortDashesLine =
+            pending.alias === '--' && /^-+$/.test(text) && text.length <= 3;
+          if (isShortDashesLine) {
+            pendingSubstitution = pending;
+            return;
+          }
           const longer = matcher.match(text);
           const extendsPending =
             longer !== null &&
@@ -336,18 +402,22 @@ function registerTextSubstitution(
             const typedChar = text[text.length - 1];
             const isWordAlias = /\w/.test(pending.alias[0]);
             const isWordChar = typedChar !== undefined && /\w/.test(typedChar);
-            // A line of only dashes may become a markdown horizontal
-            // rule, which needs exactly three dashes. While the line
-            // is three dashes or fewer, keep the alias held back: the
-            // markdown transform may claim it, and if the user types
-            // a fourth dash the alias is applied below instead.
-            const isShortDashesLine =
-              pending.alias === '--' && /^-+$/.test(text) && text.length <= 3;
-            if (isShortDashesLine) {
-              pendingSubstitution = pending;
-              return;
-            }
             if (!(isWordAlias && isWordChar)) {
+              // A longer alias may start where the held-back alias
+              // started (for example, a held-back '--' followed by
+              // a third dash forms '---'). Apply the longest such
+              // alias instead of the held-back one.
+              const longerAtStart = matcher.matchAt(text, pending.start);
+              if (
+                longerAtStart !== null &&
+                longerAtStart.alias.length > pending.alias.length
+              ) {
+                applySubstitution(
+                  {...longerAtStart, nodeKey: anchorKey},
+                  anchorOffset,
+                );
+                return;
+              }
               // The alias was not extended, so it stands: apply it
               // now, one keystroke late. The alias sits at
               // pending.start and the typed character follows it, so
@@ -461,7 +531,7 @@ function registerTextSubstitution(
  * An extension that auto-replaces text aliases as they are typed, in the
  * style of Word and Google Docs (see issue #9706).
  *
- * Typing `--` produces `—`, `(c)` produces `©`, and so on; see
+ * Typing `--` produces `–`, `---` produces `—`, `(c)` produces `©`, and so on; see
  * {@link DEFAULT_TEXT_SUBSTITUTIONS} for the full default list, and pass
  * {@link TextSubstitutionConfig.substitutions} for custom aliases.
  *

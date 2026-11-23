@@ -602,6 +602,11 @@ i.horizontal-rule {
   mask-image: url(images/icons/horizontal-rule.svg);
 }
 
+i.gear {
+  -webkit-mask-image: url(images/icons/gear.svg);
+  mask-image: url(images/icons/gear.svg);
+}
+
 .icon.plus {
   -webkit-mask-image: url(images/icons/plus.svg);
   mask-image: url(images/icons/plus.svg);

@@ -121,6 +121,7 @@ declare export function registerClickableLink(
 
 export type AutoLinkConfig = {
   changeHandlers: ChangeHandler[];
+  disabled: boolean;
   excludeParents: ((parent: ElementNode) => boolean)[];
   matchers: LinkMatcher[];
   separatorRegex: RegExp;
@@ -156,6 +157,7 @@ declare export function registerAutoLink(
   editor: LexicalEditor,
   config?: {
     changeHandlers: ChangeHandler[];
+    disabled?: boolean;
     excludeParents: ((parent: ElementNode) => boolean)[];
     matchers: LinkMatcher[];
     separatorRegex?: RegExp;

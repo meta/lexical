@@ -44,6 +44,8 @@ import ContentEditable from './ui/ContentEditable';
 export default function Editor(): JSX.Element {
   const {
     settings: {
+      autoCorrectSpelling,
+      insertEmojiWithColon,
       isCollab,
       useCollabV2,
       useCollabY,
@@ -72,6 +74,19 @@ export default function Editor(): JSX.Element {
     useState<boolean>(false);
   const [editor] = useLexicalComposerContext();
   const [activeEditor, setActiveEditor] = useState(editor);
+  // "Automatically correct spelling" (Preferences > General) drives the
+  // spellcheck attribute on the editor root element. The browser's
+  // spellchecker is what underlines misspelled words, so toggling it
+  // off sets spellcheck to false on the editable root.
+  useEffect(() => {
+    const rootElement = editor.getRootElement();
+    if (rootElement !== null) {
+      rootElement.setAttribute(
+        'spellcheck',
+        autoCorrectSpelling ? 'true' : 'false',
+      );
+    }
+  }, [editor, autoCorrectSpelling]);
   // The link edit mode state lives on the ShortcutsExtension output so the
   // insert-link keyboard shortcut can set it without any React coupling
   // (the extension is only present in rich text configurations)
@@ -132,7 +147,7 @@ export default function Editor(): JSX.Element {
           !isRichText ? 'plain-text' : ''
         }`}>
         <ComponentPickerPlugin />
-        <EmojiPickerPlugin />
+        {insertEmojiWithColon && <EmojiPickerPlugin />}
         <AutoEmbedPlugin />
         <MentionsPlugin />
         <SpeechToTextPlugin />

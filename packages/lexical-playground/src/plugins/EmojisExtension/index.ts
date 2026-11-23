@@ -6,7 +6,8 @@
  *
  */
 
-import {defineExtension, TextNode} from 'lexical';
+import {effect, namedSignals} from '@lexical/extension';
+import {defineExtension, safeCast, TextNode} from 'lexical';
 
 import {$createEmojiNode} from '../../nodes/EmojiNode';
 
@@ -54,8 +55,29 @@ function $textNodeTransform(node: TextNode): void {
   }
 }
 
+export interface EmojisConfig {
+  /**
+   * When true, the extension registers no transform, so typing an
+   * emoticon (for example `:)`) leaves the text as typed.
+   * Defaults to `false`.
+   */
+  disabled: boolean;
+}
+
 export const EmojisExtension = defineExtension({
+  build: (_editor, config) => namedSignals(config),
+  config: safeCast<EmojisConfig>({
+    disabled: false,
+  }),
   name: '@lexical/playground/Emojis',
-  register: editor =>
-    editor.registerNodeTransform(TextNode, $textNodeTransform),
+  register(editor, _config, state) {
+    const {disabled} = state.getOutput();
+    // Gate on `disabled` from an effect so a disabled emoji
+    // extension registers no transform at all.
+    return effect(() =>
+      disabled.value
+        ? undefined
+        : editor.registerNodeTransform(TextNode, $textNodeTransform),
+    );
+  },
 });

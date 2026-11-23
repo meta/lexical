@@ -99,7 +99,7 @@ import {InsertPollDialog} from '../PollExtension';
 import {$isRubyNode, $toggleRuby} from '../RubyExtension/RubyNode';
 import {shortcut} from '../ShortcutsExtension/shortcuts';
 import {InsertTableDialog} from '../TablePlugin';
-import {TextSubstitutionDialog} from '../TextSubstitutionPlugin';
+import {PreferencesDialog} from '../TextSubstitutionPlugin';
 import FontSize, {parseFontSizeForToolbar} from './fontSize';
 import {
   clearFormatting,
@@ -1314,6 +1314,24 @@ export default function ToolbarPlugin({
               </div>
               <span className="shortcut">{shortcut('CLEAR_FORMATTING')}</span>
             </DropDownItem>
+            <Divider />
+            <DropDownItem
+              onClick={() => {
+                showModal('Preferences', onClose => (
+                  <PreferencesDialog
+                    activeEditor={activeEditor}
+                    onClose={onClose}
+                  />
+                ));
+              }}
+              className="item wide"
+              title="Preferences"
+              aria-label="Open preferences">
+              <div className="icon-text-container">
+                <i className="icon gear" />
+                <span className="text">Preferences</span>
+              </div>
+            </DropDownItem>
           </DropDown>
           <ExtensionComponent lexical:extension={PagesReactExtension} />
           {canViewerSeeInsertDropdown && (
@@ -1423,19 +1441,6 @@ export default function ToolbarPlugin({
                   className="item">
                   <i className="icon equation" />
                   <span className="text">Equation</span>
-                </DropDownItem>
-                <DropDownItem
-                  onClick={() => {
-                    showModal('Text Substitutions', onClose => (
-                      <TextSubstitutionDialog
-                        activeEditor={activeEditor}
-                        onClose={onClose}
-                      />
-                    ));
-                  }}
-                  className="item">
-                  <i className="icon paragraph" />
-                  <span className="text">Text Substitutions</span>
                 </DropDownItem>
                 <DropDownItem
                   onClick={() => {
