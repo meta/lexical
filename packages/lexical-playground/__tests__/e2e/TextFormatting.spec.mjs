@@ -28,6 +28,7 @@ import {
   html,
   initialize,
   insertDateTime,
+  locate,
   test,
 } from '../utils/index.mjs';
 
@@ -489,14 +490,14 @@ test.describe('TextFormatting', () => {
     await page.keyboard.type('Hello world!');
     await selectCharacters(page, 'left', 5);
 
-    const fontSizeInput = page.locator('.font-size-input');
+    const fontSizeInput = locate(page, '.font-size-input');
     const fontSize = await fontSizeInput.inputValue();
     await click(page, '.font-size-input');
     await fill(page, '.font-size-input', '');
     await focusEditor(page);
 
     await expect(fontSizeInput).toHaveValue(fontSize);
-    await expect(page.locator('.font-decrement')).toBeEnabled();
+    await expect(locate(page, '.font-decrement')).toBeEnabled();
     await assertHTML(
       page,
       html`
