@@ -190,9 +190,9 @@ interface LiteralCheck {
  * it. So each outermost phrasing container (a paragraph, a heading, a table
  * cell) is read back once it is written. When its links do not come back as
  * written, the literals from the first that does not are written again in
- * resource or autolink form, neither of which runs into its neighbours, and
- * all of them if it still does not; writing the container again runs its
- * handlers again.
+ * resource or autolink form, neither of which runs into its neighbours, as is
+ * one that only GFM's transform reads back as a link, and all of them if it
+ * still does not; writing the container again runs its handlers again.
  */
 function checkLiterals(
   getLiteralUrl: (text: string) => string | null,
@@ -268,35 +268,57 @@ function checkLiterals(
             /^[\t ]|[\t ]$/g,
             space => (space === ' ' ? '&#x20;' : '&#x9;'),
           );
-        // The first link that does not read back as it was written, or -1.
-        // Links read back after the last one written come from plain text,
-        // which the literals do not change.
-        const firstChanged = (markdown: string): number => {
+        // The first link that does not read back as it was written, or -1,
+        // and the literals before it that read back as links GFM's transform
+        // found (after a code span or `!`, say). Links read back after the
+        // last one written come from plain text, which the literals do not
+        // change.
+        const changed = (markdown: string): {first: number; loose: Link[]} => {
           const keys = getLinkKeys(markdown);
-          return links.findIndex((link, i) => keys[i] !== linkKey(link));
+          const loose: Link[] = [];
+          const first = links.findIndex((link, i) => {
+            if (keys[i] === '\0') {
+              loose.push(link);
+              return false;
+            }
+            return keys[i] !== linkKey(link);
+          });
+          return {first, loose};
         };
         const markdown = readable(value);
         if (isIsolated(markdown, texts)) {
           return value;
         }
-        const first = firstChanged(markdown);
-        if (first === -1) {
+        const {first, loose} = changed(markdown);
+        if (first === -1 && loose.length === 0) {
           return value;
         }
-        // Only the literals from it on are written again. Links are matched in
-        // order, so one that reads back can stand in for an earlier literal
-        // with the same text that does not (`xwww.example.com and
-        // www.example.com`); when the container still does not read back, all
-        // of them are.
-        for (const link of links.slice(first)) {
+        // A literal that reads back through the transform is written again
+        // alone, and from the first link that does not read back, every
+        // literal is. Links are matched in order, so one that reads back can
+        // stand in for an earlier literal with the same text that does not
+        // (`xwww.example.com and www.example.com`); when the container still
+        // does not read back, all of them are.
+        for (const link of loose) {
           demoted.add(link);
+        }
+        if (first !== -1) {
+          for (const link of links.slice(first)) {
+            demoted.add(link);
+          }
         }
         const rewritten = containerPhrasing.call(
           state,
           container,
           containerInfo,
         );
-        if (first === 0 || firstChanged(readable(rewritten)) === -1) {
+        // With no literal left bare, writing the container again would not
+        // change it.
+        if (links.every(link => bareText(link) === null)) {
+          return rewritten;
+        }
+        const again = changed(readable(rewritten));
+        if (again.first === -1 && again.loose.length === 0) {
           return rewritten;
         }
         for (const link of links) {
@@ -1599,7 +1621,13 @@ export function createMdastExport(compiled: CompiledMdast): {
         ? paragraph.children[0]
         : null;
     return {
-      keys: collectLinks(doc).map(linkKey),
+      // A link with no position was found by GFM's transform, not by
+      // micromark, so an import records no link style for it and the next
+      // export writes it in resource form. Its key is NUL, which no linkKey
+      // is.
+      keys: collectLinks(doc).map(link =>
+        link.position === undefined ? '\0' : linkKey(link),
+      ),
       url:
         literal !== null &&
         literal.type === 'link' &&
