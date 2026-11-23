@@ -401,10 +401,17 @@ function collectExportedTextRuns(
   runs: TextRun[],
 ): boolean {
   // Preserve annotated/custom output verbatim instead of discarding metadata
-  // when rebuilding the formatting containers.
+  // when rebuilding the formatting containers. Count the keys a copy with
+  // `...` keeps: enumerable ones, symbol keys too, which Object.keys leaves
+  // out. Later steps copy a node that way when they join its text, so a
+  // non-enumerable key could not be kept reliably anyway.
   if (
-    Object.keys(node).some(
-      key => key !== 'type' && key !== 'value' && key !== 'children',
+    Reflect.ownKeys(node).some(
+      key =>
+        key !== 'type' &&
+        key !== 'value' &&
+        key !== 'children' &&
+        Object.prototype.propertyIsEnumerable.call(node, key),
     )
   ) {
     return false;

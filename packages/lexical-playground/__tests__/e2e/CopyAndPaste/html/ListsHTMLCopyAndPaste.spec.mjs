@@ -33,10 +33,10 @@ test.describe('HTML Lists CopyAndPaste', () => {
       page,
       html`
         <ul class="PlaygroundEditorTheme__ul" dir="auto">
-          <li class="PlaygroundEditorTheme__listItem" value="1">
+          <li class="PlaygroundEditorTheme__listItem">
             <span data-lexical-text="true">Hello</span>
           </li>
-          <li class="PlaygroundEditorTheme__listItem" value="2">
+          <li class="PlaygroundEditorTheme__listItem">
             <span data-lexical-text="true">world!</span>
           </li>
         </ul>
@@ -56,14 +56,13 @@ test.describe('HTML Lists CopyAndPaste', () => {
       page,
       html`
         <ul class="PlaygroundEditorTheme__ul" dir="auto">
-          <li class="PlaygroundEditorTheme__listItem" value="1">
+          <li class="PlaygroundEditorTheme__listItem">
             <span data-lexical-text="true">Hello</span>
           </li>
           <li
-            class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__nestedListItem"
-            value="2">
+            class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__nestedListItem">
             <ul class="PlaygroundEditorTheme__ul">
-              <li class="PlaygroundEditorTheme__listItem" value="1">
+              <li class="PlaygroundEditorTheme__listItem">
                 <span data-lexical-text="true">world!</span>
               </li>
             </ul>
@@ -78,10 +77,10 @@ test.describe('HTML Lists CopyAndPaste', () => {
       page,
       html`
         <ul class="PlaygroundEditorTheme__ul" dir="auto">
-          <li class="PlaygroundEditorTheme__listItem" value="1">
+          <li class="PlaygroundEditorTheme__listItem">
             <span data-lexical-text="true">Hello</span>
           </li>
-          <li class="PlaygroundEditorTheme__listItem" value="2">
+          <li class="PlaygroundEditorTheme__listItem">
             <span data-lexical-text="true">world!</span>
           </li>
         </ul>

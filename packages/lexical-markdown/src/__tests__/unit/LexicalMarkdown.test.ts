@@ -4781,6 +4781,32 @@ describe('emphasis next to Unicode punctuation and symbols', () => {
       ],
     ],
     ['snake_case_word', [['snake_case_word', 'plain']]],
+    // The backslash is ASCII punctuation too (#9407).
+    [
+      '_a_\\\nb',
+      [
+        ['a', 'italic'],
+        ['b', 'plain'],
+      ],
+    ],
+    [
+      '**a.**\\x',
+      [
+        ['a.', 'bold'],
+        ['\\x', 'plain'],
+      ],
+    ],
+    [
+      '\\\\_a_',
+      [
+        ['\\', 'plain'],
+        ['a', 'italic'],
+      ],
+    ],
+    ['snake_case\\_x', [['snake_case_x', 'plain']]],
+    ['a_b_\\c', [['a_b_\\c', 'plain']]],
+    ['\\_a_', [['_a_', 'plain']]],
+    ['_a\\_', [['_a_', 'plain']]],
     // Unchanged: a letter is not punctuation, whatever the script.
     [
       `${LATIN_E_ACUTE}**${HERE_LINK}**`,
@@ -4809,6 +4835,9 @@ describe('emphasis next to Unicode punctuation and symbols', () => {
   // Importing the bold link as text used to leave the asterisks in the text,
   // so the export escaped them. The exporter writes the bold inside the link.
   const EXPORT_CASES: [md: string, exported: string][] = [
+    // The backslash is ASCII punctuation too (#9407).
+    ['_a_\\\nb', '*a*\\\nb'],
+    ['**a.**\\x', '**a.**\\\\x'],
     [
       `See ${EN_DASH}**${HERE_LINK}** now.`,
       `See ${EN_DASH}[**here**](https://example.com) now.`,
@@ -4859,6 +4888,36 @@ describe('emphasis next to Unicode punctuation and symbols', () => {
   // the word character goes out as a numeric reference, whose `&` or `;` is
   // punctuation.
   it.each([
+    // Escaping the first formatted character puts a backslash next to the
+    // opening marker, so the preceding letter needs a character reference.
+    [
+      [
+        ['a', []],
+        ['_x', ['bold']],
+      ],
+      '&#97;**\\_x**',
+    ],
+    [
+      [
+        ['a', []],
+        ['*x', ['italic']],
+      ],
+      '&#97;*\\*x*',
+    ],
+    [
+      [
+        ['a', []],
+        ['~x', ['strikethrough']],
+      ],
+      '&#97;~~\\~x~~',
+    ],
+    [
+      [
+        ['a', []],
+        ['\\x', ['bold']],
+      ],
+      '&#97;**\\\\x**',
+    ],
     [
       [
         ['foo', []],
