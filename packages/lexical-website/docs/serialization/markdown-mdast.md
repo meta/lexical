@@ -124,9 +124,11 @@ literal). Some forms are normalized, such as a run of text both bold
 and italic on its own, written as emphasis around strong (`**_both_**`
 comes back as `_**both**_`), a bare GFM literal whose neighbours would
 make it read back differently, or that only GFM's transform would link
-where it is (right after a code span or `!`, say), written as
-`[text](url)` or `<url>` instead, and GFM tables, padded so their columns
-line up and written as below. Whether a literal reads back unchanged is
+where it is, written as `[text](url)` or `<url>` instead, and GFM tables,
+padded so their columns line up and written as below. GFM starts a
+literal only at the start of a line or after whitespace, `*`, `_`, `~`
+or `(`, so after `.`, `!`, a code span and most other characters only
+its transform links one. Whether a literal reads back unchanged is
 checked on the paragraph, heading or table cell it is written in, so text
 that a contributed handler writes outside that (such as a letter a
 `paragraph` handler appends) is not checked, and a literal can still run
