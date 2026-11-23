@@ -388,7 +388,8 @@ export default function ActionsPlugin({
           editor.setEditable(!editor.isEditable());
         }}
         title="Read-Only Mode"
-        aria-label={`${!isEditable ? 'Unlock' : 'Lock'} read-only mode`}>
+        aria-label="Read-only mode"
+        aria-pressed={!isEditable}>
         <i className={!isEditable ? 'unlock' : 'lock'} />
       </button>
       <button
