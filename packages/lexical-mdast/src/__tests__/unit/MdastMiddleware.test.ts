@@ -8,6 +8,8 @@
 
 // @vitest-environment node
 
+import type {Strong} from 'mdast';
+
 import {buildEditorFromExtensions} from '@lexical/extension';
 import {
   $create,
@@ -24,7 +26,8 @@ import {
   ParagraphNode,
   TextNode,
 } from 'lexical';
-import {describe, expect, it} from 'vitest';
+import {defaultHandlers} from 'mdast-util-to-markdown';
+import {assert, describe, expect, it} from 'vitest';
 
 import {
   $convertFromMarkdownString,
@@ -387,6 +390,232 @@ describe('mdast middleware', () => {
         ],
         type: 'root',
       });
+    },
+  );
+
+  it.each([
+    ['a symbol key', Symbol('marker'), {enumerable: true, value: true}],
+    ['a key set to undefined', 'data', {enumerable: true, value: undefined}],
+    [
+      'a symbol key set to undefined',
+      Symbol('marker'),
+      {enumerable: true, value: undefined},
+    ],
+  ])(
+    'keeps custom output with %s when grouping text',
+    (_name, key, descriptor) => {
+      using editor = createEditor({
+        exportRules: [
+          {
+            $export: (_node, context) =>
+              context
+                .next()
+                .map(node =>
+                  node.type === 'strong'
+                    ? Object.defineProperty({...node}, key, descriptor)
+                    : node,
+                ),
+            type: TextNode,
+          },
+        ],
+      });
+      editor.update(
+        () =>
+          $getRoot()
+            .clear()
+            .append(
+              $createParagraphNode().append(
+                $createTextNode('b').toggleFormat('bold'),
+              ),
+            ),
+        {discrete: true},
+      );
+      const [paragraph] = editor.read(() => $convertToMdast()).children;
+      assert(paragraph.type === 'paragraph');
+      expect(
+        Reflect.getOwnPropertyDescriptor(paragraph.children[0], key),
+      ).toBeDefined();
+    },
+  );
+
+  it.each(['strong', 'text'])(
+    'writes formatted text with a symbol key on its %s node on its own',
+    keyedType => {
+      const expected: [string, number][] = [
+        ['ab', IS_BOLD],
+        ['cd', IS_BOLD | IS_ITALIC],
+      ];
+      using editor = createEditor({
+        exportRules: [
+          {
+            $export: (node, context) =>
+              context.next().map(mdastNode => {
+                if (
+                  mdastNode.type !== 'strong' ||
+                  node.getTextContent() !== 'ab'
+                ) {
+                  return mdastNode;
+                }
+                const marker = Symbol('marker');
+                return keyedType === 'strong'
+                  ? {...mdastNode, [marker]: true}
+                  : {
+                      ...mdastNode,
+                      children: mdastNode.children.map(child => ({
+                        ...child,
+                        [marker]: true,
+                      })),
+                    };
+              }),
+            type: TextNode,
+          },
+        ],
+      });
+      editor.update(
+        () =>
+          $getRoot()
+            .clear()
+            .append(
+              $createParagraphNode().append(
+                ...expected.map(([value, format]) =>
+                  $createTextNode(value).setFormat(format),
+                ),
+              ),
+            ),
+        {discrete: true},
+      );
+      const markdown = editor.read(() => $convertToMarkdownString());
+      expect(markdown).toBe('**ab*****cd***');
+      editor.update(() => $convertFromMarkdownString(markdown), {
+        discrete: true,
+      });
+      expect(
+        editor.read(() =>
+          $getRoot()
+            .getAllTextNodes()
+            .map(node => [node.getTextContent(), node.getFormat()]),
+        ),
+      ).toEqual(expected);
+    },
+  );
+
+  it.each([
+    ['data', 'data'],
+    ['a symbol key', Symbol('marker')],
+  ])('writes the text before custom output with %s first', (_name, key) => {
+    using editor = createEditor({
+      exportRules: [
+        {
+          $export: (_node, context) =>
+            context
+              .next()
+              .map(node =>
+                node.type === 'strong' ? {...node, [key]: {}} : node,
+              ),
+          type: TextNode,
+        },
+      ],
+    });
+    editor.update(
+      () =>
+        $getRoot()
+          .clear()
+          .append(
+            $createParagraphNode().append(
+              $createTextNode('x'),
+              $createTextNode('ab').toggleFormat('bold'),
+            ),
+          ),
+      {discrete: true},
+    );
+    expect(editor.read(() => $convertToMarkdownString())).toBe('x**ab**');
+  });
+
+  it.each([
+    ['one text child', '', 'marked: **b**'],
+    ['two text children, which are joined', 'c', 'marked: **bc**'],
+  ])(
+    'passes a symbol key from export rule output to a toMarkdownExtensions handler (%s)',
+    (_name, added, expected) => {
+      const marker = Symbol('marker');
+      using editor = createEditor({
+        exportRules: [
+          {
+            $export: (_node, context) =>
+              context.next().map(node =>
+                node.type === 'strong'
+                  ? {
+                      ...node,
+                      children:
+                        added === ''
+                          ? node.children
+                          : [...node.children, {type: 'text', value: added}],
+                      [marker]: true,
+                    }
+                  : node,
+              ),
+            type: TextNode,
+          },
+        ],
+        toMarkdownExtensions: [
+          {
+            handlers: {
+              strong: (node: Strong, parent, state, info) =>
+                (marker in node ? 'marked: ' : '') +
+                defaultHandlers.strong(node, parent, state, info),
+            },
+          },
+        ],
+      });
+      editor.update(
+        () =>
+          $getRoot()
+            .clear()
+            .append(
+              $createParagraphNode().append(
+                $createTextNode('b').toggleFormat('bold'),
+              ),
+            ),
+        {discrete: true},
+      );
+      expect(editor.read(() => $convertToMarkdownString())).toBe(expected);
+    },
+  );
+
+  it.each([
+    ['string', 'marker'],
+    ['symbol', Symbol('marker')],
+  ])(
+    'groups text whose only other key is a non-enumerable %s, as a copy drops it',
+    (_name, key) => {
+      using editor = createEditor({
+        exportRules: [
+          {
+            $export: (_node, context) =>
+              context
+                .next()
+                .map(node =>
+                  Object.defineProperty({...node}, key, {value: true}),
+                ),
+            type: TextNode,
+          },
+        ],
+      });
+      editor.update(
+        () =>
+          $getRoot()
+            .clear()
+            .append(
+              $createParagraphNode().append(
+                $createTextNode('ab').toggleFormat('bold'),
+                $createTextNode('cd')
+                  .toggleFormat('bold')
+                  .toggleFormat('italic'),
+              ),
+            ),
+        {discrete: true},
+      );
+      expect(editor.read(() => $convertToMarkdownString())).toBe('**ab*cd***');
     },
   );
 

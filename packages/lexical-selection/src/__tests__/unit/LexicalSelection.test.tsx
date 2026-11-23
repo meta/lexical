@@ -307,7 +307,7 @@ describe('LexicalSelection tests', () => {
       editor!,
     );
     expect(container!.innerHTML).toBe(
-      '<div contenteditable="true" style="user-select: text; white-space: pre-wrap; word-break: break-word;" data-lexical-editor="true"><ul class="editor-list-ul" dir="auto"><li value="1"><br data-lexical-managed-linebreak="true"></li></ul></div>',
+      '<div contenteditable="true" style="user-select: text; white-space: pre-wrap; word-break: break-word;" data-lexical-editor="true"><ul class="editor-list-ul" dir="auto"><li><br data-lexical-managed-linebreak="true"></li></ul></div>',
     );
 
     await applySelectionInputs([deleteWordBackward(1)], update, editor!);
@@ -337,8 +337,8 @@ describe('LexicalSelection tests', () => {
             <span data-lexical-text="true">preceding paragraph</span>
           </p>
           <ul class="editor-list-ul" dir="auto">
-            <li value="1"><br data-lexical-managed-linebreak="true" /></li>
-            <li value="2"><br data-lexical-managed-linebreak="true" /></li>
+            <li><br data-lexical-managed-linebreak="true" /></li>
+            <li><br data-lexical-managed-linebreak="true" /></li>
           </ul>
         </div>
       `,
@@ -355,7 +355,7 @@ describe('LexicalSelection tests', () => {
             <span data-lexical-text="true">preceding paragraph</span>
           </p>
           <ul class="editor-list-ul" dir="auto">
-            <li value="1"><br data-lexical-managed-linebreak="true" /></li>
+            <li><br data-lexical-managed-linebreak="true" /></li>
           </ul>
         </div>
       `,

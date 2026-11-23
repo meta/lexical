@@ -413,8 +413,8 @@ test.describe('Shadow DOM', () => {
       html`
         <h1><span data-lexical-text="true">Heading</span></h1>
         <ul>
-          <li value="1"><span data-lexical-text="true">item one</span></li>
-          <li value="2"><span data-lexical-text="true">item two</span></li>
+          <li><span data-lexical-text="true">item one</span></li>
+          <li><span data-lexical-text="true">item two</span></li>
         </ul>
       `,
       undefined,
