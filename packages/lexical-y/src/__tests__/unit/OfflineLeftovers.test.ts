@@ -563,9 +563,9 @@ describe('where leftovers are written', () => {
   // CodeBunny on #9924: paired by position, one block added or removed
   // offline made every later block a change, and wrap wrote them all again.
   test('without block ids, a block added offline: only it is written (the shifted blocks are found by content)', () => {
-    const four = () => [$p('one'), $p('two'), $p('three'), $p('four')];
+    const $four = () => [$p('one'), $p('two'), $p('three'), $p('four')];
     const s = scenario(
-      {base: four, now: four, yours: () => [$p('new, mine'), ...four()]},
+      {base: $four, now: $four, yours: () => [$p('new, mine'), ...$four()]},
       noIds,
     );
     const result = replay(s);
@@ -583,11 +583,11 @@ describe('where leftovers are written', () => {
   });
 
   test('without block ids, a block deleted offline: nothing is written', () => {
-    const four = () => [$p('one'), $p('two'), $p('three'), $p('four')];
+    const $four = () => [$p('one'), $p('two'), $p('three'), $p('four')];
     const s = scenario(
       {
-        base: four,
-        now: four,
+        base: $four,
+        now: $four,
         yours: () => [$p('two'), $p('three'), $p('four')],
       },
       noIds,
