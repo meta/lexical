@@ -312,7 +312,7 @@ export class ListItemNode extends ElementNode {
   ) {
     $updateListItemChecked(dom, this, prevNode);
 
-    dom.value = this.__value;
+    $updateListItemValueDOM(dom, this);
     $setListItemThemeClassNames(dom, config.theme, this);
     const prevStyle = prevNode ? prevNode.__style : '';
     const nextStyle = this.__style;
@@ -331,11 +331,27 @@ export class ListItemNode extends ElementNode {
     // @ts-expect-error - this is always HTMLListItemElement
     const element: HTMLLIElement = dom;
     this.updateListItemDOM(prevNode, element, config);
+    if (prevNode.__value !== this.__value) {
+      // The next item's `value` is decided from this item's number, and the
+      // next item is not always reconciled when only this one is renumbered
+      // (an item that wraps a nested list keeps the number of the item after
+      // it, so inserting above it renumbers the wrapper but not that item).
+      $updateNextListItemValueDOM(this);
+    }
     return false;
   }
 
   exportDOM(editor: LexicalEditor): DOMExportOutput {
-    const element = this.createDOM(editor._config);
+    // Exported HTML keeps every item's value, so pasted lists number as before,
+    // written where `createDOM` always wrote it.
+    const wasExporting = exportingListItemValues;
+    exportingListItemValues = true;
+    let element: HTMLElement;
+    try {
+      element = this.createDOM(editor._config);
+    } finally {
+      exportingListItemValues = wasExporting;
+    }
 
     const formatType = this.getFormatType();
     if (formatType) {
@@ -961,4 +977,58 @@ export function $isListItemNode(
   node: LexicalNode | null | undefined,
 ): node is ListItemNode {
   return node instanceof ListItemNode;
+}
+
+/**
+ * Writes `li.value` only where the item's number differs from the one the
+ * browser draws from the list's own count: the `<ol start>` for the first
+ * item, otherwise the previous item's number plus one. Every item still shows
+ * its `__value`; bullet and check items never carry a `value`.
+ *
+ * Setting `HTMLLIElement.value` invalidates the whole list's ordinal cache in
+ * Blink, and inserting an item renumbers (and reconciles) every item after it,
+ * so writing it on every item made an insert near the top of an n-item list
+ * O(n^2).
+ */
+function $updateListItemValueDOM(dom: HTMLLIElement, node: ListItemNode): void {
+  if (exportingListItemValues) {
+    dom.value = node.__value;
+    return;
+  }
+  const parent = node.getParent();
+  if ($isListNode(parent) && parent.getListType() === 'number') {
+    const prev = node.getPreviousSibling();
+    const shown = $isListItemNode(prev)
+      ? prev.getValue() + 1
+      : parent.getStart();
+    if (node.__value !== shown) {
+      dom.value = node.__value;
+      return;
+    }
+  }
+  if (dom.hasAttribute('value')) {
+    dom.removeAttribute('value');
+  }
+}
+
+/**
+ * Set while `exportDOM` builds an item, so the exported `<li>` carries its
+ * `value` as it always did.
+ */
+let exportingListItemValues = false;
+
+/**
+ * Re-decides the next item's `value` after this item's number changed. Only
+ * the attribute is written: the next item's node and the rest of its DOM are
+ * left alone, and an item the reconciler will update itself is decided again
+ * there.
+ */
+function $updateNextListItemValueDOM(node: ListItemNode): void {
+  const next = node.getNextSibling();
+  if ($isListItemNode(next)) {
+    const dom = $getEditor().getElementByKey(next.getKey());
+    if (dom !== null) {
+      $updateListItemValueDOM(dom as HTMLLIElement, next);
+    }
+  }
 }

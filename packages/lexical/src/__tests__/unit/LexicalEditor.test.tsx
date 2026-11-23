@@ -1115,17 +1115,17 @@ describe('LexicalEditor tests', () => {
           style="user-select: text; white-space: pre-wrap; word-break: break-word;"
           data-lexical-editor="true">
           <ul dir="auto">
-            <li value="1">
+            <li>
               <ul>
-                <li value="1"><span data-lexical-text="true">1</span></li>
+                <li><span data-lexical-text="true">1</span></li>
               </ul>
             </li>
           </ul>
           <p dir="auto"><br data-lexical-managed-linebreak="true" /></p>
           <ul dir="auto">
-            <li value="1">
+            <li>
               <ul>
-                <li value="1"><span data-lexical-text="true">2</span></li>
+                <li><span data-lexical-text="true">2</span></li>
               </ul>
             </li>
           </ul>
@@ -1149,10 +1149,10 @@ describe('LexicalEditor tests', () => {
           style="user-select: text; white-space: pre-wrap; word-break: break-word;"
           data-lexical-editor="true">
           <ul dir="auto">
-            <li value="1">
+            <li>
               <ul>
-                <li value="1"><span data-lexical-text="true">1</span></li>
-                <li value="2"><span data-lexical-text="true">2</span></li>
+                <li><span data-lexical-text="true">1</span></li>
+                <li><span data-lexical-text="true">2</span></li>
               </ul>
             </li>
           </ul>

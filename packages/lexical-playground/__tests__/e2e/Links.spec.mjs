@@ -527,7 +527,7 @@ test.describe('Links', () => {
       page,
       html`
         <ul class="PlaygroundEditorTheme__ul" dir="auto">
-          <li class="PlaygroundEditorTheme__listItem" value="1">
+          <li class="PlaygroundEditorTheme__listItem">
             <a
               class="PlaygroundEditorTheme__link"
               href="https://"
@@ -545,10 +545,10 @@ test.describe('Links', () => {
       page,
       html`
         <ul class="PlaygroundEditorTheme__ul" dir="auto">
-          <li class="PlaygroundEditorTheme__listItem" value="1">
+          <li class="PlaygroundEditorTheme__listItem">
             <br data-lexical-managed-linebreak="true" />
           </li>
-          <li class="PlaygroundEditorTheme__listItem" value="2">
+          <li class="PlaygroundEditorTheme__listItem">
             <a
               class="PlaygroundEditorTheme__link"
               href="https://"
