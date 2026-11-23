@@ -344,7 +344,7 @@ function registerRovingTabIndex(
       // Firefox can focus the container itself (e.g. role="toolbar") rather
       // than a child item. Treat any arrow/Home/End as "enter the group at
       // the first item" so the user isn't stuck.
-      if (active !== container) {
+      if (getActiveElementDeep(container.ownerDocument) !== container) {
         // Focus is on something in the group that isn't an item, such as an
         // input; leave its arrow/Home/End keys alone.
         return;
