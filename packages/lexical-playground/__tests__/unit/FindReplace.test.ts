@@ -1036,6 +1036,38 @@ describe('FindReplaceExtension — command dispatch integration', () => {
     expect(dep.output.effectiveIndex.peek()).toBe(1);
   });
 
+  test.each([
+    ['FIND_NEXT_COMMAND', FIND_NEXT_COMMAND],
+    ['FIND_PREV_COMMAND', FIND_PREV_COMMAND],
+  ])('%s moves from the clamped index after an edit', (_name, command) => {
+    using editor = buildEditorFromExtensions(FindReplaceExtension);
+    const dep = getExtensionDependencyFromEditor(editor, FindReplaceExtension);
+    editor.update(
+      () => {
+        $getRoot()
+          .clear()
+          .append($createParagraphNode().append($createTextNode('a b a b a')));
+      },
+      {discrete: true},
+    );
+    editor.dispatchCommand(TOGGLE_FIND_REPLACE_COMMAND);
+    dep.output.searchTerm.value = 'a';
+    editor.dispatchCommand(FIND_PREV_COMMAND);
+    expect(dep.output.effectiveIndex.peek()).toBe(2);
+    editor.update(
+      () => {
+        $getRoot()
+          .clear()
+          .append($createParagraphNode().append($createTextNode('a b a')));
+      },
+      {discrete: true},
+    );
+    expect(dep.output.effectiveIndex.peek()).toBe(1);
+
+    editor.dispatchCommand(command);
+    expect(dep.output.effectiveIndex.peek()).toBe(0);
+  });
+
   test('regexError computed returns true for invalid regex', () => {
     using editor = buildEditorFromExtensions(FindReplaceExtension);
     const dep = getExtensionDependencyFromEditor(editor, FindReplaceExtension);
