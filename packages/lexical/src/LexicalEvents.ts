@@ -1924,6 +1924,8 @@ function $cleanupComposedSubclass(compositionKey: NodeKey | null): void {
   const composedNode = $getNodeByKey(compositionKey);
   if (
     !$isTextNode(composedNode) ||
+    // Exactly TextNode, which needs no replacing
+    // eslint-disable-next-line @lexical/internal/no-constant-node-type-comparison
     composedNode.getType() === 'text' ||
     $isTokenOrSegmented(composedNode) ||
     !composedNode.isAttached()

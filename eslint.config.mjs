@@ -530,6 +530,28 @@ export default [
     },
   },
 
+  // A node's type string names its class in serialized JSON, and a subclass
+  // or node replacement has a type of its own, so checking a node's class by
+  // comparing its type with a constant misses them: use the $isXNode guards
+  // or instanceof. Tests may assert on types.
+  {
+    files: ['packages/**', 'examples/**', 'dev-examples/**', 'scripts/**'],
+    ignores: [
+      '**/__tests__/**',
+      '**/*.test.*',
+      '**/*.spec.*',
+      '**/e2e/**',
+      '**/tests/**',
+      '**/__bench__/**',
+      '**/*.bench.*',
+      // A Playwright check of the website's examples, which is a test
+      'packages/lexical-website/scripts/check-getting-started-examples.mjs',
+    ],
+    rules: {
+      '@lexical/internal/no-constant-node-type-comparison': ERROR,
+    },
+  },
+
   // A window messaging channel is shared with whatever else is running in the
   // page, so its name has to be specific to that page rather than a constant,
   // and a message has to name the origin it is for. The name is not a secret;
