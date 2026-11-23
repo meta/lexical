@@ -5,7 +5,7 @@
 Framework-agnostic accessibility extensions. See [Keyboard Accessibility](/docs/concepts/keyboard-accessibility) for the full contract and the matching `@lexical/react` adapters.
 
 - [AriaLiveRegionExtension](/docs/api/modules/lexical_a11y#arialiveregionextension) - Owns a visually hidden `aria-live` region and exposes a stable `announce` sink (WAI-ARIA status messages, WCAG 4.1.3)
-- [EditorModeAnnounceExtension](/docs/api/modules/lexical_a11y#editormodeannounceextension) - Announces editable / read-only transitions through the live region
+- [EditorModeAnnounceExtension](/docs/api/modules/lexical_a11y#editormodeannounceextension) - Announces editable / read-only transitions through the live region. Add it only when an app has its own reason to announce: a screen reader already reports whether a text box is editable or read-only when the user reaches it, and a control that changes the state, like a toggle button, should report its own state instead
 - [FocusManagerExtension](/docs/api/modules/lexical_a11y#focusmanagerextension) - Editor ↔ toolbar focus jump (Alt+F10 to the toolbar, Escape back to the editor), reference-counted per toolbar
 - [FocusTrapExtension](/docs/api/modules/lexical_a11y#focustrapextension) - Traps Tab / Shift+Tab focus inside one or more containers (modal dialogs), reference-counted per container
 - [HistoryAnnounceExtension](/docs/api/modules/lexical_a11y#historyannounceextension) - Announces undo / redo through the live region
