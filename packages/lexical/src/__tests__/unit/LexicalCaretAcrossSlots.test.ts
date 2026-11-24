@@ -47,7 +47,7 @@ import {
 //      -> host paragraph with slots 'aside' ("Aside"), 'title' ("Title",
 //         whose paragraph has slot 'note' ("Note")) and children paragraphs
 //         "Body" and "More"
-//      -> decorator with slot 'caption' ("Caption")
+//      -> decorator with slots 'caption' ("Caption") and 'credit' ("Credit")
 const keys: Record<string, string> = {};
 function buildEditor() {
   return buildEditorFromExtensions(
@@ -84,6 +84,7 @@ function buildEditor() {
         $setSlot(host, 'title', title);
         $setSlot(host, 'aside', $slotValue('aside', 'Aside'));
         const decorator = $createTestDecoratorNode().setIsInline(false);
+        $setSlot(decorator, 'credit', $slotValue('credit', 'Credit'));
         $setSlot(decorator, 'caption', $slotValue('caption', 'Caption'));
         $getRoot()
           .clear()
@@ -230,6 +231,19 @@ describe('$getCommonAncestorAcrossSlots', () => {
         commonAncestor: $node('host'),
         type: 'slot-branch',
       });
+      expect(
+        $getCommonAncestorAcrossSlots(
+          $node('creditText'),
+          $node('captionText'),
+        ),
+      ).toEqual({
+        a: $node('credit'),
+        aSlot: 'credit',
+        b: $node('caption'),
+        bSlot: 'caption',
+        commonAncestor: $node('decorator'),
+        type: 'slot-branch',
+      });
     });
   });
 
@@ -298,6 +312,7 @@ describe('$comparePointCaretNextAcrossSlots', () => {
         ['caption child caret', $getChildCaret($element('caption'), 'next')],
         ['caption', $text('caption', 1)],
         ['caption sibling caret', $getSiblingCaret($node('caption'), 'next')],
+        ['credit', $text('credit', 1)],
         [
           'decorator sibling caret',
           $getSiblingCaret($node('decorator'), 'next'),

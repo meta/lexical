@@ -1458,7 +1458,14 @@ export function $getCommonAncestorAcrossSlots<
         };
       }
     }
-    // Unreachable: node was reached through one of those links.
+    // Unreachable unless a slot value's host link and its host's slot map
+    // disagree: node was reached through one of those links.
+    devInvariant(
+      false,
+      '$getCommonAncestorAcrossSlots: no parent or slot link from %s to %s',
+      (aChild || child || node).getKey(),
+      node.getKey(),
+    );
     break;
   }
   return null;
