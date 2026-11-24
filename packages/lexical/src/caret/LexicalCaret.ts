@@ -6,12 +6,18 @@
  *
  */
 import type {LexicalNode, NodeKey} from '../LexicalNode';
+import type {DecoratorNode} from '../nodes/LexicalDecoratorNode';
 import type {TextNode} from '../nodes/LexicalTextNode';
 
 import devInvariant from '@lexical/internal/devInvariant';
 import invariant from '@lexical/internal/invariant';
 
-import {$getSlotHost, $getSlotHostKey, $getSlotMap} from '../LexicalSlot';
+import {
+  $getSlotHost,
+  $getSlotHostKey,
+  $getSlotMap,
+  $getSlotNameWithinHost,
+} from '../LexicalSlot';
 import {$getRoot, $isRootOrShadowRoot} from '../LexicalUtils';
 import {$isElementNode, type ElementNode} from '../nodes/LexicalElementNode';
 import {$isRootNode} from '../nodes/LexicalRootNode';
@@ -1297,31 +1303,61 @@ export function $comparePointCaretNext(
 }
 
 /**
- * The result of {@link $getCommonAncestorAcrossSlots}: like
- * {@link CommonAncestorResult}, except that the common ancestor may be a
- * DecoratorNode slot host, and the child on either side may be one of its
- * slot values rather than a child.
+ * Node a is a slot host and node b is inside its slot `bSlot`. The `b`
+ * property is the value of that slot: node b or its ancestor.
+ *
+ * @internal @experimental named-slots
+ */
+export interface CommonAncestorResultSlotAncestor {
+  readonly type: 'slot-ancestor';
+  readonly commonAncestor: ElementNode | DecoratorNode<unknown>;
+  readonly b: LexicalNode;
+  readonly bSlot: string;
+}
+
+/**
+ * Node b is a slot host and node a is inside its slot `aSlot`. The `a`
+ * property is the value of that slot: node a or its ancestor.
+ *
+ * @internal @experimental named-slots
+ */
+export interface CommonAncestorResultSlotDescendant {
+  readonly type: 'slot-descendant';
+  readonly commonAncestor: ElementNode | DecoratorNode<unknown>;
+  readonly a: LexicalNode;
+  readonly aSlot: string;
+}
+
+/**
+ * Node a and node b meet at a slot host, and at least one of them is inside
+ * one of its slots. On each side, the `a`/`b` property is the slot value on
+ * the path to that node and `aSlot`/`bSlot` its slot name, or the child of an
+ * ElementNode host on that path and null. The two slot names are never the
+ * same.
+ *
+ * @internal @experimental named-slots
+ */
+export interface CommonAncestorResultSlotBranch {
+  readonly type: 'slot-branch';
+  readonly commonAncestor: ElementNode | DecoratorNode<unknown>;
+  readonly a: LexicalNode;
+  readonly aSlot: string | null;
+  readonly b: LexicalNode;
+  readonly bSlot: string | null;
+}
+
+/**
+ * The result of {@link $getCommonAncestorAcrossSlots}: a
+ * {@link CommonAncestorResult} when neither node reaches the common ancestor
+ * through a slot, otherwise one of the slot results.
  *
  * @internal @experimental named-slots
  */
 export type CommonAncestorAcrossSlotsResult =
-  | {readonly type: 'same'; readonly commonAncestor: LexicalNode}
-  | {
-      readonly type: 'ancestor';
-      readonly commonAncestor: LexicalNode;
-      readonly b: LexicalNode;
-    }
-  | {
-      readonly type: 'descendant';
-      readonly commonAncestor: LexicalNode;
-      readonly a: LexicalNode;
-    }
-  | {
-      readonly type: 'branch';
-      readonly commonAncestor: LexicalNode;
-      readonly a: LexicalNode;
-      readonly b: LexicalNode;
-    };
+  | CommonAncestorResult<LexicalNode, LexicalNode>
+  | CommonAncestorResultSlotAncestor
+  | CommonAncestorResultSlotDescendant
+  | CommonAncestorResultSlotBranch;
 
 /**
  * Like {@link $getCommonAncestor}, but a slot value's parent is its host, so
@@ -1337,14 +1373,16 @@ export function $getCommonAncestorAcrossSlots(
   // Node key -> the child (or slot value) on the path down to a.
   const aPath = new Map<NodeKey, LexicalNode | null>();
   for (
-    let child: LexicalNode | null = null, node: LexicalNode | null = a;
+    let child: LexicalNode | null = null,
+      node: LexicalNode | null = a.getLatest();
     node !== null;
     child = node, node = $getParentAcrossSlots(node)
   ) {
     aPath.set(node.getKey(), child);
   }
   for (
-    let child: LexicalNode | null = null, node: LexicalNode | null = b;
+    let child: LexicalNode | null = null,
+      node: LexicalNode | null = b.getLatest();
     node !== null;
     child = node, node = $getParentAcrossSlots(node)
   ) {
@@ -1352,14 +1390,38 @@ export function $getCommonAncestorAcrossSlots(
     if (aChild === undefined) {
       continue;
     }
-    const commonAncestor = node.getLatest();
-    return aChild === null
-      ? child === null
-        ? {commonAncestor, type: 'same'}
-        : {b: child, commonAncestor, type: 'ancestor'}
-      : child === null
-        ? {a: aChild, commonAncestor, type: 'descendant'}
-        : {a: aChild, b: child, commonAncestor, type: 'branch'};
+    // A node reached from a child is its ElementNode parent or its slot host.
+    const commonAncestor = node as ElementNode | DecoratorNode<unknown>;
+    // $setSlot keeps a slot value's host link and the host's slot map in
+    // step, so a child is a slot value exactly when it has a slot name.
+    const bSlot = child && $getSlotNameWithinHost(child);
+    if (aChild === null) {
+      return child === null
+        ? {commonAncestor: node, type: 'same'}
+        : bSlot === null
+          ? {commonAncestor: commonAncestor as ElementNode, type: 'ancestor'}
+          : {b: child, bSlot, commonAncestor, type: 'slot-ancestor'};
+    }
+    const aSlot = $getSlotNameWithinHost(aChild);
+    return child === null
+      ? aSlot === null
+        ? {commonAncestor: commonAncestor as ElementNode, type: 'descendant'}
+        : {a: aChild, aSlot, commonAncestor, type: 'slot-descendant'}
+      : aSlot === null && bSlot === null
+        ? {
+            a: aChild,
+            b: child,
+            commonAncestor: commonAncestor as ElementNode,
+            type: 'branch',
+          }
+        : {
+            a: aChild,
+            aSlot,
+            b: child,
+            bSlot,
+            commonAncestor,
+            type: 'slot-branch',
+          };
   }
   return null;
 }
@@ -1391,28 +1453,27 @@ export function $comparePointCaretNextAcrossSlots(
     case 'same':
       return $compareSameOriginCarets(a, b);
     case 'ancestor':
-      return a.type === 'child' && $getSlotHostKey(compare.b) === null ? -1 : 1;
+      return a.type === 'child' ? -1 : 1;
     case 'descendant':
-      return b.type === 'child' && $getSlotHostKey(compare.a) === null ? 1 : -1;
-    case 'branch': {
-      const aSlotKey = $getSlotHostKey(compare.a) && compare.a.getKey();
-      const bSlotKey = $getSlotHostKey(compare.b) && compare.b.getKey();
-      if (aSlotKey && bSlotKey) {
-        // Two slot values of one host: slot order.
-        for (const key of $getSlotMap(compare.commonAncestor).values()) {
-          if (key === aSlotKey || key === bSlotKey) {
-            return key === aSlotKey ? -1 : 1;
+      return b.type === 'child' ? 1 : -1;
+    case 'branch':
+      return $getCommonAncestorResultBranchOrder(compare);
+    case 'slot-ancestor':
+      return 1;
+    case 'slot-descendant':
+      return -1;
+    case 'slot-branch': {
+      const {aSlot, bSlot} = compare;
+      if (aSlot !== null && bSlot !== null) {
+        // Two slots of one host: slot order.
+        for (const name of $getSlotMap(compare.commonAncestor).keys()) {
+          if (name === aSlot || name === bSlot) {
+            return name === aSlot ? -1 : 1;
           }
         }
       }
       // By default a slot value renders before the host's children.
-      return aSlotKey
-        ? -1
-        : bSlotKey
-          ? 1
-          : compare.a.isBefore(compare.b)
-            ? -1
-            : 1;
+      return aSlot !== null ? -1 : 1;
     }
   }
 }
