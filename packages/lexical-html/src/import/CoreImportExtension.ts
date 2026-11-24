@@ -20,8 +20,6 @@ import {DOMImportExtension} from './DOMImportExtension';
  * `<span>`, `<b>`, `<strong>`, `<em>`, `<i>`, `<code>`, `<mark>`,
  * `<s>`, `<sub>`, `<sup>`, `<u>`, `<br>`, and `#text` (plus `<hr>`
  * when `HorizontalRuleNode` is registered).
- *
- * @experimental
  */
 export const CoreImportExtension = defineExtension({
   dependencies: [

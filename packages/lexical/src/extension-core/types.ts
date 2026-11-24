@@ -367,7 +367,7 @@ export interface InitialEditorConfig {
    */
   disableEvents?: CreateEditorArgs['disableEvents'];
   /**
-   * @internal @experimental
+   * @internal
    */
   dom?: CreateEditorArgs['dom'];
   /**

@@ -425,9 +425,9 @@ export type DOMSlotForNode<N extends LexicalNode> = N extends ElementNode
   ? ElementDOMSlot<HTMLElement>
   : DOMSlot<HTMLElement>;
 
-/** @internal @experimental */
+/** @internal */
 export interface EditorDOMRenderConfig {
-  /** @internal @experimental */
+  /** @internal */
   $createDOM: <T extends LexicalNode>(
     node: T,
     editor: LexicalEditor,
@@ -445,12 +445,12 @@ export interface EditorDOMRenderConfig {
     dom: HTMLElement,
     editor: LexicalEditor,
   ) => DOMSlotForNode<N>;
-  /** @internal @experimental */
+  /** @internal */
   $exportDOM: <T extends LexicalNode>(
     node: T,
     editor: LexicalEditor,
   ) => DOMExportOutput;
-  /** @internal @experimental */
+  /** @internal */
   $extractWithChild: <T extends LexicalNode>(
     node: T,
     childNode: LexicalNode,
@@ -458,7 +458,7 @@ export interface EditorDOMRenderConfig {
     destination: 'clone' | 'html',
     editor: LexicalEditor,
   ) => boolean;
-  /** @internal @experimental */
+  /** @internal */
   $decorateDOM: <T extends LexicalNode>(
     node: T,
     prevNode: null | T,
@@ -488,20 +488,20 @@ export interface EditorDOMRenderConfig {
     hostDom: HTMLElement,
     editor: LexicalEditor,
   ) => HTMLElement | null;
-  /** @internal @experimental */
+  /** @internal */
   $updateDOM: <T extends LexicalNode>(
     nextNode: T,
     prevNode: T,
     dom: HTMLElement,
     editor: LexicalEditor,
   ) => boolean;
-  /** @internal @experimental */
+  /** @internal */
   $shouldInclude: <T extends LexicalNode>(
     node: T,
     selection: null | BaseSelection,
     editor: LexicalEditor,
   ) => boolean;
-  /** @internal @experimental */
+  /** @internal */
   $shouldExclude: <T extends LexicalNode>(
     node: T,
     selection: null | BaseSelection,
@@ -965,7 +965,7 @@ export function getTransformSetFromKlass(
   return transforms;
 }
 
-/** @internal @experimental */
+/** @internal */
 export const DEFAULT_EDITOR_DOM_CONFIG: EditorDOMRenderConfig = {
   $createDOM: (node, editor) => node.createDOM(editor._config, editor),
   $decorateDOM: (_node, _prevNode, _dom, _editor) => {},

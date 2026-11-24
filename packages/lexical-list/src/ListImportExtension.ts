@@ -287,8 +287,6 @@ const JoplinChecklistItemRule = defineImportRule({
  * `ListItemNode` and (immediately-nested) `ListNode` children are
  * accepted; runs of other children get wrapped in a fresh
  * `ListItemNode`.
- *
- * @experimental
  */
 export const ListSchema: ChildSchema = {
   $accepts: child => $isListItemNode(child) || $isListNode(child),
@@ -309,8 +307,6 @@ export const ListSchema: ChildSchema = {
  * `CoreImportExtension`), so any editor that uses the list extension can
  * import these tags through the `DOMImportExtension` pipeline without
  * further configuration.
- *
- * @experimental
  */
 export const ListImportRules = [
   // More specific rules (class-restricted) must precede the generic `li`

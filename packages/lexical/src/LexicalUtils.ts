@@ -2422,8 +2422,6 @@ export function getDOMSelectionFromTarget(
  * @param node A value that may be a DOM ShadowRoot.
  * @returns True if node is a DOM ShadowRoot (an open or closed shadow tree
  *   root), false otherwise. A ShadowRoot is a DocumentFragment with a host.
- *
- * @experimental Shape may change as shadow DOM support stabilizes.
  */
 export function isDOMShadowRoot(node: unknown): node is ShadowRoot {
   return isDocumentFragment(node) && 'host' in node;
@@ -2439,8 +2437,6 @@ export function isDOMShadowRoot(node: unknown): node is ShadowRoot {
  *
  * @param node The DOM node to start from (typically the editor root element).
  * @returns The enclosing ShadowRoots, innermost first.
- *
- * @experimental Shape may change as shadow DOM support stabilizes.
  */
 const EMPTY_SHADOW_ROOTS: ShadowRoot[] = [];
 
@@ -2543,8 +2539,6 @@ export function $getDocument(): Document {
  * the latter). In the undefined case anchor/focus default to the composed
  * StaticRange's tree order; callers needing strict backward fidelity
  * inside a shadow root should check `direction !== undefined`.
- *
- * @experimental Shape may change as shadow DOM support stabilizes.
  */
 export interface DOMSelectionBoundaryPoints {
   anchorNode: Node | null;
@@ -2570,8 +2564,6 @@ export interface DOMSelectionBoundaryPoints {
  * @returns The composed StaticRange, or `null` when `rootElement` is in the
  *   light DOM, the platform does not implement `getComposedRanges`, or there
  *   is no selection.
- *
- * @experimental Shape may change as shadow DOM support stabilizes.
  */
 export function getComposedStaticRange(
   domSelection: Selection,
@@ -2625,8 +2617,6 @@ export function getComposedStaticRange(
  * StaticRange cannot provide.
  *
  * @returns A live Range, or null when the selection has no ranges.
- *
- * @experimental Shape may change as shadow DOM support stabilizes.
  */
 export function getDOMSelectionRange(
   domSelection: Selection,
@@ -2673,8 +2663,6 @@ export function getDOMSelectionRange(
  * via `points === domSelection` to detect when the return aliases
  * `domSelection`, rather than caching the returned reference across
  * selection mutations.
- *
- * @experimental Shape may change as shadow DOM support stabilizes.
  */
 export function getDOMSelectionPoints(
   domSelection: Selection,
@@ -2696,8 +2684,6 @@ export function getDOMSelectionPoints(
  *
  * @returns The composed Range plus the boundary points; the Range is null
  *   when the selection has no ranges.
- *
- * @experimental Shape may change as shadow DOM support stabilizes.
  */
 export function getDOMSelectionRangeAndPoints(
   domSelection: Selection,
@@ -2784,8 +2770,6 @@ function readDirection(
  *
  * @param node A node whose tree's active element is wanted.
  * @returns The active element, or null.
- *
- * @experimental Shape may change as shadow DOM support stabilizes.
  */
 export function getActiveElement(node: Node): Element | null {
   const root = node.getRootNode();
@@ -2802,8 +2786,6 @@ export function getActiveElement(node: Node): Element | null {
  *
  * @param root The Document or ShadowRoot to start from.
  * @returns The deepest active element, or null.
- *
- * @experimental Shape may change as shadow DOM support stabilizes.
  */
 export function getActiveElementDeep(
   root: Document | ShadowRoot,
@@ -2838,8 +2820,6 @@ export function getActiveElementDeep(
  *
  * @param event The dispatched event.
  * @returns The un-retargeted target, or null when the event has none.
- *
- * @experimental Shape may change as shadow DOM support stabilizes.
  */
 export function getComposedEventTarget(event: Event): EventTarget | null {
   const target = event.target;
@@ -3066,8 +3046,6 @@ export function $getEditor(): LexicalEditor {
 }
 
 /**
- * @experimental
- *
  * Read the editor's `$getDOMSlot` configuration (defaulting to the base
  * implementation when no override is registered via {@link DOMRenderExtension}).
  * Cross-package consumers (`@lexical/utils`, `@lexical/react`) use this to
@@ -3534,8 +3512,6 @@ export function $setFormatFromDOM<T extends ElementNode>(
 
 /**
  * Options accepted by {@link setDOMUnmanaged}.
- *
- * @experimental
  */
 export interface SetDOMUnmanagedOptions {
   /**
@@ -3560,8 +3536,6 @@ export interface SetDOMUnmanagedOptions {
  * Pass `{captureSelection: true}` to additionally treat the subtree's
  * window selection as decorator-like, so resolution does not force-sync
  * the caret out of unmanaged DOM (see {@link isDOMCapturingSelection}).
- *
- * @experimental
  */
 export function setDOMUnmanaged(
   elementDom: HTMLElement & LexicalPrivateDOM,
@@ -3575,8 +3549,6 @@ export function setDOMUnmanaged(
 
 /**
  * True if this DOM node was marked with {@link setDOMUnmanaged}.
- *
- * @experimental
  */
 export function isDOMUnmanaged(elementDom: Node & LexicalPrivateDOM): boolean {
   return elementDom.__lexicalUnmanaged === true;
@@ -3627,8 +3599,6 @@ export function $markSlotEditable(
  * DecoratorNode DOM is marked with `setDOMUnmanaged({captureSelection:
  * true})` by the reconciler, so decorator subtrees also report as
  * captured here.
- *
- * @experimental
  */
 export function isDOMCapturingSelection(
   elementDom: Node & LexicalPrivateDOM,

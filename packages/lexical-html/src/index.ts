@@ -178,7 +178,6 @@ export function $generateNodesFromDOM(
 /**
  * Generate DOM nodes from the editor state into the given container element,
  * using the editor's {@link EditorDOMRenderConfig}.
- * @experimental
  */
 export function $generateDOMFromNodes<T extends HTMLElement | DocumentFragment>(
   container: T,
@@ -220,7 +219,6 @@ export function $generateDOMFromNodes<T extends HTMLElement | DocumentFragment>(
 /**
  * Generate DOM nodes from a root node into the given container element,
  * including the root node itself. Uses the editor's {@link EditorDOMRenderConfig}.
- * @experimental
  */
 export function $generateDOMFromRoot<T extends HTMLElement | DocumentFragment>(
   container: T,

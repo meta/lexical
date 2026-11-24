@@ -270,8 +270,6 @@ const TableCellRule = defineImportRule({
  * A {@link ChildSchema} that enforces TableNode invariants: only
  * `TableRowNode` children are accepted; orphan `TableCellNode` runs are
  * wrapped in a synthesized row.
- *
- * @experimental
  */
 export const TableSchema: ChildSchema = {
   $accepts: $isTableRowNode,
@@ -286,8 +284,6 @@ export const TableSchema: ChildSchema = {
  * A {@link ChildSchema} that enforces TableRowNode invariants: only
  * `TableCellNode` children are accepted; non-cell children are dropped
  * (the legacy converter does the same via `$descendantsMatching`).
- *
- * @experimental
  */
 export const TableRowSchema: ChildSchema = {
   $accepts: $isTableCellNode,
@@ -302,7 +298,5 @@ export const TableRowSchema: ChildSchema = {
  * `CoreImportExtension`), so any editor that uses the table extension can
  * import these tags through the `DOMImportExtension` pipeline without
  * further configuration.
- *
- * @experimental
  */
 export const TableImportRules = [TableRule, TableRowRule, TableCellRule];
