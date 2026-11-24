@@ -19,14 +19,21 @@
 import {createHeadlessEditor} from '@lexical/headless';
 import {withDOM} from '@lexical/headless/dom';
 import {$generateHtmlFromNodes} from '@lexical/html';
+import {
+  $createQuoteNode,
+  QuoteNode,
+  registerRichText,
+} from '@lexical/rich-text';
 import {JSDOM} from 'jsdom';
 import {
   $createParagraphNode,
   $createTextNode,
   $getRoot,
   $getSelection,
+  $isRangeSelection,
   COMMAND_PRIORITY_NORMAL,
   CONTROLLED_TEXT_INSERTION_COMMAND,
+  DELETE_CHARACTER_COMMAND,
   type EditorState,
   type LexicalEditor,
   ParagraphNode,
@@ -245,6 +252,83 @@ describe('LexicalHeadlessEditor', () => {
       expect(html).toBe(
         '<p dir="ltr"><span style="white-space: pre-wrap;">hello world</span></p>',
       );
+    });
+  });
+
+  describe('selection changes without a window', () => {
+    function createQuoteAtStart(): LexicalEditor {
+      const quoteEditor = createHeadlessEditor({
+        nodes: [QuoteNode],
+        onError: error => {
+          throw error;
+        },
+      });
+      registerRichText(quoteEditor);
+      quoteEditor.update(
+        () => {
+          const quote = $createQuoteNode().append($createTextNode('quote'));
+          $getRoot().append(quote);
+          quote.selectStart();
+        },
+        {discrete: true},
+      );
+      return quoteEditor;
+    }
+
+    function deleteBackward(quoteEditor: LexicalEditor) {
+      quoteEditor.update(
+        () => {
+          quoteEditor.dispatchCommand(DELETE_CHARACTER_COMMAND, true);
+        },
+        {discrete: true},
+      );
+      return quoteEditor.read(() =>
+        $getRoot()
+          .getChildren()
+          .map(node => [node.getType(), node.getTextContent()]),
+      );
+    }
+
+    it('collapses the first block on backspace at its start', () => {
+      expect(deleteBackward(createQuoteAtStart())).toEqual([
+        ['paragraph', 'quote'],
+      ]);
+    });
+
+    it('does not use the global selection when a DOM is present', () => {
+      const quoteEditor = createQuoteAtStart();
+      withDOM(() => {
+        const getSelection = vi.spyOn(window, 'getSelection');
+        expect(deleteBackward(quoteEditor)).toEqual([['paragraph', 'quote']]);
+        expect(getSelection).not.toHaveBeenCalled();
+      });
+    });
+
+    it('leaves the selection unchanged on RangeSelection.modify', () => {
+      editor.update(
+        () => {
+          $getRoot().append(
+            $createParagraphNode().append($createTextNode('hello')),
+          );
+          $getRoot().selectStart();
+        },
+        {discrete: true},
+      );
+      editor.update(
+        () => {
+          const selection = $getSelection();
+          if ($isRangeSelection(selection)) {
+            selection.modify('move', false, 'character');
+          }
+        },
+        {discrete: true},
+      );
+      expect(
+        editor.read(() => {
+          const selection = $getSelection();
+          return $isRangeSelection(selection) ? selection.anchor.offset : null;
+        }),
+      ).toBe(0);
     });
   });
 });

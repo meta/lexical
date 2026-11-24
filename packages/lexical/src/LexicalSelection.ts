@@ -1554,7 +1554,9 @@ export class RangeSelection implements BaseSelection {
     const collapse = alter === 'move';
 
     const editor = getActiveEditor();
-    const domSelection = getDOMSelection(getWindow(editor));
+    // A headless editor has no window; don't fall back to the global one.
+    const windowObj = editor._window;
+    const domSelection = windowObj === null ? null : getDOMSelection(windowObj);
 
     if (!domSelection) {
       return;
@@ -2530,7 +2532,9 @@ function $extendSelectionForDeletion(
     return false;
   }
   const editor = getActiveEditor();
-  const domSelection = getDOMSelection(getWindow(editor));
+  // A headless editor has no window; don't fall back to the global one.
+  const windowObj = editor._window;
+  const domSelection = windowObj === null ? null : getDOMSelection(windowObj);
   if (!domSelection || typeof domSelection.modify !== 'function') {
     return false;
   }
