@@ -6,6 +6,7 @@
  *
  */
 
+import {$handleDecoratorClickModifiers} from '@lexical/extension';
 import {
   $createNodeSelection,
   $getNearestNodeFromDOMNode,
@@ -14,6 +15,7 @@ import {
   COMMAND_PRIORITY_BEFORE_EDITOR,
   getActiveElement,
   getDOMSelection,
+  IS_APPLE,
   isHTMLElement,
   type LexicalEditor,
   type LexicalNode,
@@ -22,14 +24,12 @@ import {
 } from 'lexical';
 
 /**
- * Promote a click on a slot host's chrome — the border / padding *outside* its
- * `data-lexical-slot` wrappers — to a whole-node NodeSelection, and suppress
- * the native caret the browser would otherwise drop at the mousedown point.
+ * Handle node and range selection on a slot host's chrome — the border /
+ * padding outside its `data-lexical-slot` wrappers.
  * Shared by the Card and PullQuote demos: both are slot hosts whose chrome
  * selects the whole node, while a click inside a slot must enter that slot.
  *
- * Returns a cleanup function (it registers a CLICK_COMMAND handler and a root
- * mousedown listener), so add it to the host extension's `mergeRegister`.
+ * Returns a cleanup function for CLICK_COMMAND and the root press listeners.
  */
 export function registerHostChromeSelection<T extends LexicalNode>(
   editor: LexicalEditor,
@@ -70,7 +70,7 @@ export function registerHostChromeSelection<T extends LexicalNode>(
   // alongside the host's `[data-selected]` outline), and a follow-up Backspace
   // dispatches to the slot's range path instead of the host-delete path.
   // Editable-slot mousedowns fall through so the caret still enters the slot.
-  const onChromeMouseDown = (event: MouseEvent) => {
+  const onChromePress = (event: MouseEvent) => {
     mouseDownHostKey = null;
     // Read-only mode: leave the reader's native selection alone.
     if (!editor.isEditable()) {
@@ -92,6 +92,19 @@ export function registerHostChromeSelection<T extends LexicalNode>(
           domSelection.removeAllRanges();
         }
       }
+    }
+  };
+
+  // Cancel a modified pointer press before the browser places a caret.
+  // Lexical then recognizes the canceled press at pointerup and does not
+  // replace the click's selection when a delayed selectionchange arrives.
+  const onChromePointerDown = (event: PointerEvent) => {
+    if (
+      event.pointerType === 'mouse' &&
+      event.button === 0 &&
+      (event.shiftKey || (IS_APPLE ? event.metaKey : event.ctrlKey))
+    ) {
+      onChromePress(event);
     }
   };
 
@@ -118,6 +131,9 @@ export function registerHostChromeSelection<T extends LexicalNode>(
           return false;
         }
         event.preventDefault();
+        if ($handleDecoratorClickModifiers(event, node.getKey())) {
+          return true;
+        }
         const ns = $createNodeSelection();
         ns.add(node.getKey());
         $setSelection(ns);
@@ -128,10 +144,12 @@ export function registerHostChromeSelection<T extends LexicalNode>(
     editor.registerRootListener((rootElement, prevRootElement) => {
       mouseDownHostKey = null;
       if (prevRootElement !== null) {
-        prevRootElement.removeEventListener('mousedown', onChromeMouseDown);
+        prevRootElement.removeEventListener('mousedown', onChromePress);
+        prevRootElement.removeEventListener('pointerdown', onChromePointerDown);
       }
       if (rootElement !== null) {
-        rootElement.addEventListener('mousedown', onChromeMouseDown);
+        rootElement.addEventListener('mousedown', onChromePress);
+        rootElement.addEventListener('pointerdown', onChromePointerDown);
       }
     }),
   );

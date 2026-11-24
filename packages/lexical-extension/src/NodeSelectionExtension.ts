@@ -17,6 +17,8 @@ import {EditorStateExtension} from './EditorStateExtension';
 import {computed, effect, type ReadonlySignal, signal} from './signals';
 import {watchedSignal} from './watchedSignal';
 
+export {$handleDecoratorClickModifiers} from './internal/decoratorClickSelection';
+
 const EMPTY_SET = new Set<NodeKey>();
 
 /**

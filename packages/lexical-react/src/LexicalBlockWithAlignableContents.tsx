@@ -6,6 +6,7 @@
  *
  */
 
+import {$handleDecoratorClickModifiers} from '@lexical/extension';
 import {useLexicalComposerContext} from '@lexical/react/LexicalComposerContext';
 import {$isDecoratorBlockNode} from '@lexical/react/LexicalDecoratorBlockNode';
 import {useLexicalNodeSelection} from '@lexical/react/useLexicalNodeSelection';
@@ -96,11 +97,16 @@ export function BlockWithAlignableContents({
         event => {
           if (getComposedEventTarget(event) === ref.current) {
             event.preventDefault();
+            if ($handleDecoratorClickModifiers(event, nodeKey)) {
+              return true;
+            }
+            const selection = $getSelection();
+            const shouldSelect =
+              !$isNodeSelection(selection) || !selection.has(nodeKey);
             if (!event.shiftKey) {
               clearSelection();
             }
-
-            setSelected(!isSelected);
+            setSelected(shouldSelect);
             return true;
           }
 

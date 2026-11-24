@@ -9,11 +9,14 @@
 import type {ExcalidrawInitialElements} from '../../ui/ExcalidrawModal';
 import type {AppState, BinaryFiles} from '@excalidraw/excalidraw/types';
 
+import {$handleDecoratorClickModifiers} from '@lexical/extension';
 import {useLexicalComposerContext} from '@lexical/react/LexicalComposerContext';
 import {useLexicalEditable} from '@lexical/react/useLexicalEditable';
 import {useLexicalNodeSelection} from '@lexical/react/useLexicalNodeSelection';
 import {
   $getNodeByKey,
+  $getSelection,
+  $isNodeSelection,
   CLICK_COMMAND,
   COMMAND_PRIORITY_LOW,
   isDOMNode,
@@ -81,10 +84,15 @@ export default function ExcalidrawComponent({
             isDOMNode(eventTarget) &&
             buttonElem.contains(eventTarget)
           ) {
-            if (!event.shiftKey) {
-              clearSelection();
+            if (!$handleDecoratorClickModifiers(event, nodeKey)) {
+              const selection = $getSelection();
+              const shouldSelect =
+                !$isNodeSelection(selection) || !selection.has(nodeKey);
+              if (!event.shiftKey) {
+                clearSelection();
+              }
+              setSelected(shouldSelect);
             }
-            setSelected(!isSelected);
             if (event.detail > 1) {
               setModalOpen(true);
             }
@@ -96,7 +104,15 @@ export default function ExcalidrawComponent({
         COMMAND_PRIORITY_LOW,
       ),
     );
-  }, [clearSelection, editor, isSelected, isResizing, setSelected, isEditable]);
+  }, [
+    clearSelection,
+    editor,
+    isEditable,
+    isSelected,
+    isResizing,
+    nodeKey,
+    setSelected,
+  ]);
 
   const deleteNode = useCallback(() => {
     setModalOpen(false);

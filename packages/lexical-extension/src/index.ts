@@ -93,7 +93,10 @@ export {
   type NodeSelectionDataSelectedConfig,
   NodeSelectionDataSelectedExtension,
 } from './NodeSelectionDataSelectedExtension';
-export {NodeSelectionExtension} from './NodeSelectionExtension';
+export {
+  $handleDecoratorClickModifiers,
+  NodeSelectionExtension,
+} from './NodeSelectionExtension';
 export {
   type NodeStructureConfig,
   NodeStructureExtension,

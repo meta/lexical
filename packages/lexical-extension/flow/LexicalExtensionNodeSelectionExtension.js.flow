@@ -10,6 +10,11 @@
 import type {LexicalExtension, ExtensionConfigBase, NodeKey} from 'lexical';
 import type {ReadonlySignal} from '@lexical/extension/signals';
 
+declare export function $handleDecoratorClickModifiers(
+  event: MouseEvent,
+  nodeKey: NodeKey,
+): boolean;
+
 declare export var NodeSelectionExtension: LexicalExtension<
   ExtensionConfigBase,
   '@lexical/extension/NodeSelection',

@@ -7,6 +7,7 @@
  */
 
 import {
+  $handleDecoratorClickModifiers,
   $isHorizontalRuleNode,
   HorizontalRuleNode as BaseHorizontalRuleNode,
   INSERT_HORIZONTAL_RULE_COMMAND,
@@ -16,6 +17,8 @@ import {useLexicalComposerContext} from '@lexical/react/LexicalComposerContext';
 import {useLexicalNodeSelection} from '@lexical/react/useLexicalNodeSelection';
 import {
   $applyNodeReplacement,
+  $getSelection,
+  $isNodeSelection,
   addClassNamesToElement,
   CLICK_COMMAND,
   COMMAND_PRIORITY_LOW,
@@ -47,10 +50,16 @@ function HorizontalRuleComponent({nodeKey}: {nodeKey: NodeKey}) {
           const hrElem = editor.getElementByKey(nodeKey);
 
           if (getComposedEventTarget(event) === hrElem) {
+            if ($handleDecoratorClickModifiers(event, nodeKey)) {
+              return true;
+            }
+            const selection = $getSelection();
+            const shouldSelect =
+              !$isNodeSelection(selection) || !selection.has(nodeKey);
             if (!event.shiftKey) {
               clearSelection();
             }
-            setSelected(!isSelected);
+            setSelected(shouldSelect);
             return true;
           }
 
@@ -59,7 +68,7 @@ function HorizontalRuleComponent({nodeKey}: {nodeKey: NodeKey}) {
         COMMAND_PRIORITY_LOW,
       ),
     );
-  }, [clearSelection, editor, isSelected, nodeKey, setSelected]);
+  }, [clearSelection, editor, nodeKey, setSelected]);
 
   useEffect(() => {
     const hrElem = editor.getElementByKey(nodeKey);

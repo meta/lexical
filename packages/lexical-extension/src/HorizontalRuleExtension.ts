@@ -37,7 +37,10 @@ import {
 } from 'lexical';
 
 import {EditorStateExtension} from './EditorStateExtension';
-import {NodeSelectionExtension} from './NodeSelectionExtension';
+import {
+  $handleDecoratorClickModifiers,
+  NodeSelectionExtension,
+} from './NodeSelectionExtension';
 import {
   batch,
   effect,
@@ -118,7 +121,8 @@ function $toggleNodeSelection(
   shiftKey: boolean = false,
 ): void {
   const selection = $getSelection();
-  const wasSelected = node.isSelected();
+  const wasSelected =
+    $isNodeSelection(selection) && selection.has(node.getKey());
   const key = node.getKey();
   let nodeSelection: NodeSelection;
   if (shiftKey && $isNodeSelection(selection)) {
@@ -182,7 +186,9 @@ export const HorizontalRuleExtension = defineExtension({
           if (isDOMNode(event.target)) {
             const node = $getNodeFromDOMNode(event.target);
             if ($isHorizontalRuleNode(node)) {
-              $toggleNodeSelection(node, event.shiftKey);
+              if (!$handleDecoratorClickModifiers(event, node.getKey())) {
+                $toggleNodeSelection(node, event.shiftKey);
+              }
               return true;
             }
           }
