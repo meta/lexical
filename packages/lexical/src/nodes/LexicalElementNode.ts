@@ -891,8 +891,6 @@ export class ElementNode
     return writableSelf;
   }
   /**
-   * @experimental
-   *
    * An ElementNode subclass can override this to control where its children
    * are inserted into the DOM, e.g. to add a wrapping node or accessory nodes
    * before or after the children. The root of the node returned by createDOM

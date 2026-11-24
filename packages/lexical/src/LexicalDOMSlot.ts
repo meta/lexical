@@ -115,8 +115,6 @@ type DecoratorBoundaryEdge = 'leading' | 'trailing';
  * supports an internal `before` / `after` so subclasses can prepend or
  * append non-lexical siblings around the content node and the reconciler /
  * `setTextContent` route the actual content through the slot.
- *
- * @experimental
  */
 export class DOMSlot<T extends HTMLElement = HTMLElement> {
   /** The content-bearing element of the node's DOM. */

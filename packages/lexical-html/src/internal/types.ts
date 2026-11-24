@@ -422,8 +422,6 @@ export interface DOMRenderMatch<T extends LexicalNode> {
    * `$next()` to defer to lower-priority overrides / the default
    * (null — a hidden placeholder for explicit imperative mounting via
    * `mountSlotContainer` or lexical-react's `useLexicalSlotRef`).
-   *
-   * @experimental named-slots
    */
   $getSlotTargetElement?: (
     node: T,

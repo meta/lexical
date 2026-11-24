@@ -240,7 +240,7 @@ export function $isSelectionCapturedInDecoratorInput(
   if (!isHTMLElement(activeElement)) {
     return false;
   }
-  // @experimental named-slots. A slot container is contentEditable inside an
+  // A slot container is contentEditable inside an
   // otherwise non-editable decorator host, but its content is Lexical-managed —
   // not a foreign editor input — so it must stay under Lexical's DOM-selection
   // control instead of being treated as captured.
@@ -520,7 +520,7 @@ function internalMarkParentElementsAsDirty(
       break;
     }
     dirtyElements.set(nextParentKey, false);
-    // @experimental named-slots. A slotted node has no __parent; its
+    // A slotted node has no __parent; its
     // up-pointer is __slotHost. Crossing that boundary here lets a slot
     // content edit dirty the host so it re-reconciles. Non-slot trees keep
     // __slotHost === null, so this is the plain __parent walk there.
@@ -581,7 +581,7 @@ export function internalMarkNodeAsDirty(node: LexicalNode): void {
     node.__key,
     node.__type,
   );
-  // @experimental named-slots. A slotted node's up-pointer is __slotHost,
+  // A slotted node's up-pointer is __slotHost,
   // not __parent; start the dirty walk from whichever is set so a slot
   // content edit propagates into the host. Non-slot trees keep
   // __slotHost === null, so this is the plain __parent start there.
@@ -854,7 +854,7 @@ export function $setSelection(selection: null | BaseSelection): void {
     }
     selection.dirty = true;
     selection.setCachedNodes(null);
-    // @experimental named-slots. A RangeSelection committed through the API
+    // A RangeSelection committed through the API
     // must not straddle a slot boundary (slots are shadow-root-isolated), the
     // programmatic counterpart of the DOM-read clamp in selection resolution.
     // Gated on `_slotsUsed` so editors that never slot anything skip the walk,
@@ -3058,8 +3058,6 @@ export function $getEditorDOMRenderConfig(
 }
 
 /**
- * @experimental
- *
  * Resolve the DOM slot for a node through the configured `$getDOMSlot` hook,
  * narrowing the return type via {@link DOMSlotForNode}: for an `ElementNode`
  * the result is an {@link ElementDOMSlot} (with children-management methods),
@@ -3112,8 +3110,6 @@ export function $getSlotContainer(
 }
 
 /**
- * @experimental
- *
  * Attach a host's named-slot container to `target` and make it visible.
  * The reconciler renders every slot subtree synchronously into a hidden
  * (`display: 'none'`) placeholder container parked slots-first in the host
@@ -3154,8 +3150,6 @@ export function mountSlotContainer(
 }
 
 /**
- * @experimental
- *
  * Reverse of {@link mountSlotContainer}: hide `container` again and park it
  * back in the host's DOM as the leading hidden placeholder, where the
  * reconciler manages it. Call when the mount target goes away while the host
@@ -3175,8 +3169,6 @@ export function unmountSlotContainer(
 }
 
 /**
- * @experimental
- *
  * Type guard narrowing a {@link DOMSlot} to an {@link ElementDOMSlot}, which
  * exposes children-management methods like `insertChild` and the managed
  * line-break helpers.
@@ -3188,8 +3180,6 @@ export function $isElementDOMSlot(
 }
 
 /**
- * @experimental
- *
  * Resolve the actual text DOM (`Text`) for a `TextNode` through the
  * configured `$getDOMSlot` hook. Unlike the plain {@link getDOMTextNode}
  * which descends the first child chain from a raw element, this routes
@@ -3562,8 +3552,6 @@ export function isDOMUnmanaged(elementDom: Node & LexicalPrivateDOM): boolean {
  * {@link $fullReconcile} re-applies this when {@link LexicalEditor.setEditable}
  * toggles. Call it for any other editable island an app attaches itself (e.g. a
  * `getDOMSlot` children element rendered inside a `contentEditable=false` shell).
- *
- * @experimental
  */
 export function $markSlotEditable(
   element: HTMLElement & {__lexicalEditor?: undefined | LexicalEditor},
@@ -3609,7 +3597,7 @@ export function isDOMCapturingSelection(
     if (dom.__lexicalCapturedSelection === true) {
       return true;
     }
-    // @experimental named-slots. A decorator host's slot container is a
+    // A decorator host's slot container is a
     // key-less scaffolding wrapper made contentEditable so its Lexical-managed
     // content stays editable. Walking up from inside a slot would otherwise
     // reach the decorator host's captured-selection flag and misread the slot
@@ -5762,8 +5750,6 @@ export function* iterStaticNodeConfigChain(
  * The result lets callers expand a base node type to all of its registered
  * subclass types up front, so a subclass instance can be matched by type
  * without a runtime `instanceof`.
- *
- * @experimental
  */
 export function getRegisteredSubtypeMap(
   nodes: Iterable<Klass<LexicalNode>>,

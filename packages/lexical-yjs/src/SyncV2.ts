@@ -1058,7 +1058,7 @@ export const $updateYFragment = (
         yDomFragment.removeAttribute(key);
       }
     }
-    // @experimental named-slots. Diff the slots channel in place (preserving
+    // Diff the slots channel in place (preserving
     // the yjs IDs of unchanged slots) rather than rebuilding it wholesale. A
     // non-inline DecoratorNode hosts slots too (it has no children channel).
     if (node instanceof ElementNode || $isDecoratorNode(node)) {

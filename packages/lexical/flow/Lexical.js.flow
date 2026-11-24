@@ -180,7 +180,7 @@ export type EditorDOMRenderConfig = {
     node: T,
     editor: LexicalEditor,
   ) => HTMLElement;
-  /** @internal @experimental */
+  /** @internal */
   $getDOMSlot: <N extends LexicalNode>(
     node: N,
     dom: HTMLElement,

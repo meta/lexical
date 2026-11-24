@@ -47,8 +47,6 @@ export const EMPTY_SLOTS: ReadonlyMap<string, NodeKey> = new Map();
  * is satisfied. This is a type guard only; the value-level invariant on what
  * may actually be slotted is enforced by {@link $setSlot} (shadow-root
  * ElementNode or non-inline DecoratorNode).
- *
- * @experimental
  */
 export function $isSlotHost(
   node: LexicalNode,
@@ -62,8 +60,6 @@ export function $isSlotHost(
  * {@link SlotChildNode}. This is a type guard only; {@link $setSlot} rejects
  * inline values at runtime. The slot link acts as a virtual shadow root, so
  * any non-inline block — shadow root or not — can occupy a slot.
- *
- * @experimental
  */
 export function $isSlotChild(
   node: LexicalNode,
@@ -89,8 +85,6 @@ export function $getSlotHostKey(node: LexicalNode): null | NodeKey {
  * or null if this node is not slotted. The up-link is kept separate from
  * {@link LexicalNode.getParent} so the slot boundary behaves like a shadow
  * root.
- *
- * @experimental
  */
 export function $getSlotHost(
   node: LexicalNode,
@@ -111,8 +105,6 @@ export function $getSlotHost(
  * Returns the slot name this node occupies on its host, or null when the node
  * is not a slot value. Mirrors {@link LexicalNode#getIndexWithinParent} for
  * slot children — answers "which named slot does this node sit in?".
- *
- * @experimental
  */
 export function $getSlotNameWithinHost(slotChild: LexicalNode): string | null {
   const host = $getSlotHost(slotChild);
@@ -138,8 +130,6 @@ export function $getSlotNameWithinHost(slotChild: LexicalNode): string | null {
  * Selection-driven exporters use this to find the isolated subtree a
  * RangeSelection lives in (a selection inside a slot never contains the host,
  * so a root-children walk alone would miss it).
- *
- * @experimental
  */
 export function $getSlotFrame(node: LexicalNode): LexicalNode | null {
   let current: LexicalNode | null = node.getLatest();
@@ -173,8 +163,6 @@ export function $getSlotFrame(node: LexicalNode): LexicalNode | null {
  * multi-node selection that straddles a slot boundary is currently undefined —
  * slots are shadow-isolated, so straddling is already invalid construction, and
  * we pick the first node's frame rather than asserting.
- *
- * @experimental
  */
 export function $getSelectionSlotFrame(
   selection: null | BaseSelection,
@@ -205,8 +193,6 @@ export function $getSlotMap(node: LexicalNode): ReadonlyMap<string, NodeKey> {
 /**
  * Returns the names of this node's occupied slots, in insertion order. Empty
  * when the node hosts no slots.
- *
- * @experimental
  */
 export function $getSlotNames(node: LexicalNode): string[] {
   return Array.from($getSlotMap(node).keys());
@@ -227,8 +213,6 @@ type DeclaredSlotNames<T extends LexicalNode> =
  * — every string is still accepted (slots take undeclared names at runtime), the
  * declared names just surface as suggestions. A class declaring no slots, or a
  * subclass that inherits them without redeclaring, resolves to plain `string`.
- *
- * @experimental
  */
 export type SlotName<T extends LexicalNode> =
   | DeclaredSlotNames<T>
@@ -240,8 +224,6 @@ export type SlotName<T extends LexicalNode> =
  * Returns the node occupying the named slot, or null if the slot is empty.
  * Slots are a shadow-root-isolated channel kept separate from children; see
  * {@link $getSlotHost} for the reverse up-link.
- *
- * @experimental
  */
 export function $getSlot<T extends LexicalNode>(
   node: T,
@@ -269,7 +251,7 @@ interface OwnedSlotMap extends Map<string, NodeKey> {
   [SLOT_MAP_OWNER]?: LexicalNode;
 }
 
-// @experimental named-slots. Returns a slot map that `writableHost` (the
+// Returns a slot map that `writableHost` (the
 // current writable version, from getWritable()) is allowed to mutate,
 // cloning the shared map on the version's first write.
 function $getWritableSlots(
@@ -298,8 +280,6 @@ const EMPTY_DECLARED_SLOTS: readonly string[] = [];
  * nothing is declared. The declaration is an ordering vocabulary, not a
  * schema — occupied names outside it are still valid and sort after the
  * declared names in code-unit order.
- *
- * @experimental named-slots
  */
 export function getDeclaredSlots(klass: Klass<LexicalNode>): readonly string[] {
   // Walk the class hierarchy without a runtime LexicalNode import (a
@@ -352,7 +332,7 @@ export function $getSlotsTextContentSize(node: LexicalNode): number {
   return textContentSize;
 }
 
-// @experimental named-slots. Declared name -> declaration index, cached per
+// Declared name -> declaration index, cached per
 // class. Validates the declaration once: duplicates would make the order
 // ambiguous and reserved names can never be set.
 function getDeclaredSlotRank(
@@ -383,7 +363,7 @@ function getDeclaredSlotRank(
   return rank;
 }
 
-// @experimental named-slots. Canonical comparison: declared names first (in
+// Canonical comparison: declared names first (in
 // declaration order), then undeclared names in code-unit order — a pure
 // function of (class, name) so every client orders identically.
 function compareSlotNames(
@@ -402,7 +382,7 @@ function compareSlotNames(
   return a < b ? -1 : a > b ? 1 : 0;
 }
 
-// @experimental named-slots. Restores canonical order on a writable host's
+// Restores canonical order on a writable host's
 // slot map after an insertion. Order is derived, never stored: every
 // ingestion path (local $setSlot, JSON import, clipboard, collab sync)
 // funnels through $setSlot, so documents re-canonicalize on load and
@@ -455,8 +435,6 @@ function $canonicalizeSlotOrder(host: LexicalNode & SlotHostNode): void {
  *
  * `host` is constrained to {@link SlotHostNode} so a non-host is rejected at
  * compile time.
- *
- * @experimental
  */
 export function $setSlot<T extends LexicalNode & SlotHostNode>(
   host: T,
@@ -533,8 +511,6 @@ export function $setSlot<T extends LexicalNode & SlotHostNode>(
  * Removes the named slot from `host`, detaching its value (its slot up-link is
  * cleared). No-op if the slot is empty. `host` is constrained to
  * {@link SlotHostNode} so a non-host is rejected at compile time.
- *
- * @experimental
  */
 export function $removeSlot<T extends LexicalNode & SlotHostNode>(
   host: T,
@@ -552,7 +528,7 @@ export function $removeSlot<T extends LexicalNode & SlotHostNode>(
   return writableSelf;
 }
 
-// @experimental named-slots. True when `node` is `host` itself or any ancestor
+// True when `node` is `host` itself or any ancestor
 // of `host` reachable by walking up the combined parent/slot up-link chain (the
 // same traversal isAttached uses). isParentOf only follows __parent, so it can't
 // see a host that sits above `node` through slot up-links; slotting `node` there
@@ -603,7 +579,7 @@ export function $errorOnSlotCycleChild(
   );
 }
 
-// @experimental named-slots. Detaches the node currently slotted under a key,
+// Detaches the node currently slotted under a key,
 // clearing its slot up-link before remove() so it isn't reprocessed as a
 // still-slotted node. Shared by $setSlot (replacing an occupant) and
 // $removeSlot.

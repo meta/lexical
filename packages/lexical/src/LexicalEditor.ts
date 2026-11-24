@@ -413,8 +413,6 @@ export type HTMLConfig = {
 export type LexicalNodeConfig = Klass<LexicalNode> | LexicalNodeReplacement;
 
 /**
- * @experimental
- *
  * The slot type produced by `$getDOMSlot` for a given node, narrowed via
  * the node's static class: `ElementNode` resolves to {@link ElementDOMSlot}
  * (with children-management methods), other nodes to the base
@@ -433,7 +431,7 @@ export interface EditorDOMRenderConfig {
     editor: LexicalEditor,
   ) => HTMLElement;
   /**
-   * @internal @experimental
+   * @internal
    *
    * The default impl dispatches to `node.getDOMSlot(dom)`. The return type is
    * narrowed via {@link DOMSlotForNode}: callers passing an `ElementNode` get
@@ -466,7 +464,7 @@ export interface EditorDOMRenderConfig {
     editor: LexicalEditor,
   ) => void;
   /**
-   * @internal @experimental named-slots
+   * @internal
    *
    * Where a named slot's container should attach, for hosts rendered
    * entirely in-lexical (no chrome framework). The reconciler consults
@@ -1266,7 +1264,7 @@ export class LexicalEditor {
   /** @internal */
   _blockCursorElement: null | HTMLDivElement;
   /**
-   * @internal @experimental
+   * @internal
    *
    * Latches to `true` the first time {@link $setSlot} runs in this
    * editor. Gates the commit-time slot-containment clamp so editors that never
