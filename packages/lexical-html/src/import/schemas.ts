@@ -159,7 +159,7 @@ export function $applySchema(
  * supported {@link ElementFormatType} values) to each block-level child
  * Lexical node that does not yet have its own format.
  *
- * Mirrors the part of the legacy `wrapContinuousInlines` that wrote
+ * Mirrors the part of the legacy `$wrapContinuousInlines` that wrote
  * `node.setFormat(textAlign)` onto pre-existing block children when the
  * DOM parent carried `style.textAlign`. Pair with
  * {@link $paragraphPackageRun} (which carries the same propagation onto
@@ -190,7 +190,7 @@ export function $propagateTextAlignToBlockChildren(
 /**
  * Wrap a run of inline lexical nodes in a fresh paragraph, propagating the
  * `text-align` of `domParent` as the paragraph's format type (matching the
- * legacy `wrapContinuousInlines` behavior).
+ * legacy `$wrapContinuousInlines` behavior).
  */
 function $paragraphPackageRun(
   run: LexicalNode[],

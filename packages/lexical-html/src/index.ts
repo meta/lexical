@@ -9,6 +9,7 @@
 import invariant from '@lexical/internal/invariant';
 import {$sliceSelectedTextNodeContent} from '@lexical/selection';
 import {
+  $appendAll,
   $assumeActiveEditor,
   $createLineBreakNode,
   $createParagraphNode,
@@ -523,11 +524,15 @@ function $createNodesFromDOM(
       }
 
       if (currentLexicalNode) {
-        lexicalNodes.push(
-          ...(Array.isArray(transformNodes)
-            ? transformNodes
-            : [currentLexicalNode]),
-        );
+        // A converter's nodes can be as many as the text it converts has
+        // lines, past the number of arguments a call can take.
+        if (Array.isArray(transformNodes)) {
+          for (const transformNode of transformNodes) {
+            lexicalNodes.push(transformNode);
+          }
+        } else {
+          lexicalNodes.push(currentLexicalNode);
+        }
       }
     }
 
@@ -562,16 +567,16 @@ function $createNodesFromDOM(
         hasBlockAncestorLexicalNode;
 
   for (let i = 0; i < children.length; i++) {
-    childLexicalNodes.push(
-      ...$createNodesFromDOM(
-        children[i],
-        editor,
-        allArtificialNodes,
-        hasBlockAncestorLexicalNodeForChildren,
-        new Map(forChildMap),
-        currentLexicalNode,
-      ),
-    );
+    for (const childLexicalNode of $createNodesFromDOM(
+      children[i],
+      editor,
+      allArtificialNodes,
+      hasBlockAncestorLexicalNodeForChildren,
+      new Map(forChildMap),
+      currentLexicalNode,
+    )) {
+      childLexicalNodes.push(childLexicalNode);
+    }
   }
 
   if (postTransform != null) {
@@ -580,17 +585,21 @@ function $createNodesFromDOM(
 
   if (isBlockDomNode(node)) {
     if (!hasBlockAncestorLexicalNodeForChildren) {
-      childLexicalNodes = wrapContinuousInlines(
+      childLexicalNodes = $wrapContinuousInlines(
         node,
         childLexicalNodes,
         $createParagraphNode,
       );
     } else {
-      childLexicalNodes = wrapContinuousInlines(node, childLexicalNodes, () => {
-        const artificialNode = new ArtificialNode__DO_NOT_USE();
-        allArtificialNodes.push(artificialNode);
-        return artificialNode;
-      });
+      childLexicalNodes = $wrapContinuousInlines(
+        node,
+        childLexicalNodes,
+        () => {
+          const artificialNode = new ArtificialNode__DO_NOT_USE();
+          allArtificialNodes.push(artificialNode);
+          return artificialNode;
+        },
+      );
     }
   }
 
@@ -611,14 +620,14 @@ function $createNodesFromDOM(
     if ($isElementNode(currentLexicalNode)) {
       // If the current node is a ElementNode after conversion,
       // we can append all the children to it.
-      currentLexicalNode.append(...childLexicalNodes);
+      $appendAll(currentLexicalNode, childLexicalNodes);
     }
   }
 
   return lexicalNodes;
 }
 
-function wrapContinuousInlines(
+function $wrapContinuousInlines(
   domNode: Node,
   nodes: LexicalNode[],
   createWrapperFn: () => ElementNode,
@@ -643,7 +652,7 @@ function wrapContinuousInlines(
       ) {
         const wrapper = createWrapperFn();
         wrapper.setFormat(textAlign);
-        wrapper.append(...continuousInlines);
+        $appendAll(wrapper, continuousInlines);
         out.push(wrapper);
         continuousInlines = [];
       }

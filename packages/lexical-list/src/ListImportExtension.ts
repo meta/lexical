@@ -89,7 +89,7 @@ const ListRule = defineImportRule({
     }
     $setDirectionFromDOM(node, el);
     // Propagate the list's `text-align` onto each `ListItemNode` child
-    // (legacy `wrapContinuousInlines` did the same), so pasting
+    // (legacy `$wrapContinuousInlines` did the same), so pasting
     // `<ul style="text-align: left"><li>…</li></ul>` ends up with the
     // alignment on the list items where the reconciler renders it as
     // `style="text-align: left"`.
@@ -138,7 +138,7 @@ function $liftFormatFromSingleParagraph(
  * `ListItemNode` is an inline-level container, so any block child marks a
  * boundary. Contiguous inline siblings are kept together as a single run and
  * one {@link $createLineBreakNode} is inserted between runs — reproducing the
- * legacy `wrapContinuousInlines` + `$unwrapArtificialNodes` shape
+ * legacy `$wrapContinuousInlines` + `$unwrapArtificialNodes` shape
  * (`<li>1<div>2</div>3</li>` → `1<br>2<br>3`) without the
  * `ArtificialNode__DO_NOT_USE` marker.
  *
