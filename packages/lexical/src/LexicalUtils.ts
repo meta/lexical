@@ -337,6 +337,26 @@ export function getEditorPropertyFromDOMNode(node: Node | null): unknown {
 }
 
 /**
+ * @internal
+ *
+ * Whether `element` is one of `editor`'s own editing hosts: its root element,
+ * or an editable island inside it, such as a named slot's container or any
+ * other element marked with {@link $markSlotEditable}.
+ */
+export function isEditorFocusHost(
+  editor: LexicalEditor,
+  rootElement: HTMLElement,
+  element: Element | null,
+): boolean {
+  return (
+    element === rootElement ||
+    (element !== null &&
+      rootElement.contains(element) &&
+      getEditorPropertyFromDOMNode(element) === editor)
+  );
+}
+
+/**
  * Returns the direction of the first strong directional character in the
  * text. This is the direction that the browser gives an element with
  * `dir="auto"`. Characters with no strong direction before it (digits,
