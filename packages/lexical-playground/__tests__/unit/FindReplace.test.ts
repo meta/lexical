@@ -1068,6 +1068,28 @@ describe('FindReplaceExtension — command dispatch integration', () => {
     expect(dep.output.effectiveIndex.peek()).toBe(0);
   });
 
+  test('FIND_NEXT_COMMAND moves from the clamped index after replacing the last match', () => {
+    using editor = buildEditorFromExtensions(FindReplaceExtension);
+    const dep = getExtensionDependencyFromEditor(editor, FindReplaceExtension);
+    editor.update(
+      () => {
+        $getRoot()
+          .clear()
+          .append($createParagraphNode().append($createTextNode('a b a b a')));
+      },
+      {discrete: true},
+    );
+    editor.dispatchCommand(TOGGLE_FIND_REPLACE_COMMAND);
+    dep.output.searchTerm.value = 'a';
+    dep.output.replaceTerm.value = 'x';
+    editor.dispatchCommand(FIND_PREV_COMMAND);
+    editor.dispatchCommand(REPLACE_CURRENT_COMMAND);
+    expect(dep.output.effectiveIndex.peek()).toBe(1);
+
+    editor.dispatchCommand(FIND_NEXT_COMMAND);
+    expect(dep.output.effectiveIndex.peek()).toBe(0);
+  });
+
   test('regexError computed returns true for invalid regex', () => {
     using editor = buildEditorFromExtensions(FindReplaceExtension);
     const dep = getExtensionDependencyFromEditor(editor, FindReplaceExtension);
