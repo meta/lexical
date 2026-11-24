@@ -83,7 +83,8 @@
   flex: 1;
 }
 
-.TextSubstitutionDialog__table-header-spacer {
+.TextSubstitutionDialog__table-header
+  .TextSubstitutionDialog__table-header-spacer {
   flex: 0 0 auto;
 }
 
