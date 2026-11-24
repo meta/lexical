@@ -96,6 +96,17 @@ test.describe('Decorator click selection', () => {
         includesTarget: true,
       });
 
+    // Start again from a caret: on macOS, WebKit does not treat a selection as
+    // directional, so Shift-clicking across the anchor of an existing range
+    // natively moves the anchor to the opposite end, for text as well.
+    await setMiddleCaret(page);
+    await expect
+      .poll(() => getRange(page, 'page-break'))
+      .toMatchObject({
+        anchor: 'Middle',
+        anchorOffset: 1,
+        includesTarget: false,
+      });
     await breaks.first().click({modifiers: ['Shift']});
     await expect
       .poll(() => getRange(page, 'page-break'))

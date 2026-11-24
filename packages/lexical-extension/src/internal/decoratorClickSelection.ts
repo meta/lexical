@@ -23,6 +23,19 @@ import {
  * Handles range extension and node toggling for a click on a selectable node.
  * Call from a click command after validating the target.
  *
+ * Shift-click extends the current range to include the whole node, or toggles
+ * the node in the current node selection. Ctrl-click (Command-click on Apple
+ * platforms) toggles the node in the current node selection, or replaces any
+ * other selection with one that holds only the node.
+ *
+ * Returns `false`, leaving the selection unchanged, for an unmodified or
+ * non-primary click, and for a Shift-click that has no node selection to add
+ * to and that no range can express: there is no range selection, its anchor is
+ * inside the node, or its anchor and the node are in different slot trees. The
+ * caller then has to apply its own selection.
+ *
+ * @param event - The click event.
+ * @param nodeKey - The key of the clicked node.
  * @returns Whether the modifier gesture was handled.
  * @experimental
  */
