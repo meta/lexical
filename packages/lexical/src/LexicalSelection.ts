@@ -3379,7 +3379,6 @@ function $getSlotHostInFrame(
  * (both frames null), evaluated before any direction work, so non-slot and
  * headless callers are unaffected.
  *
- * @experimental named-slots
  * @internal
  */
 export function $clampRangeSelectionToSlotFrame(

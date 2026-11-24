@@ -202,14 +202,6 @@ For nodes written without `$config` at all, see [Legacy: custom nodes without `$
 
 ## Creating custom nodes with a serialization schema
 
-:::caution Experimental
-
-This feature became available in the lexical v0.51.0 release and is still
-considered experimental. Its implementation may change in any release
-without a deprecation period.
-
-:::
-
 A node's properties have to be propagated three times: exported to JSON,
 imported from untrusted JSON, and carried across a clone.
 `$config`'s `json` option replaces all three with a declarative schema.

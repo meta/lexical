@@ -314,7 +314,7 @@ let activePrevEditorState: EditorState;
 let activeNextNodeMap: NodeMap;
 let activePrevKeyToDOMMap: Map<NodeKey, HTMLElement & LexicalPrivateDOM>;
 let activeDirtyChildrenByParent: Map<NodeKey, Set<NodeKey>>;
-// @experimental named-slots. The previous slot container of each slot value
+// The previous slot container of each slot value
 // whose DOM this reconciliation has moved (see $createNode), recorded before
 // the move: once the DOM is moved, its parentElement no longer names the
 // container (see $slotContainerForKey).
@@ -490,7 +490,7 @@ function $setElementDirection(dom: HTMLElement, node: ElementNode): void {
   }
 }
 
-// @experimental named-slots. Slots are a separate channel from the
+// Slots are a separate channel from the
 // linked-list children: each slot subtree renders into its own
 // non-keyed container, and its text is concatenated with no separator to
 // match `ElementNode.getTextContent`. Containers are synchronous hidden
@@ -505,7 +505,7 @@ function $setElementDirection(dom: HTMLElement, node: ElementNode): void {
 // reconciles normally.
 // Leaves `subTreeTextContent` unchanged (restored on exit); the caller folds
 // the returned text in slots-first.
-// @experimental named-slots. Build a hidden slot placeholder element (DOM only,
+// Build a hidden slot placeholder element (DOM only,
 // no Lexical state), shared by the mount and reconcile paths so the two never
 // drift. The container is left unattached — the caller inserts it (appended on a
 // fresh mount, slots-first on reconcile) — and starts `display: none`, revealed
@@ -571,7 +571,7 @@ function $readSlots(node: LexicalNode): ReadonlyMap<string, NodeKey> {
     : EMPTY_SLOTS;
 }
 
-// @experimental named-slots. Synchronous in-lexical slot attachment: a host
+// Synchronous in-lexical slot attachment: a host
 // with a `$getSlotTargetElement` render-config override has the reconciler
 // attach and reveal the container in the same commit that (re)mounts it —
 // no listener or framework hop. A null target (the default) leaves placement
@@ -596,7 +596,7 @@ function $applySlotTarget(
   }
 }
 
-// @experimental named-slots. A slot value's DOM is mounted directly inside its
+// A slot value's DOM is mounted directly inside its
 // own `[data-lexical-slot]` container, so the container is that DOM's parent.
 // Resolving by the slotted key (rather than scanning the host's direct children
 // by name) survives the container being relocated out of the host — e.g. a
@@ -611,7 +611,7 @@ function $slotContainerForKey(slotKey: NodeKey): HTMLElement | null {
   return slotDom !== undefined ? slotDom.parentElement : null;
 }
 
-// @experimental named-slots. Reconcile mirror of `$mountSlotChildren`.
+// Reconcile mirror of `$mountSlotChildren`.
 // Slot containers already sit slots-first in the host DOM from the create
 // path, so reconciling each in place keeps DOM order. Same name + key →
 // reconcile in place; same name + new key → destroy old subtree, mount the
@@ -795,7 +795,7 @@ function $createNode(key: NodeKey, slot: DOMSlot | null): HTMLElement {
     if (indent !== 0) {
       setElementIndent(dom, indent);
     }
-    // @experimental named-slots. Slots render slots-first, ahead of the
+    // Slots render slots-first, ahead of the
     // linked-list children, each into its own container nested in the
     // host DOM. Their text folds into the host's cache ahead of the
     // child text to match `ElementNode.getTextContent`. The slots'
@@ -866,7 +866,7 @@ function $createNode(key: NodeKey, slot: DOMSlot | null): HTMLElement {
       }
       // Decorators are always non editable
       dom.contentEditable = 'false';
-      // @experimental named-slots. A decorator can host editable slots; each
+      // A decorator can host editable slots; each
       // mounts into its own detached contentEditable container that the
       // lexical-react component relocates into the decorate() chrome. The slot
       // text is already folded into `text` by getTextContent
@@ -1356,7 +1356,7 @@ function $tryReconcileSuffixWithSizeDelta(
       newSuffix += DOUBLE_LINE_BREAK;
     }
   }
-  // @experimental named-slots. `cachedParentText` holds the host's combined
+  // `cachedParentText` holds the host's combined
   // cache (slot text folded slots-first ahead of the child text). The suffix
   // we just rebuilt is child-only, so strip the slot prefix to recover the
   // child-only cache before splicing, and write child-only here — the slot
@@ -1571,7 +1571,7 @@ function $reconcileChildren(
             i++;
           }
 
-          // @experimental named-slots. Strip the slot prefix to recover the
+          // Strip the slot prefix to recover the
           // child-only cache, splice the child suffix, and write child-only —
           // the slot fold in `$reconcileNode` re-prepends the slot text.
           // `slotLen` is `0` for non-slot hosts (slice is a no-op), so their
@@ -1893,7 +1893,7 @@ function $reconcileNode(
     if (treatAllNodesAsDirty || nextFormat !== prevNode.__format) {
       setElementFormat(dom, nextFormat);
     }
-    // @experimental named-slots reconcile. Slot edits dirty the host
+    // Slot edits dirty the host
     // through __slotHost propagation, so a clean host means its slots are
     // unchanged and the cache already holds their text — only diff when
     // dirty and the node has (or had) slots. Returns the slot text to fold
@@ -2003,7 +2003,7 @@ function $reconcileNode(
       if (decorator !== null) {
         reconcileDecorator(key, decorator);
       }
-      // @experimental named-slots. Mirror the element-host slot reconcile for
+      // Mirror the element-host slot reconcile for
       // decorator hosts (including its isDirty gate: a clean host means its
       // slots are unchanged). Slot text is already folded into `text` by
       // getTextContent, so this is render-only ($reconcileSlotChildren

@@ -1,14 +1,5 @@
 # Named Slots
 
-:::warning
-
-Named slots are experimental. The APIs described here are tagged
-`@experimental`, may change without a major version bump, and the
-serialization and collab formats should be treated as unstable until the
-feature is stabilized.
-
-:::
-
 Named slots let a single host node (an ElementNode or a DecoratorNode) own
 several isolated editable regions addressed by name — a Card's `title`, a
 PullQuote's `quote` and `attribution` — inside the host's own EditorState.

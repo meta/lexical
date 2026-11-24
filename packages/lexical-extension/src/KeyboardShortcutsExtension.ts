@@ -134,7 +134,6 @@ export function formatKeyboardShortcut(
  * applications can overlay the table: configuring an existing name remaps
  * that shortcut, configuring it to null disables it, and new names add new
  * shortcuts.
- * @experimental
  */
 export type NamedKeyboardShortcuts = Record<
   string,
@@ -170,7 +169,7 @@ export interface KeyboardShortcutsConfig {
 }
 
 /**
- * @experimental @internal
+ * @internal
  *
  * Compile the given shortcuts and register a single
  * {@link KEY_DOWN_COMMAND} listener that dispatches each matched shortcut's
@@ -254,8 +253,6 @@ function mergeNamedShortcuts(
 }
 
 /**
- * @experimental
- *
  * Dispatches a table of keyboard shortcuts from a single compiled
  * `KEY_DOWN_COMMAND` listener, in O(1) per keypress.
  *

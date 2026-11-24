@@ -545,7 +545,6 @@ export interface BaseSerializedNode {
   /**
    * Named slot subtrees keyed by slot name; present on serialized hosts.
    * Mirrors {@link SerializedLexicalNode.$slots}.
-   * @experimental named-slots
    */
   $slots?: Record<string, BaseSerializedNode>;
   type: string;

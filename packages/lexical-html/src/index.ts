@@ -179,7 +179,6 @@ export function $generateNodesFromDOM(
 /**
  * Generate DOM nodes from the editor state into the given container element,
  * using the editor's {@link EditorDOMRenderConfig}.
- * @experimental
  */
 export function $generateDOMFromNodes<T extends HTMLElement | DocumentFragment>(
   container: T,
@@ -221,7 +220,6 @@ export function $generateDOMFromNodes<T extends HTMLElement | DocumentFragment>(
 /**
  * Generate DOM nodes from a root node into the given container element,
  * including the root node itself. Uses the editor's {@link EditorDOMRenderConfig}.
- * @experimental
  */
 export function $generateDOMFromRoot<T extends HTMLElement | DocumentFragment>(
   container: T,
@@ -434,8 +432,6 @@ function $appendNodesToHTML(
  * `exportDOM` for NodeState — are intentionally NOT auto-serialized to HTML;
  * a host node opts in by calling this from its own `exportDOM`, e.g. to render
  * each slot value into a `data-lexical-slot` wrapper.
- *
- * @experimental
  */
 export function $appendNodeToHTML(
   editor: LexicalEditor,
