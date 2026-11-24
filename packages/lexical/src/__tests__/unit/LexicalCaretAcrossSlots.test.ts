@@ -18,13 +18,18 @@ import {
   $getSiblingCaret,
   $getTextPointCaret,
   $isElementNode,
+  $isParagraphNode,
   $isTextNode,
   $setSlot,
+  type DecoratorNode,
   defineExtension,
+  type ElementNode,
   type LexicalNode,
+  type ParagraphNode,
   type PointCaret,
+  type TextNode,
 } from 'lexical';
-import {describe, expect, test} from 'vitest';
+import {assert, describe, expect, test} from 'vitest';
 
 import {
   $comparePointCaretNextAcrossSlots,
@@ -239,6 +244,33 @@ describe('$getCommonAncestorAcrossSlots', () => {
       },
       {discrete: true},
     );
+  });
+});
+
+describe('$getCommonAncestorAcrossSlots result types', () => {
+  test('keep the argument types', () => {
+    using editor = buildEditor();
+    editor.read('force-commit', () => {
+      const host = $assertNodeType($node('host'), $isParagraphNode);
+      const text = $assertNodeType($node('titleText'), $isTextNode);
+      const result = $getCommonAncestorAcrossSlots(host, text);
+      assert(result !== null && result.type === 'slot-ancestor');
+      // Each assignment type-checks only if the result kept A or B.
+      const commonAncestor: ParagraphNode = result.commonAncestor;
+      expect(commonAncestor).toBe(host);
+      const reverse = $getCommonAncestorAcrossSlots(text, host);
+      assert(reverse !== null && reverse.type === 'slot-descendant');
+      const reverseAncestor: ParagraphNode = reverse.commonAncestor;
+      expect(reverseAncestor).toBe(host);
+      const same = $getCommonAncestorAcrossSlots(text, text);
+      assert(same !== null && same.type === 'same');
+      const sameText: TextNode = same.commonAncestor;
+      expect(sameText).toBe(text);
+      const branch = $getCommonAncestorAcrossSlots(text, $node('noteText'));
+      assert(branch !== null && branch.type === 'slot-branch');
+      const side: TextNode | ElementNode | DecoratorNode<unknown> = branch.a;
+      expect(side).toBe(text);
+    });
   });
 });
 
