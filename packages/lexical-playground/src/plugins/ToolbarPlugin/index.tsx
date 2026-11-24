@@ -99,7 +99,7 @@ import {InsertPollDialog} from '../PollExtension';
 import {$isRubyNode, $toggleRuby} from '../RubyExtension/RubyNode';
 import {shortcut} from '../ShortcutsExtension/shortcuts';
 import {InsertTableDialog} from '../TablePlugin';
-import {PreferencesDialog} from '../TextSubstitutionPlugin';
+import {TextSubstitutionDialog} from '../TextSubstitutionPlugin';
 import FontSize, {parseFontSizeForToolbar} from './fontSize';
 import {
   clearFormatting,
@@ -1317,20 +1317,17 @@ export default function ToolbarPlugin({
             <Divider />
             <DropDownItem
               onClick={() => {
-                showModal('Preferences', onClose => (
-                  <PreferencesDialog
+                showModal('Text Substitutions', onClose => (
+                  <TextSubstitutionDialog
                     activeEditor={activeEditor}
                     onClose={onClose}
                   />
                 ));
               }}
               className="item wide"
-              title="Preferences"
-              aria-label="Open preferences">
-              <div className="icon-text-container">
-                <i className="icon gear" />
-                <span className="text">Preferences</span>
-              </div>
+              title="Text Substitutions..."
+              aria-label="Open text substitutions">
+              <span className="text">Text Substitutions...</span>
             </DropDownItem>
           </DropDown>
           <ExtensionComponent lexical:extension={PagesReactExtension} />

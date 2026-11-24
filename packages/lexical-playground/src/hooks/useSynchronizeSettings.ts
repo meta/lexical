@@ -18,7 +18,6 @@ import {
   WatchEditableExtension,
 } from '@lexical/extension';
 import {
-  AutoLinkExtension,
   ClickableLinkExtension,
   type LinkAttributes,
   LinkExtension,
@@ -32,7 +31,6 @@ import {INITIAL_SETTINGS, type Settings} from '../appSettings';
 import {useSettings} from '../context/SettingsContext';
 import {AutocompleteExtension} from '../plugins/AutocompleteExtension';
 import {CodeHighlightExtension} from '../plugins/CodeHighlightExtension';
-import {PlaygroundMarkdownShortcutsExtension} from '../plugins/MarkdownShortcutsExtension';
 import {MaxLengthExtension} from '../plugins/MaxLengthPlugin';
 import {SpecialTextExtension} from '../plugins/SpecialTextExtension';
 import {VisibleNonPrintingExtension} from '../plugins/VisibleNonPrintingExtension';
@@ -125,19 +123,6 @@ export function synchronizeSettingsToSignals(
     output(editor, SelectionAlwaysOnDisplayExtension).disabled.value =
       !settings.selectionAlwaysOnDisplay;
     output(editor, SelectBlockExtension).disabled.value = !settings.selectBlock;
-    // General preferences (Preferences dialog): auto-detect links and
-    // markdown shortcuts are live-reconfigurable through their `disabled`
-    // signals, so toggling them here takes effect without rebuilding
-    // the editor.
-    output(editor, AutoLinkExtension).disabled.value =
-      !settings.autoDetectLinks;
-    const markdownShortcuts = peerOutput(
-      editor,
-      PlaygroundMarkdownShortcutsExtension,
-    );
-    if (markdownShortcuts) {
-      markdownShortcuts.disabled.value = !settings.enableMarkdown;
-    }
   });
 }
 

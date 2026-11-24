@@ -6,123 +6,12 @@
  *
  */
 
-.PreferencesDialog {
+.TextSubstitutionDialog {
   width: min(560px, 100%);
   overflow-x: auto;
 }
 
-.PreferencesDialog__tabs {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 4px;
-  margin-bottom: 18px;
-  padding: 4px;
-  background-color: #f1f2f4;
-  border-radius: 10px;
-}
-
-.PreferencesDialog__tab {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 7px;
-  border: 0;
-  border-radius: 7px;
-  padding: 8px 12px;
-  background-color: transparent;
-  color: #555;
-  font-size: 13px;
-  font-weight: 600;
-  line-height: 16px;
-  white-space: nowrap;
-  cursor: pointer;
-  transition:
-    background-color 0.15s,
-    color 0.15s;
-  outline: none;
-}
-
-.PreferencesDialog__tab:hover {
-  color: #222;
-  background-color: rgba(0, 0, 0, 0.04);
-}
-
-.PreferencesDialog__tab[aria-selected='true'] {
-  background-color: #fff;
-  color: rgb(24, 119, 242);
-  box-shadow:
-    0 0 0 1px rgba(0, 0, 0, 0.05),
-    0 1px 2px rgba(0, 0, 0, 0.12);
-}
-
-.PreferencesDialog .PreferencesDialog__tab:focus {
-  outline: none;
-}
-
-.PreferencesDialog .PreferencesDialog__tab:focus-visible {
-  box-shadow: 0 0 0 2px rgb(24, 119, 242);
-}
-
-.PreferencesDialog table {
-  width: 100%;
-  border-collapse: collapse;
-}
-
-.PreferencesDialog__heading {
-  position: sticky;
-  top: 0;
-  z-index: 1;
-  padding-bottom: 8px;
-  background-color: #fff;
-  border-bottom: 1px solid #e0e0e0;
-  color: #888;
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-}
-
-.PreferencesDialog__heading--left {
-  text-align: left;
-}
-
-.PreferencesDialog__heading--right {
-  text-align: right;
-}
-
-.PreferencesDialog__cell {
-  padding-top: 8px;
-  padding-bottom: 8px;
-  border-bottom: 1px solid #f0f0f0;
-}
-
-.PreferencesDialog tbody tr:last-child td {
-  border-bottom: 0;
-}
-
-.PreferencesDialog__option {
-  color: #333;
-  font-size: 14px;
-  padding-right: 2em;
-}
-
-.PreferencesDialog__option-hint {
-  color: #5f6368;
-  font-size: 13px;
-}
-
-.PreferencesDialog__option-label {
-  align-items: flex-start;
-  cursor: pointer;
-  display: flex;
-  gap: 8px;
-}
-
-.PreferencesDialog__option-label input[type='checkbox'] {
-  margin-top: 2px;
-}
-
-.PreferencesDialog__master {
+.TextSubstitutionDialog__master {
   align-items: center;
   cursor: pointer;
   display: flex;
@@ -130,7 +19,7 @@
   margin-bottom: 12px;
 }
 
-.PreferencesDialog__master input[type='checkbox'] {
+.TextSubstitutionDialog__master input[type='checkbox'] {
   margin: 0;
 }
 
@@ -178,7 +67,7 @@
   color: #000;
 }
 
-.PreferencesDialog__table-header {
+.TextSubstitutionDialog__table-header {
   color: #888;
   display: flex;
   font-size: 11px;
@@ -190,18 +79,18 @@
   border-bottom: 1px solid #e0e0e0;
 }
 
-.PreferencesDialog__table-header span {
+.TextSubstitutionDialog__table-header span {
   flex: 1;
 }
 
-.PreferencesDialog__table-header-spacer {
+.TextSubstitutionDialog__table-header-spacer {
   flex: 0 0 auto;
 }
 
-.PreferencesDialog__table-header-spacer--checkbox {
+.TextSubstitutionDialog__table-header-spacer--checkbox {
   width: 16px;
 }
 
-.PreferencesDialog__table-header-spacer--remove {
+.TextSubstitutionDialog__table-header-spacer--remove {
   width: 24px;
 }

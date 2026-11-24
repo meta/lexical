@@ -118,40 +118,6 @@ describe('LexicalAutoLinkExtension tests', () => {
     });
   });
 
-  test('disabled prevents auto-linking', async () => {
-    using editor = buildEditorFromExtensions({
-      $initialEditorState() {
-        $getRoot().append(
-          $createParagraphNode().append(
-            $createTextNode('https://example.com'),
-          ),
-        );
-      },
-      dependencies: [
-        TestLexicalAutoLinkExtension,
-        configExtension(AutoLinkExtension, {
-          disabled: true,
-          matchers: [URL_MATCHER],
-        }),
-      ],
-      name: '[test override]',
-    });
-
-    editor.read(() => {
-      const root = $getRoot();
-      const paragraphNode = root.getFirstChild();
-      assert(
-        $isParagraphNode(paragraphNode),
-        'first root child must be a ParagraphNode',
-      );
-      // The URL stays plain text: no AutoLinkNode is created while
-      // the extension is disabled.
-      const child = paragraphNode.getFirstChild();
-      assert($isTextNode(child), 'child must be a TextNode');
-      expect(child.getTextContent()).toBe('https://example.com');
-    });
-  });
-
   test('excludeParents prevents auto-linking inside excluded parent nodes', async () => {
     using editor = buildEditorFromExtensions({
       $initialEditorState() {

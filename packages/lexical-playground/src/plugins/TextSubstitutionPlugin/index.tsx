@@ -6,7 +6,6 @@
  *
  */
 
-import type {SettingName} from '../../appSettings';
 import type {LexicalEditor} from 'lexical';
 
 import './index.css';
@@ -26,7 +25,6 @@ import {
   useState,
 } from 'react';
 
-import {useSettings} from '../../context/SettingsContext';
 import Button from '../../ui/Button';
 import {DialogActions} from '../../ui/Dialog';
 
@@ -162,70 +160,7 @@ function TextSubstitutionRow({
   );
 }
 
-const GENERAL_PREFERENCE_OPTIONS: {
-  key: SettingName;
-  label: string;
-  hint?: string;
-}[] = [
-  {key: 'autoCapitaliseWords', label: 'Automatically capitalise words'},
-  {key: 'useSmartQuotes', label: 'Use smart quotes'},
-  {key: 'autoDetectLinks', label: 'Automatically detect links'},
-  {key: 'autoDetectLists', label: 'Automatically detect lists'},
-  {key: 'enableMarkdown', label: 'Enable Markdown'},
-  {key: 'autoCorrectSpelling', label: 'Automatically correct spelling'},
-  {
-    hint: '(suggested replies appear below comments)',
-    key: 'showSmartReply',
-    label: 'Show Smart Reply suggestions',
-  },
-  {key: 'showLinkDetails', label: 'Show link details'},
-  {
-    key: 'insertEmojiWithColon',
-    label: 'Insert emoji using the colon character',
-  },
-];
-
-function GeneralPreferencesTab({onClose}: {onClose: () => void}): JSX.Element {
-  const {setOption, settings} = useSettings();
-
-  return (
-    <>
-      <table>
-        <tbody>
-          {GENERAL_PREFERENCE_OPTIONS.map(option => (
-            <tr key={option.key}>
-              <td className="PreferencesDialog__cell PreferencesDialog__option">
-                <label className="PreferencesDialog__option-label">
-                  <input
-                    type="checkbox"
-                    checked={settings[option.key]}
-                    onChange={e => setOption(option.key, e.target.checked)}
-                  />
-                  <span>
-                    {option.label}
-                    {option.hint !== undefined && (
-                      <>
-                        <br />
-                        <span className="PreferencesDialog__option-hint">
-                          {option.hint}
-                        </span>
-                      </>
-                    )}
-                  </span>
-                </label>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-      <DialogActions>
-        <Button onClick={onClose}>Done</Button>
-      </DialogActions>
-    </>
-  );
-}
-
-function SubstitutionsTab({
+export function TextSubstitutionDialog({
   activeEditor,
   onClose,
 }: {
@@ -372,8 +307,8 @@ function SubstitutionsTab({
       .sort((a, b) => a.alias.localeCompare(b.alias));
 
   return (
-    <>
-      <label className="PreferencesDialog__master">
+    <div className="TextSubstitutionDialog">
+      <label className="TextSubstitutionDialog__master">
         <input
           type="checkbox"
           checked={!disabled}
@@ -382,15 +317,15 @@ function SubstitutionsTab({
         />
         <span>Automatic substitution</span>
       </label>
-      <div className="PreferencesDialog__table-header" aria-hidden="true">
-        <span className="PreferencesDialog__table-header-spacer PreferencesDialog__table-header-spacer--checkbox" />
+      <div className="TextSubstitutionDialog__table-header" aria-hidden="true">
+        <span className="TextSubstitutionDialog__table-header-spacer TextSubstitutionDialog__table-header-spacer--checkbox" />
         <span>Replace</span>
         <span>With</span>
-        <span className="PreferencesDialog__table-header-spacer PreferencesDialog__table-header-spacer--remove" />
+        <span className="TextSubstitutionDialog__table-header-spacer TextSubstitutionDialog__table-header-spacer--remove" />
       </div>
       <ul className="TextSubstitutionDialog__list">
         <li className="TextSubstitutionDialog__row">
-          <span className="PreferencesDialog__table-header-spacer PreferencesDialog__table-header-spacer--checkbox" />
+          <span className="TextSubstitutionDialog__table-header-spacer TextSubstitutionDialog__table-header-spacer--checkbox" />
           <input
             aria-label="Replace"
             className="Input__input TextSubstitutionDialog__input"
@@ -417,7 +352,7 @@ function SubstitutionsTab({
             }}
             value={addReplacement}
           />
-          <span className="PreferencesDialog__table-header-spacer PreferencesDialog__table-header-spacer--remove" />
+          <span className="TextSubstitutionDialog__table-header-spacer TextSubstitutionDialog__table-header-spacer--remove" />
         </li>
         {entries.map(entry => (
           <TextSubstitutionRow
@@ -445,53 +380,6 @@ function SubstitutionsTab({
         <Button onClick={onCancel}>Cancel</Button>
         <Button onClick={onClose}>OK</Button>
       </DialogActions>
-    </>
-  );
-}
-
-export function PreferencesDialog({
-  activeEditor,
-  onClose,
-}: {
-  activeEditor: LexicalEditor;
-  onClose: () => void;
-}): JSX.Element {
-  const [tab, setTab] = useState<'general' | 'substitutions'>('substitutions');
-
-  return (
-    <div className="PreferencesDialog">
-      <div
-        className="PreferencesDialog__tabs"
-        role="tablist"
-        aria-label="Preferences">
-        <button
-          type="button"
-          role="tab"
-          aria-selected={tab === 'general'}
-          className="PreferencesDialog__tab"
-          onClick={e => {
-            e.preventDefault();
-            setTab('general');
-          }}>
-          General
-        </button>
-        <button
-          type="button"
-          role="tab"
-          aria-selected={tab === 'substitutions'}
-          className="PreferencesDialog__tab"
-          onClick={e => {
-            e.preventDefault();
-            setTab('substitutions');
-          }}>
-          Substitutions
-        </button>
-      </div>
-      {tab === 'general' ? (
-        <GeneralPreferencesTab onClose={onClose} />
-      ) : (
-        <SubstitutionsTab activeEditor={activeEditor} onClose={onClose} />
-      )}
     </div>
   );
 }

@@ -6,7 +6,6 @@
  *
  */
 
-import {effect, namedSignals} from '@lexical/extension';
 import {
   $createTextNode,
   $getSelection,
@@ -601,11 +600,6 @@ function getTextNodesToMatch(textNode: TextNode): TextNode[] {
 
 export interface AutoLinkConfig {
   changeHandlers: ChangeHandler[];
-  /**
-   * When true, the extension registers no transform or command, so
-   * typed text is never turned into a link. Defaults to `false`.
-   */
-  disabled: boolean;
   excludeParents: ((parent: ElementNode) => boolean)[];
   matchers: LinkMatcher[];
   /**
@@ -618,7 +612,6 @@ export interface AutoLinkConfig {
 
 const defaultConfig: AutoLinkConfig = {
   changeHandlers: [],
-  disabled: false,
   excludeParents: [],
   matchers: [],
   separatorRegex: PUNCTUATION_OR_SPACE,
@@ -626,18 +619,15 @@ const defaultConfig: AutoLinkConfig = {
 
 export function registerAutoLink(
   editor: LexicalEditor,
-  config: Partial<AutoLinkConfig> = defaultConfig,
+  config: Partial<AutoLinkConfig> &
+    Omit<AutoLinkConfig, 'separatorRegex'> = defaultConfig,
 ): () => void {
   const {
-    disabled = false,
-    matchers = [],
-    changeHandlers = [],
-    excludeParents = [],
+    matchers,
+    changeHandlers,
+    excludeParents,
     separatorRegex = PUNCTUATION_OR_SPACE,
   } = config;
-  if (disabled) {
-    return () => {};
-  }
   const onChange: ChangeHandler = (url, prevUrl) => {
     for (const handler of changeHandlers) {
       handler(url, prevUrl);
@@ -706,7 +696,6 @@ export function registerAutoLink(
  * concatenating the configured arrays.
  */
 export const AutoLinkExtension = defineExtension({
-  build: (_editor, config) => namedSignals(config),
   config: defaultConfig,
   dependencies: [AutoLinkAnnounceExtension, LinkExtension],
   mergeConfig(config, overrides) {
@@ -721,21 +710,5 @@ export const AutoLinkExtension = defineExtension({
   },
   name: '@lexical/link/AutoLink',
   nodes: [AutoLinkNode],
-  register(editor, _config, state) {
-    const {changeHandlers, disabled, excludeParents, matchers, separatorRegex} =
-      state.getOutput();
-    // Gate on `disabled` from an effect so a disabled auto-linker registers
-    // no transform or command at all. Reading the other signals inside the
-    // effect re-registers when they change.
-    return effect(() =>
-      disabled.value
-        ? undefined
-        : registerAutoLink(editor, {
-            changeHandlers: changeHandlers.value,
-            excludeParents: excludeParents.value,
-            matchers: matchers.value,
-            separatorRegex: separatorRegex.value,
-          }),
-    );
-  },
+  register: registerAutoLink,
 });
