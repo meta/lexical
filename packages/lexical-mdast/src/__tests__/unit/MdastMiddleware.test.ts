@@ -138,8 +138,10 @@ function randomWord(rand: () => number, chars: readonly string[]): string {
 
 /**
  * Formatted text and code without `data`, which the export takes apart into
- * runs and groups again. No text, code or container is empty: those do not
- * always read back yet.
+ * runs and groups again. No text, code or container is empty:
+ * mdast-util-to-markdown writes empty inline code as two backticks, and before
+ * 2.2.3 an empty strong, emphasis or delete as its markers, which read back as
+ * text even when nothing groups them.
  */
 function randomPhrasing(rand: () => number, depth: number): PhrasingContent {
   const r = rand();
