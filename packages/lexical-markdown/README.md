@@ -98,8 +98,10 @@ does the legacy source escaping of `shouldPreserveNewLines`. Import reads
 backslash escapes and decimal or hexadecimal references in one pass. A literal
 bracket is escaped only where it would otherwise start a link, an image, a link
 reference definition or a check list item, so text such as `[1]` and `array[0]`
-exports as typed. Escaped brackets and guarded `<`/`&` use numeric references so
-escaping does not change adjacent emphasis flanking.
+exports as typed. An underscore between two ASCII letters or digits, as in
+`snake_case` or a URL path, is left unescaped, unless one of those letters goes
+out as a numeric reference (see below). Escaped brackets and guarded `<`/`&` use
+numeric references so escaping does not change adjacent emphasis flanking.
 
 Import follows CommonMark's Unicode punctuation and whitespace when deciding
 whether `*`, `_`, `~~` and `==` open or close formatting. When formatted text
