@@ -399,6 +399,14 @@ Future:
   you can not store a Y.Map as a NodeState value
   (see [#7293](https://github.com/meta/lexical/issues/7293))
 
+## Application identity
+
+NodeState can hold application-owned values such as external document IDs while
+Lexical's internal `NodeKey` remains ephemeral. The exact persistence,
+duplication, and clipboard policy is application-specific. See the
+[application node identity example](https://github.com/facebook/lexical/tree/main/examples/node-state-identity)
+for one executable policy built with released Lexical APIs.
+
 ## Node State Style Example
 
 This example demonstrates an advanced use case of storing a style object on TextNode using NodeState.

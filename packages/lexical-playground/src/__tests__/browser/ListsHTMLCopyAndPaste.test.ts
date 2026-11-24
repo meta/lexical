@@ -30,16 +30,10 @@ test('Copy + paste a list element with right alignment', async () => {
     root,
     html`
       <ul class="PlaygroundEditorTheme__ul" dir="auto">
-        <li
-          class="PlaygroundEditorTheme__listItem"
-          style="text-align: right;"
-          value="1">
+        <li class="PlaygroundEditorTheme__listItem" style="text-align: right;">
           <span data-lexical-text="true">Hello</span>
         </li>
-        <li
-          class="PlaygroundEditorTheme__listItem"
-          style="text-align: right;"
-          value="2">
+        <li class="PlaygroundEditorTheme__listItem" style="text-align: right;">
           <span data-lexical-text="true">world!</span>
         </li>
       </ul>
@@ -68,19 +62,18 @@ test('Copy + paste a Lexical nested list', async () => {
     root,
     html`
       <ul class="PlaygroundEditorTheme__ul" dir="auto">
-        <li class="PlaygroundEditorTheme__listItem" value="1">
+        <li class="PlaygroundEditorTheme__listItem">
           <span data-lexical-text="true">Hello</span>
         </li>
         <li
-          class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__nestedListItem"
-          value="2">
+          class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__nestedListItem">
           <ul class="PlaygroundEditorTheme__ul">
-            <li class="PlaygroundEditorTheme__listItem" value="1">
+            <li class="PlaygroundEditorTheme__listItem">
               <span data-lexical-text="true">awesome</span>
             </li>
           </ul>
         </li>
-        <li class="PlaygroundEditorTheme__listItem" value="2">
+        <li class="PlaygroundEditorTheme__listItem">
           <span data-lexical-text="true">world!</span>
         </li>
       </ul>
@@ -102,15 +95,14 @@ test('Copy + paste (Nested List - directly nested ul)', async () => {
     html`
       <ul class="PlaygroundEditorTheme__ul" dir="auto">
         <li
-          class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__nestedListItem"
-          value="1">
+          class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__nestedListItem">
           <ul class="PlaygroundEditorTheme__ul">
-            <li class="PlaygroundEditorTheme__listItem" value="1">
+            <li class="PlaygroundEditorTheme__listItem">
               <span data-lexical-text="true">Hello</span>
             </li>
           </ul>
         </li>
-        <li class="PlaygroundEditorTheme__listItem" value="1">
+        <li class="PlaygroundEditorTheme__listItem">
           <span data-lexical-text="true">world!</span>
         </li>
       </ul>
@@ -131,13 +123,12 @@ test('Copy + paste (Nested List - directly nested ul)', async () => {
     html`
       <ul class="PlaygroundEditorTheme__ul" dir="auto">
         <li
-          class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__nestedListItem"
-          value="1">
+          class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__nestedListItem">
           <ul class="PlaygroundEditorTheme__ul">
-            <li class="PlaygroundEditorTheme__listItem" value="1">
+            <li class="PlaygroundEditorTheme__listItem">
               <span data-lexical-text="true">Hello</span>
             </li>
-            <li class="PlaygroundEditorTheme__listItem" value="2">
+            <li class="PlaygroundEditorTheme__listItem">
               <span data-lexical-text="true">world!</span>
             </li>
           </ul>
@@ -154,14 +145,13 @@ test('Copy + paste (Nested List - directly nested ul)', async () => {
     root,
     html`
       <ul class="PlaygroundEditorTheme__ul" dir="auto">
-        <li class="PlaygroundEditorTheme__listItem" value="1">
+        <li class="PlaygroundEditorTheme__listItem">
           <span data-lexical-text="true">Hello</span>
         </li>
         <li
-          class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__nestedListItem"
-          value="2">
+          class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__nestedListItem">
           <ul class="PlaygroundEditorTheme__ul">
-            <li class="PlaygroundEditorTheme__listItem" value="1">
+            <li class="PlaygroundEditorTheme__listItem">
               <span data-lexical-text="true">world!</span>
             </li>
           </ul>
@@ -184,14 +174,13 @@ test('Copy + paste (Nested List - li with non-list content plus ul child)', asyn
     root,
     html`
       <ul class="PlaygroundEditorTheme__ul" dir="auto">
-        <li class="PlaygroundEditorTheme__listItem" value="1">
+        <li class="PlaygroundEditorTheme__listItem">
           <span data-lexical-text="true">Hello</span>
         </li>
         <li
-          class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__nestedListItem"
-          value="2">
+          class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__nestedListItem">
           <ul class="PlaygroundEditorTheme__ul">
-            <li class="PlaygroundEditorTheme__listItem" value="1">
+            <li class="PlaygroundEditorTheme__listItem">
               <span data-lexical-text="true">world!</span>
             </li>
           </ul>
@@ -213,10 +202,10 @@ test('Copy + paste (Nested List - li with non-list content plus ul child)', asyn
     root,
     html`
       <ul class="PlaygroundEditorTheme__ul" dir="auto">
-        <li class="PlaygroundEditorTheme__listItem" value="1">
+        <li class="PlaygroundEditorTheme__listItem">
           <span data-lexical-text="true">Hello</span>
         </li>
-        <li class="PlaygroundEditorTheme__listItem" value="2">
+        <li class="PlaygroundEditorTheme__listItem">
           <span data-lexical-text="true">world!</span>
         </li>
       </ul>
@@ -232,15 +221,14 @@ test('Copy + paste (Nested List - li with non-list content plus ul child)', asyn
     html`
       <ul class="PlaygroundEditorTheme__ul" dir="auto">
         <li
-          class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__nestedListItem"
-          value="1">
+          class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__nestedListItem">
           <ul class="PlaygroundEditorTheme__ul">
-            <li class="PlaygroundEditorTheme__listItem" value="1">
+            <li class="PlaygroundEditorTheme__listItem">
               <span data-lexical-text="true">Hello</span>
             </li>
           </ul>
         </li>
-        <li class="PlaygroundEditorTheme__listItem" value="1">
+        <li class="PlaygroundEditorTheme__listItem">
           <span data-lexical-text="true">world!</span>
         </li>
       </ul>
@@ -252,7 +240,7 @@ test('Copy + paste a checklist', async () => {
   const {root} = setupPasteEditor();
 
   const clipboard = {
-    'text/html': `<meta charset='utf-8'><ul __lexicallisttype="check"><li role="checkbox" tabindex="-1" aria-checked="false" value="1" class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__listItemUnchecked"><span>Hello</span></li><li role="checkbox" tabindex="-1" aria-checked="false" value="2" class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__listItemUnchecked"><span>world</span></li></ul>`,
+    'text/html': `<meta charset='utf-8'><ul __lexicallisttype="check"><li role="checkbox" tabindex="-1" aria-checked="false" class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__listItemUnchecked"><span>Hello</span></li><li role="checkbox" tabindex="-1" aria-checked="false" class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__listItemUnchecked"><span>world</span></li></ul>`,
   };
 
   await pasteFromClipboard(root, clipboard);
@@ -267,7 +255,6 @@ test('Copy + paste a checklist', async () => {
           class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__listItemUnchecked"
           role="checkbox"
           tabindex="-1"
-          value="1"
           aria-checked="false">
           <span data-lexical-text="true">Hello</span>
         </li>
@@ -275,7 +262,6 @@ test('Copy + paste a checklist', async () => {
           class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__listItemUnchecked"
           role="checkbox"
           tabindex="-1"
-          value="2"
           aria-checked="false">
           <span data-lexical-text="true">world</span>
         </li>
@@ -288,7 +274,7 @@ test('Copy + paste a checklist', async () => {
 
   // Ensure we preserve checked status.
   clipboard['text/html'] =
-    `<meta charset='utf-8'><ul __lexicallisttype="check"><li role="checkbox" tabindex="-1" aria-checked="true" value="1" class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__listItemChecked"><span>Hello</span></li><li role="checkbox" tabindex="-1" aria-checked="false" value="2" class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__listItemUnchecked"><span>world</span></li></ul>`;
+    `<meta charset='utf-8'><ul __lexicallisttype="check"><li role="checkbox" tabindex="-1" aria-checked="true" class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__listItemChecked"><span>Hello</span></li><li role="checkbox" tabindex="-1" aria-checked="false" class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__listItemUnchecked"><span>world</span></li></ul>`;
 
   await pasteFromClipboard(root, clipboard);
 
@@ -302,7 +288,6 @@ test('Copy + paste a checklist', async () => {
           class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__listItemChecked"
           role="checkbox"
           tabindex="-1"
-          value="1"
           aria-checked="true">
           <span data-lexical-text="true">Hello</span>
         </li>
@@ -310,7 +295,6 @@ test('Copy + paste a checklist', async () => {
           class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__listItemUnchecked"
           role="checkbox"
           tabindex="-1"
-          value="2"
           aria-checked="false">
           <span data-lexical-text="true">world</span>
         </li>
@@ -344,7 +328,7 @@ test('Paste top level element in the middle of list', async () => {
     root,
     html`
       <ul class="PlaygroundEditorTheme__ul" dir="auto">
-        <li class="PlaygroundEditorTheme__listItem" value="1">
+        <li class="PlaygroundEditorTheme__listItem">
           <span data-lexical-text="true">one</span>
         </li>
       </ul>
@@ -353,13 +337,13 @@ test('Paste top level element in the middle of list', async () => {
         contenteditable="false"
         data-lexical-decorator="true" />
       <ul class="PlaygroundEditorTheme__ul" dir="auto">
-        <li class="PlaygroundEditorTheme__listItem" value="1">
+        <li class="PlaygroundEditorTheme__listItem">
           <span data-lexical-text="true">two</span>
         </li>
-        <li class="PlaygroundEditorTheme__listItem" value="2">
+        <li class="PlaygroundEditorTheme__listItem">
           <span data-lexical-text="true">three</span>
         </li>
-        <li class="PlaygroundEditorTheme__listItem" value="3">
+        <li class="PlaygroundEditorTheme__listItem">
           <span data-lexical-text="true">four</span>
         </li>
       </ul>
@@ -396,14 +380,14 @@ test('Copy + paste a nested divs in a list', async () => {
     root,
     html`
       <ol class="PlaygroundEditorTheme__ol1" dir="auto">
-        <li class="PlaygroundEditorTheme__listItem" value="1">
+        <li class="PlaygroundEditorTheme__listItem">
           <span data-lexical-text="true">1</span>
           <br />
           <span data-lexical-text="true">2</span>
           <br />
           <span data-lexical-text="true">3</span>
         </li>
-        <li class="PlaygroundEditorTheme__listItem" value="2">
+        <li class="PlaygroundEditorTheme__listItem">
           <span data-lexical-text="true">A</span>
           <br />
           <span data-lexical-text="true">B</span>

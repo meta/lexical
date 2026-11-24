@@ -378,7 +378,9 @@ function useDraggableBlockMenu(
       if (isFileTransfer) {
         return false;
       }
-      const pageY = event.pageY;
+      // Viewport coordinate, to compare with getBoundingClientRect(); pageY
+      // would add the window's scroll offset.
+      const clientY = event.clientY;
       // Composed target so the zoom level is read from the real element rather
       // than the shadow host when the editor is in a shadow tree.
       const target = getComposedEventTarget(event);
@@ -393,7 +395,7 @@ function useDraggableBlockMenu(
       setTargetLine(
         targetLineElem,
         targetBlockElem,
-        pageY / calculateZoomLevel(target),
+        clientY / calculateZoomLevel(target),
         anchorElem,
       );
       // Prevent default event to be able to trigger onDrop events
@@ -409,7 +411,8 @@ function useDraggableBlockMenu(
       if (isFileTransfer) {
         return false;
       }
-      const {dataTransfer, pageY} = event;
+      // Viewport coordinate, like targetBlockElemTop below.
+      const {dataTransfer, clientY} = event;
       // Composed target so the zoom level is read from the real element rather
       // than the shadow host when the editor is in a shadow tree.
       const target = getComposedEventTarget(event);
@@ -438,7 +441,7 @@ function useDraggableBlockMenu(
         return true;
       }
       const targetBlockElemTop = targetBlockElem.getBoundingClientRect().top;
-      if (pageY / calculateZoomLevel(target) >= targetBlockElemTop) {
+      if (clientY / calculateZoomLevel(target) >= targetBlockElemTop) {
         targetNode.insertAfter(draggedNode);
       } else {
         targetNode.insertBefore(draggedNode);
