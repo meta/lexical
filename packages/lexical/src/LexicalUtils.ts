@@ -349,9 +349,10 @@ export function isEditorFocusHost(
   element: Element | null,
 ): boolean {
   return (
-    element !== null &&
-    rootElement.contains(element) &&
-    getEditorPropertyFromDOMNode(element) === editor
+    element === rootElement ||
+    (element !== null &&
+      rootElement.contains(element) &&
+      getEditorPropertyFromDOMNode(element) === editor)
   );
 }
 
