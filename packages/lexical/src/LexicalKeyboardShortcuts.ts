@@ -200,6 +200,8 @@ function pushEntry<S>(map: Map<string, S[]>, mapKey: string, shortcut: S) {
 }
 
 /**
+ * @internal
+ *
  * A shortcut table compiled for O(1) dispatch. Look-up is by a composite of
  * the event's modifier bitmask and its `key` (with a second look-up by
  * `code` for non-Latin layouts), so the cost of {@link match} /
@@ -276,6 +278,8 @@ export class CompiledKeyboardShortcuts<
 }
 
 /**
+ * @internal
+ *
  * Compile a table of keyboard shortcuts down to a form that dispatches
  * based on the pressed key and modifiers in O(1), instead of testing each
  * shortcut in sequence.

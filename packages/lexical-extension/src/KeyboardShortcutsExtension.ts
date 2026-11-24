@@ -169,6 +169,8 @@ export interface KeyboardShortcutsConfig {
 }
 
 /**
+ * @internal
+ *
  * Compile the given shortcuts and register a single
  * {@link KEY_DOWN_COMMAND} listener that dispatches each matched shortcut's
  * command with the KeyboardEvent as its payload (unless its `$disabled`

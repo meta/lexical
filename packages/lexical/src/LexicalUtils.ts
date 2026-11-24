@@ -2427,6 +2427,8 @@ export function isDOMShadowRoot(node: unknown): node is ShadowRoot {
   return isDocumentFragment(node) && 'host' in node;
 }
 
+const EMPTY_SHADOW_ROOTS: ShadowRoot[] = [];
+
 /**
  * Collects the DOM ShadowRoots between `node` and its document, innermost
  * first. Returns an empty array when `node` is in the light DOM (its root is
@@ -2438,8 +2440,6 @@ export function isDOMShadowRoot(node: unknown): node is ShadowRoot {
  * @param node The DOM node to start from (typically the editor root element).
  * @returns The enclosing ShadowRoots, innermost first.
  */
-const EMPTY_SHADOW_ROOTS: ShadowRoot[] = [];
-
 export function getDOMShadowRoots(node: Node): ShadowRoot[] {
   const root = node.getRootNode();
   if (root === node || !isDOMShadowRoot(root)) {
