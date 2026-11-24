@@ -108,6 +108,21 @@ describe('CoreImportExtension', () => {
     },
   );
 
+  test.each([
+    ['<p><span style="display:block">a </span><span>b</span></p>', 'a b'],
+    [
+      '<p>see <a href="https://example.com"><span style="display:block">here</span></a> now</p>',
+      'see here now',
+    ],
+  ])(
+    'keeps a space next to an inline element styled display:block: %s',
+    (html, expected) => {
+      using editor = buildEditor();
+      importInto(editor, html);
+      expect(editor.read(() => $getRoot().getTextContent())).toBe(expected);
+    },
+  );
+
   test('inline format tags propagate via ImportTextFormat', () => {
     using editor = buildEditor();
     importInto(editor, '<p>a <strong>b <em>c</em></strong> <code>d</code></p>');

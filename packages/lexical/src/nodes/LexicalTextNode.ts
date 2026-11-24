@@ -1683,10 +1683,10 @@ function $convertTextDOMNode(domNode: Node): DOMConversionOutput {
   return {node: $createTextNode(textContent)};
 }
 
-// A known block tag, or any element with a non-inline display, ends the line.
+// Only a block tag ends the line: the importer starts a new block at those
+// alone, so an element styled display:block stays on the same line.
 function isLineBreakingDomNode(node: HTMLElement): boolean {
-  const display = node.style.display;
-  return display === '' ? isBlockDomNode(node) : !display.startsWith('inline');
+  return isBlockDomNode(node);
 }
 
 function findTextInLine(text: Text, forward: boolean): null | Text {

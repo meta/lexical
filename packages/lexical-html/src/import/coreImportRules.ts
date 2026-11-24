@@ -304,16 +304,15 @@ function isInsidePreserveWhitespace(
   return false;
 }
 
-// A known block tag, or any element with a non-inline display, ends the line,
-// unless the whitespace config says otherwise.
+// Only a block tag ends the line (unless the whitespace config says it is
+// inline): the importer starts a new block at those alone, so an element
+// styled display:block stays on the same line.
 function isLineBreakingNode(
   node: Node,
   wsConfig: WhitespaceImportConfig,
 ): boolean {
   return (
-    isHTMLElement(node) &&
-    !wsConfig.isInline(node) &&
-    (node.style.display !== '' || isBlockDomNode(node))
+    isHTMLElement(node) && !wsConfig.isInline(node) && isBlockDomNode(node)
   );
 }
 

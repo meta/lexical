@@ -431,6 +431,28 @@ describe('HTML', () => {
     },
   );
 
+  test.each([
+    ['<p><span style="display:block">a </span><span>b</span></p>', 'a b'],
+    [
+      '<p>see <a href="https://example.com"><span style="display:block">here</span></a> now</p>',
+      'see here now',
+    ],
+  ])(
+    '$generateNodesFromDOM keeps a space next to an inline element styled display:block: %s',
+    (html, expected) => {
+      const editor = createHeadlessEditor();
+      const dom = new DOMParser().parseFromString(html, 'text/html');
+      editor.update(
+        () => {
+          const nodes = $generateNodesFromDOM(editor, dom);
+          $insertGeneratedNodes(editor, nodes, $getRoot().select(0));
+        },
+        {discrete: true},
+      );
+      expect(editor.read(() => $getRoot().getTextContent())).toBe(expected);
+    },
+  );
+
   test('$generateNodesFromDOM breaks the line at an empty block between two inline <font>s, as between two <span>s', () => {
     const lines = (html: string) => {
       const editor = createHeadlessEditor();
