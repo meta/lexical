@@ -53,6 +53,7 @@ import {
   IS_STRIKETHROUGH,
 } from 'lexical';
 import {fromMarkdown} from 'mdast-util-from-markdown';
+import {gfmStrikethroughToMarkdown} from 'mdast-util-gfm-strikethrough';
 import {defaultHandlers, toMarkdown} from 'mdast-util-to-markdown';
 import {toString as mdastToString} from 'mdast-util-to-string';
 
@@ -970,12 +971,11 @@ export function getExportedLengths(values: string[]): number[] {
  * again when its version changes, and vendor the fix if no release has it.
  */
 function toMarkdownWithStandIns(
-  exported: Root,
+  tree: Root,
   extensions: ToMarkdownExtension[],
   isCjkFriendly: boolean,
   measure?: (values: string[]) => string[],
 ): string {
-  const tree = joinAdjacentText(exported);
   const used = new Set<number>();
   const counts = countStoodIn(tree, used);
   if (counts.size > 0) {
@@ -1033,6 +1033,181 @@ function toMarkdownWithStandIns(
     }
   }
   return measuring(measure, () => toMarkdown(tree, {extensions}));
+}
+
+/**
+ * How {@link joinAdjacentDeletes} joins, by the handlers that write what it
+ * joins.
+ */
+interface DeleteJoin {
+  /**
+   * Whether a plain empty text between two deletes leaves them touching, as
+   * the stock `text` handler writes nothing for it.
+   */
+  readonly crossesEmptyText: boolean;
+  /**
+   * Whether touching inline code in a joined delete is joined too, as the
+   * stock `inlineCode` handler, or the one a table cell uses, writes it.
+   */
+  readonly joinsCode: boolean;
+}
+
+// The inline code handlers that MdastTableExtension builds for table cells
+// from mdast-util-gfm-table: each writes code as the stock handler does and
+// escapes `|`.
+let tableCellCodeHandlers: WeakSet<Handle> | undefined;
+
+/**
+ * Records `handler`, an inline code handler that MdastTableExtension builds
+ * for table cells, so that {@link getDeleteJoin} lets the export join
+ * touching code that it writes, as it does for the stock handler.
+ *
+ * @internal
+ */
+export function registerTableCellCodeHandler(handler: Handle): void {
+  if (tableCellCodeHandlers === undefined) {
+    tableCellCodeHandlers = new WeakSet();
+  }
+  tableCellCodeHandlers.add(handler);
+}
+
+/**
+ * How the export joins touching deletes that `extensions` write, or `null`
+ * when a handler other than the stock one of mdast-util-gfm-strikethrough
+ * writes them, as what that handler writes for each node is its own.
+ */
+function getDeleteJoin(extensions: ToMarkdownExtension[]): DeleteJoin | null {
+  const handlers = getHandlers(extensions);
+  const stock = gfmStrikethroughToMarkdown().handlers;
+  if (!stock || handlers.delete !== stock.delete) {
+    return null;
+  }
+  return {
+    crossesEmptyText: handlers.text === defaultHandlers.text,
+    joinsCode:
+      handlers.inlineCode === defaultHandlers.inlineCode ||
+      (tableCellCodeHandlers !== undefined &&
+        tableCellCodeHandlers.has(handlers.inlineCode)),
+  };
+}
+
+/**
+ * `node` as the export writes it: touching deletes joined as `join` says,
+ * when it does (see {@link joinAdjacentDeletes}), then adjacent texts (see
+ * {@link joinAdjacentText}). The tree itself is not changed.
+ */
+function joinForMarkdown<T extends Nodes>(node: T, join: DeleteJoin | null): T {
+  return joinAdjacentText(
+    join === null ? node : joinAdjacentDeletes(node, join),
+  );
+}
+
+/**
+ * `node` with each run of touching `delete` siblings joined into one, which
+ * keeps the first one's fields and holds the children of all of them. Output
+ * kept as an export rule returned it, for its `data` or its own shape, can
+ * put deletes side by side, and no run of tildes reads back as two touching
+ * strikethroughs: `~~a~~~~b~~` is one, of `a~~~~b`. The stock handler reads
+ * neither `data` nor `position`, so what it writes is that of one delete.
+ * The tree itself is not changed.
+ */
+function joinAdjacentDeletes<T extends Nodes>(node: T, join: DeleteJoin): T {
+  if (!('children' in node)) {
+    return node;
+  }
+  const source = node.children as Nodes[];
+  // Copied on the first change only, so a tree with nothing to join is kept.
+  let children: Nodes[] | null = null;
+  for (let i = 0; i < source.length; i++) {
+    const child = source[i];
+    // One past the last delete of the run that starts at `child`.
+    let end = i + 1;
+    if (child.type === 'delete') {
+      for (let next = end; next < source.length; next++) {
+        const sibling = source[next];
+        if (sibling.type === 'delete') {
+          end = next + 1;
+        } else if (!(join.crossesEmptyText && isPlainEmptyText(sibling))) {
+          break;
+        }
+      }
+    }
+    let joined: Nodes;
+    if (end > i + 1 && child.type === 'delete') {
+      let runChildren: PhrasingContent[] = [];
+      for (let j = i; j < end; j++) {
+        const sibling = source[j];
+        if (sibling.type === 'delete') {
+          for (const grandchild of sibling.children) {
+            runChildren.push(grandchild);
+          }
+        }
+      }
+      if (join.joinsCode) {
+        runChildren = joinAdjacentCode(runChildren, join.crossesEmptyText);
+      }
+      joined = joinAdjacentDeletes({...child, children: runChildren}, join);
+    } else {
+      joined = joinAdjacentDeletes(child, join);
+    }
+    if (children === null && joined !== child) {
+      children = source.slice(0, i);
+    }
+    if (children !== null) {
+      children.push(joined);
+    }
+    i = end - 1;
+  }
+  return children === null ? node : {...node, children};
+}
+
+/**
+ * `children` with each run of touching inline code joined into one, which
+ * keeps the first one's fields. Written apart they read back as one code
+ * span with the graves between them in it (`` `a``b` ``). Plain empty texts
+ * between two of them are dropped when `crossesEmptyText` says they are
+ * written as nothing. Used for the children of a joined delete, which the
+ * join put side by side.
+ */
+function joinAdjacentCode(
+  children: PhrasingContent[],
+  crossesEmptyText: boolean,
+): PhrasingContent[] {
+  const joined: PhrasingContent[] = [];
+  for (let i = 0; i < children.length; i++) {
+    const child = children[i];
+    const last = joined[joined.length - 1];
+    if (
+      child.type === 'inlineCode' &&
+      last !== undefined &&
+      last.type === 'inlineCode'
+    ) {
+      joined[joined.length - 1] = {...last, value: last.value + child.value};
+      continue;
+    }
+    if (
+      crossesEmptyText &&
+      last !== undefined &&
+      last.type === 'inlineCode' &&
+      isPlainEmptyText(child)
+    ) {
+      let next = i + 1;
+      while (next < children.length && isPlainEmptyText(children[next])) {
+        next++;
+      }
+      if (next < children.length && children[next].type === 'inlineCode') {
+        i = next - 1;
+        continue;
+      }
+    }
+    joined.push(child);
+  }
+  return joined;
+}
+
+/** Whether `node` is a text with nothing but an empty value. */
+function isPlainEmptyText(node: Nodes): boolean {
+  return isPlainText(node) && node.value === '';
 }
 
 /**
@@ -1559,6 +1734,10 @@ export function createMdastExport(compiled: CompiledMdast): {
   // The unfiltered exporter has no per-call state and is shared by every
   // whole-document export; selection exports build a fresh one per call.
   const documentExporter = createNodeExporter(compiled);
+  // How touching deletes are joined, by the handlers that write them: the
+  // same for the blocks of a subtree or selection export and for the tree
+  // the serializer writes.
+  const deleteJoin = getDeleteJoin(compiled.toMarkdownExtensions);
   let parsedLinks = new Map<string, ParsedLinks>();
   // The containers that subtree and selection exports read, which they do
   // not add to parsedLinks: only a document export prunes that. Each block
@@ -1688,10 +1867,19 @@ export function createMdastExport(compiled: CompiledMdast): {
     // the nodes written for each block are known. The root keeps what is
     // written outside them.
     partWritten.add(root.getKey());
+    // Each block's nodes are joined here as the serializer joins them, before
+    // they are marked for the block. The serializer then leaves them as they
+    // are, so they stay marked, and only joins output that spans blocks into
+    // a new node, which the root keeps.
     const children: RootContent[] = [];
     for (const child of root.getChildren()) {
       const isBlock = $isBlockLevelNode(child);
-      for (const node of exporter.exportChildren([child]) as RootContent[]) {
+      const written = exporter.exportChildren([child]) as RootContent[];
+      const nodes = isBlock
+        ? joinForMarkdown<Root>({children: written, type: 'root'}, deleteJoin)
+            .children
+        : written;
+      for (const node of nodes) {
         if (isBlock) {
           blockOf.set(node, child.getKey());
           partWritten.add(child.getKey());
@@ -1784,9 +1972,12 @@ export function createMdastExport(compiled: CompiledMdast): {
       }, handle);
       return rootHandler.call(this, node, parent, state, info);
     };
+    // Breaks are collected from the tree as it is written: joining deletes
+    // can drop an empty text that stood between two breaks.
+    const joined = joinForMarkdown(tree, deleteJoin);
     extensions.push(
       syntaxToMarkdown(
-        collectHardBreaks(tree),
+        collectHardBreaks(joined),
         checkLiterals(getLiteralUrl, getLinkKeys, writeRoot),
       ),
     );
@@ -1795,7 +1986,7 @@ export function createMdastExport(compiled: CompiledMdast): {
     // A CJK-friendly export writes some references as their characters after
     // a table is aligned, so it measures each cell as such.
     const markdown = toMarkdownWithStandIns(
-      tree,
+      joined,
       extensions,
       isCjkFriendly,
       // Measured in one parse, each as a paragraph of its own behind a

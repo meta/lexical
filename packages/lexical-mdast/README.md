@@ -405,8 +405,12 @@ configExtension(MdastExtension, {
 Plain formatted text returned by text middleware is merged into adjacent text
 runs so shared and overlapping formats serialize correctly. Output containing
 extra fields such as `data`, or custom structure, is preserved as-is instead
-of merged. Such middleware must ensure its output serializes correctly on its
-own; adjacent bold nodes, for example, can produce `**a****b**`.
+of merged. Such middleware must ensure that each node it returns serializes
+correctly by itself. Two `delete` nodes that end up next to each other have no
+Markdown form (`~~a~~~~b~~` reads back as one strikethrough of `a~~~~b`), so
+while the stock strikethrough handler writes them, Markdown export joins them
+into one, which keeps the first one's fields; `$convertToMdast()` still
+returns both.
 
 Import rules use mdast type strings: mdast nodes are plain objects,
 without a Lexical node class hierarchy. Their `context.next()` runs the next
