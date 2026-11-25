@@ -2558,7 +2558,7 @@ function toCmarkGfmCompatible(
   const {excluded, parentPairs, roles, runsBeside, runsNear, subjects} =
     analyzeForCmarkGfm(markdown, events, areCells);
   const searches: SubjectSearch[] = subjects
-    .filter(subject => subject.runs.length > 0)
+    .filter(subject => subject.runs.some(run => isFailing(run, NO_EDITS)))
     .map(subject => ({
       attempts: null,
       blocked: new Set(),

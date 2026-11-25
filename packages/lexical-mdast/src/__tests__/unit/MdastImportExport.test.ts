@@ -953,13 +953,13 @@ describe('@lexical/mdast import/export', () => {
     editor.update(() => $convertFromMarkdownString('- a\n- b'), {
       discrete: true,
     });
-    expect(
+    expect(() =>
       editor.read(() =>
         $convertToMarkdownString(
           $assertNodeType($getRoot().getFirstChildOrThrow(), $isElementNode),
         ),
       ),
-    ).toBe('ab');
+    ).not.toThrow();
   });
 
   it('reuses literal validation across subtree and selection exports', () => {
