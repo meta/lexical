@@ -249,6 +249,24 @@ A CJK-friendly import reads the `~~` runs of `MdastStrikethroughExtension`
 as it reads emphasis. A strikethrough syntax contributed some other way
 through `micromarkExtensions` is left as it is.
 
+cmark-gfm (GitHub's renderer) differs from micromark in two more ways beside
+a marker: it skips a `~` run beside a `*` or `_` run and reads the character
+beyond it, and it reads a symbol of the Basic Multilingual Plane, such as
+`©`, as a letter. Where either difference keeps a run from opening or
+closing, a strict export writes the character that cmark-gfm reads beside
+the run as a reference (``~~&#x61;~~*`b`*``, `&#xA9;_a_`). It leaves the
+text as it is where a reference could change how another reader reads it,
+or would not be enough: beside punctuation that cmark-gfm's Unicode table
+does not have yet (`⹏_a_`), for a character with no lossless reference, in
+an image or reference label, in a table cell with brackets other than those
+of an inline link (`[text](url)`), in a word that markdown-it may read as a
+link (`see readme.md→_x_`), in a bare URL that cmark-gfm reads across a
+space other than an ASCII space, tab or line ending, such as U+3000, in a
+paragraph with a backtick or a marker beside it that micromark does not read
+as syntax (``a`b ©_a_``), where cmark-gfm pairs markers that micromark leaves
+literal (`**a©**x`, which only an export rule writes), and where the export's
+bounded search finds no repair.
+
 ### Raw HTML (`MdastHtmlExtension`)
 
 Markdown passes raw HTML through — GitHub-style `<details>` blocks, inline

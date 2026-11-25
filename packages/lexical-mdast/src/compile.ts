@@ -70,6 +70,28 @@ export function isReferenceAgnostic(extension: MicromarkExtension): boolean {
   );
 }
 
+// The key under which a compiled registry holds the micromark extensions of
+// a strict import, which a strict export reads its Markdown with whatever the
+// import reads. Not enumerable, so a copy of the registry does not hold it.
+const STRICT_SYNTAX = '__lexicalStrictSyntax';
+
+/**
+ * The micromark extensions that `compiled` reads Markdown with in a strict
+ * import: the strict emphasis and the contributed syntax extensions as they
+ * are, not their CJK-friendly variants. `null` for a registry that
+ * {@link compileMdast} did not compile.
+ *
+ * @internal
+ */
+export function getStrictMicromarkExtensions(
+  compiled: CompiledMdast,
+): MicromarkExtension[] | null {
+  return (
+    (compiled as {[STRICT_SYNTAX]?: MicromarkExtension[]})[STRICT_SYNTAX] ||
+    null
+  );
+}
+
 /** The extension a CJK-friendly import uses in place of `extension`. */
 function toCjkFriendlyVariant(
   extension: MicromarkExtension,
@@ -158,22 +180,24 @@ export function compileMdast(
   if (cjkFriendly) {
     probeLayout();
   }
-  return {
+  // micromark tries the constructs of later extensions first, so the
+  // emphasis goes first, before the extensions of the config, which may
+  // handle markers of their own.
+  const strictSyntax = [strictEmphasis(), ...config.micromarkExtensions];
+  const compiled: CompiledMdast = {
     exportHandlers,
     exportPunctuation: config.exportPunctuation,
     importHandlers,
     inlineShortcutTriggers: new Set(config.inlineShortcutTriggers),
     inlineShortcutTypes: new Set(config.inlineShortcutTypes),
     mdastExtensions: [...config.mdastExtensions],
-    // micromark tries the constructs of later extensions first, so the
-    // emphasis goes first, before the extensions of the config, which may
-    // handle markers of their own.
     micromarkExtensions: cjkFriendly
       ? [
           cjkFriendlyEmphasis(),
           ...config.micromarkExtensions.map(toCjkFriendlyVariant),
         ]
-      : [strictEmphasis(), ...config.micromarkExtensions],
+      : strictSyntax,
     toMarkdownExtensions: [...config.toMarkdownExtensions],
   };
+  return Object.defineProperty(compiled, STRICT_SYNTAX, {value: strictSyntax});
 }
