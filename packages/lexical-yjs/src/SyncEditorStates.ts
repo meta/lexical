@@ -602,45 +602,72 @@ export function syncLexicalUpdateToYjsV2__EXPERIMENTAL(
     binding.mapping.deleteNode(nodeKey);
   });
 
-  syncWithTransaction(binding, () => {
-    const setLocalState = binding.editor.read(currEditorState, () => {
-      if (dirtyElements.has('root')) {
-        const nextLexicalRoot = $getRoot();
-        // A DecoratorNode slot value lands in dirtyLeaves (only ElementNodes
-        // are routed to dirtyElements), so unioning the two ensures
-        // $updateSlotsYType's same-identity recursion gate sees a dirty
-        // decorator slot value and propagates its own-attribute changes.
-        $updateYFragment(
-          binding.doc,
-          binding.root,
-          nextLexicalRoot,
-          binding,
-          new Set([...dirtyElements.keys(), ...dirtyLeaves]),
-        );
-        // If a local edit emptied the root, schedule recovery outside the
-        // collaboration/historic tag so the paragraph syncs back to Yjs.
-        // Mirrors the $ensureEditorNotEmpty call in syncYjsChangesToLexicalV2's onUpdate.
-        // Only trigger when the previous state had content (prevNodeMap.size > 1 means
-        // there were nodes beyond root), so we don't fire on initial empty-editor updates.
-        if (
-          !isFromYjs &&
-          nextLexicalRoot.getChildrenSize() === 0 &&
-          prevEditorState._nodeMap.size > 1
-        ) {
-          binding.editor.update(() => $ensureEditorNotEmpty());
+  // $updateYFragment removes only the directly deleted types from the
+  // mapping, so the nested types of a locally deleted element (e.g. the
+  // XmlText inside a deleted paragraph) stay mapped to nodes that are no
+  // longer in the editor state, and resolving a peer's caret into them
+  // throws in $getNodeAndOffsetV2. Sweep every type deleted by this
+  // transaction from the mapping, as
+  // syncYjsChangesToLexicalV2__EXPERIMENTAL does for remote transactions.
+  const doc = binding.doc;
+  const sweepLocallyDeletedTypes = (transaction: YTransaction) => {
+    if (transaction.origin !== binding) {
+      return;
+    }
+    iterateDeletedStructs(transaction, transaction.deleteSet, struct => {
+      if (struct.constructor === Item) {
+        const content = struct.content as ContentType;
+        const type = content.type;
+        if (type) {
+          binding.mapping.delete(type as XmlElement | XmlText);
         }
       }
-
-      return selectionAwarenessUpdate(
-        binding,
-        provider,
-        prevEditorState._selection,
-        $getSelection(),
-      );
     });
-    // After the read, so awareness listeners do not run inside it.
-    if (setLocalState !== null) {
-      setLocalState();
-    }
-  });
+  };
+  doc.on('afterTransaction', sweepLocallyDeletedTypes);
+  try {
+    syncWithTransaction(binding, () => {
+      const setLocalState = binding.editor.read(currEditorState, () => {
+        if (dirtyElements.has('root')) {
+          const nextLexicalRoot = $getRoot();
+          // A DecoratorNode slot value lands in dirtyLeaves (only ElementNodes
+          // are routed to dirtyElements), so unioning the two ensures
+          // $updateSlotsYType's same-identity recursion gate sees a dirty
+          // decorator slot value and propagates its own-attribute changes.
+          $updateYFragment(
+            binding.doc,
+            binding.root,
+            nextLexicalRoot,
+            binding,
+            new Set([...dirtyElements.keys(), ...dirtyLeaves]),
+          );
+          // If a local edit emptied the root, schedule recovery outside the
+          // collaboration/historic tag so the paragraph syncs back to Yjs.
+          // Mirrors the $ensureEditorNotEmpty call in syncYjsChangesToLexicalV2's onUpdate.
+          // Only trigger when the previous state had content (prevNodeMap.size > 1 means
+          // there were nodes beyond root), so we don't fire on initial empty-editor updates.
+          if (
+            !isFromYjs &&
+            nextLexicalRoot.getChildrenSize() === 0 &&
+            prevEditorState._nodeMap.size > 1
+          ) {
+            binding.editor.update(() => $ensureEditorNotEmpty());
+          }
+        }
+
+        return selectionAwarenessUpdate(
+          binding,
+          provider,
+          prevEditorState._selection,
+          $getSelection(),
+        );
+      });
+      // After the read, so awareness listeners do not run inside it.
+      if (setLocalState !== null) {
+        setLocalState();
+      }
+    });
+  } finally {
+    doc.off('afterTransaction', sweepLocallyDeletedTypes);
+  }
 }
