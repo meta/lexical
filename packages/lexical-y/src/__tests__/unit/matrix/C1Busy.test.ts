@@ -32,7 +32,9 @@ import {
   renderedValues,
   seedShapes,
   shapesWith,
+  showsValues,
   snapshot,
+  valuesOnUnorderedItems,
 } from '../../catalog';
 
 const cleanups: (() => void)[] = [];
@@ -101,11 +103,16 @@ describe('C1 with follow-up updates: the editor shows what a fresh reader shows'
                 const rendered = renderedValues(b.root);
                 if (
                   rendered !== null &&
-                  JSON.stringify(rendered) !==
-                    JSON.stringify(shown.numbering.values)
+                  !showsValues(rendered, shown.numbering.values)
                 ) {
                   problems.push(
                     `${when}: rendered ${JSON.stringify(rendered)} != ${JSON.stringify(shown.numbering.values)}`,
+                  );
+                }
+                const unordered = valuesOnUnorderedItems(b.root);
+                if (unordered.length > 0) {
+                  problems.push(
+                    `${when}: bullet or check items carry a value: ${JSON.stringify(unordered)}`,
                   );
                 }
               };

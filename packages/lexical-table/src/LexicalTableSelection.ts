@@ -50,6 +50,7 @@ import {
   $computeTableMap,
   $getTableCellNodeRect,
   $insertTableIntoGrid,
+  $padTableRows,
 } from './LexicalTableUtils';
 
 const __DEV__ = process.env.NODE_ENV !== 'production';
@@ -246,8 +247,28 @@ export class TableSelection implements BaseSelection {
       }
       tableNode.append(rowNode);
     }
-    const {anchorCell} = $getCellNodes(this);
-    const rangeSelection = anchorCell.select(0, anchorCell.getChildrenSize());
+    const {anchorCell, anchorTable, focusCell} = $getCellNodes(this);
+    // A grid of values is laid over the selection's rectangle from its
+    // top-left cell, whichever corner the selection was made from (it can
+    // run right to left or upwards). A single value goes to the cell the
+    // selection was started from.
+    let startCell = anchorCell;
+    const isSingleValue = tsvGrid.length === 1 && tsvGrid[0].length === 1;
+    if (!anchorCell.is(focusCell) && !isSingleValue) {
+      $padTableRows(anchorTable);
+      const [map, anchorMap, focusMap] = $computeTableMap(
+        anchorTable,
+        anchorCell,
+        focusCell,
+      );
+      const {minRow, minColumn} = $computeTableCellRectBoundary(
+        map,
+        anchorMap,
+        focusMap,
+      );
+      startCell = map[minRow][minColumn].cell;
+    }
+    const rangeSelection = startCell.select(0, startCell.getChildrenSize());
     $insertTableIntoGrid(tableNode, rangeSelection);
   }
 
@@ -433,7 +454,14 @@ export class TableSelection implements BaseSelection {
 
   getTextContent(): string {
     const allNodes = this.getNodes();
-    const nodes = allNodes.filter(node => $isTableCellNode(node));
+    const isCellOfTable = (node: LexicalNode): node is TableCellNode => {
+      if (!$isTableCellNode(node)) {
+        return false;
+      }
+      const row = node.getParent();
+      return $isTableRowNode(row) && row.__parent === this.tableKey;
+    };
+    const nodes = allNodes.filter(isCellOfTable);
     // The rows of the table that hold no selected cell of their own (rows a
     // ragged table or a row span leaves empty within the selection) are
     // blank lines, so that the lines keep their rows.
@@ -441,7 +469,7 @@ export class TableSelection implements BaseSelection {
     let textContent = '';
     let cellIndex = 0;
     for (const node of allNodes) {
-      if ($isTableCellNode(node)) {
+      if (isCellOfTable(node)) {
         const row = node.__parent;
         const nextRow = (nodes[cellIndex + 1] || {}).__parent;
         textContent += node.getTextContent() + (nextRow !== row ? '\n' : '\t');

@@ -63,6 +63,7 @@ import {
   $create,
   $createParagraphNode,
   $createTextNode,
+  $deepCopy,
   $getRoot,
   $getSelection,
   $getState,
@@ -86,7 +87,6 @@ import {
   PASTE_TAG,
   REDO_COMMAND,
   type SerializedEditorState,
-  type SerializedElementNode,
   type SerializedLexicalNode,
   UNDO_COMMAND,
 } from 'lexical';
@@ -232,18 +232,6 @@ function ids(editor: LexicalEditor): (string | null)[] {
 
 function $paragraph(text: string): ElementNode {
   return $createParagraphNode().append($createTextNode(text));
-}
-
-/** A deep copy that keeps NodeState, as a Lexical-JSON paste does. */
-function $deepCopy<T extends LexicalNode>(node: T): T {
-  const serialize = (n: LexicalNode): SerializedLexicalNode => {
-    const json = n.exportJSON();
-    if ($isElementNode(n)) {
-      (json as SerializedElementNode).children = n.getChildren().map(serialize);
-    }
-    return json;
-  };
-  return $parseSerializedNode(serialize(node)) as T;
 }
 
 function $nth(index: number): ElementNode {

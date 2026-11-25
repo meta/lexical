@@ -703,10 +703,7 @@ describe('Markdown', () => {
       skipExport: true,
     },
     {
-      html:
-        '<pre spellcheck="false" data-language="javascript"><span style="white-space: pre-wrap;">Incomplete multiline\n' +
-        '\n' +
-        'Tag</span></pre>',
+      html: '<pre spellcheck="false" data-language="javascript"><span style="white-space: pre-wrap;">Incomplete multiline</span><br><br><span style="white-space: pre-wrap;">Tag</span></pre>',
       md: '```javascript Incomplete multiline\n\nTag',
       skipExport: true,
     },
@@ -784,7 +781,7 @@ describe('Markdown', () => {
     {
       customTransformers: [CODE_TAG_COUNTER_EXAMPLE],
       // Ensure special ``` code block supports nested code blocks
-      html: '<pre spellcheck="false" data-language="ts"><span style="white-space: pre-wrap;">Code\n```ts\nSub Code\n```</span></pre>',
+      html: '<pre spellcheck="false" data-language="ts"><span style="white-space: pre-wrap;">Code</span><br><span style="white-space: pre-wrap;">```ts</span><br><span style="white-space: pre-wrap;">Sub Code</span><br><span style="white-space: pre-wrap;">```</span></pre>',
       md: '```ts\nCode\n```ts\nSub Code\n```\n```',
       skipExport: true,
     },
@@ -1064,7 +1061,7 @@ describe('Markdown', () => {
     {
       html: '<p><span style="white-space: pre-wrap;">!"#$%&amp;\'()*+,-./:;&lt;=&gt;?@[\\]^_`{|}~</span></p>',
       md: '\\!\\"\\#\\$\\%\\&\\\'\\(\\)\\*\\+\\,\\-\\.\\/\\:\\;\\<\\=\\>\\?\\@\\[\\\\\\]\\^\\_\\`\\{\\|\\}\\~',
-      mdAfterExport: '!"#$%&\'()\\*+,-./:;&#60;=>?@[\\\\]^\\_\\`{|}\\~',
+      mdAfterExport: '!"#$%&\'()\\*+,-./:;<=>?@[\\\\]^\\_\\`{|}\\~',
     },
     {
       html: '<p><span style="white-space: pre-wrap;">\\→\\A\\a\\ \\3\\φ\\«</span></p>',
@@ -4784,6 +4781,32 @@ describe('emphasis next to Unicode punctuation and symbols', () => {
       ],
     ],
     ['snake_case_word', [['snake_case_word', 'plain']]],
+    // The backslash is ASCII punctuation too (#9407).
+    [
+      '_a_\\\nb',
+      [
+        ['a', 'italic'],
+        ['b', 'plain'],
+      ],
+    ],
+    [
+      '**a.**\\x',
+      [
+        ['a.', 'bold'],
+        ['\\x', 'plain'],
+      ],
+    ],
+    [
+      '\\\\_a_',
+      [
+        ['\\', 'plain'],
+        ['a', 'italic'],
+      ],
+    ],
+    ['snake_case\\_x', [['snake_case_x', 'plain']]],
+    ['a_b_\\c', [['a_b_\\c', 'plain']]],
+    ['\\_a_', [['_a_', 'plain']]],
+    ['_a\\_', [['_a_', 'plain']]],
     // Unchanged: a letter is not punctuation, whatever the script.
     [
       `${LATIN_E_ACUTE}**${HERE_LINK}**`,
@@ -4812,6 +4835,9 @@ describe('emphasis next to Unicode punctuation and symbols', () => {
   // Importing the bold link as text used to leave the asterisks in the text,
   // so the export escaped them. The exporter writes the bold inside the link.
   const EXPORT_CASES: [md: string, exported: string][] = [
+    // The backslash is ASCII punctuation too (#9407).
+    ['_a_\\\nb', '*a*\\\nb'],
+    ['**a.**\\x', '**a.**\\\\x'],
     [
       `See ${EN_DASH}**${HERE_LINK}** now.`,
       `See ${EN_DASH}[**here**](https://example.com) now.`,
@@ -4862,6 +4888,36 @@ describe('emphasis next to Unicode punctuation and symbols', () => {
   // the word character goes out as a numeric reference, whose `&` or `;` is
   // punctuation.
   it.each([
+    // Escaping the first formatted character puts a backslash next to the
+    // opening marker, so the preceding letter needs a character reference.
+    [
+      [
+        ['a', []],
+        ['_x', ['bold']],
+      ],
+      '&#97;**\\_x**',
+    ],
+    [
+      [
+        ['a', []],
+        ['*x', ['italic']],
+      ],
+      '&#97;*\\*x*',
+    ],
+    [
+      [
+        ['a', []],
+        ['~x', ['strikethrough']],
+      ],
+      '&#97;~~\\~x~~',
+    ],
+    [
+      [
+        ['a', []],
+        ['\\x', ['bold']],
+      ],
+      '&#97;**\\\\x**',
+    ],
     [
       [
         ['foo', []],

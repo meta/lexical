@@ -79,7 +79,12 @@ function client(schemaVersion: number, selfCheck: boolean): Client {
       dependencies: [
         RichTextExtension,
         TableExtension,
-        configExtension(YCollabExtension, {doc, schemaVersion, selfCheck}),
+        configExtension(YCollabExtension, {
+          doc,
+          onYStatus: null,
+          schemaVersion,
+          selfCheck,
+        }),
       ],
       name: `@lexical/y/test/read-only-reread-${schemaVersion}`,
       onError: e => {
@@ -249,7 +254,11 @@ describe('S9-3: an update queued while the binding opens a document', () => {
         warnings.push(w);
       },
     });
-    const binding = new YBinding(editor, doc, {schemaVersion, selfCheck: true});
+    const binding = new YBinding(editor, doc, {
+      onStatus: null,
+      schemaVersion,
+      selfCheck: true,
+    });
     const replies: boolean[] = [];
     if (reply) {
       editor.registerEditableListener(editable => {

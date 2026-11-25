@@ -39,8 +39,6 @@ import {selBase} from './sel';
 
 /**
  * Configuration for {@link DOMImportExtension}.
- *
- * @experimental
  */
 export interface DOMImportConfig {
   /**
@@ -145,8 +143,6 @@ function $runPreprocessStack(
  * behavior, but now expressed as a regular rule that apps can override
  * (e.g. with a `sel.any()` rule that captures and discards unknown
  * elements).
- *
- * @experimental
  */
 export const DefaultHoistRule = defineImportRule({
   $import: (ctx, el) => ctx.$importChildren(el),
@@ -155,8 +151,6 @@ export const DefaultHoistRule = defineImportRule({
 });
 
 /**
- * @experimental
- *
  * Extension-based replacement for the legacy `importDOM` / `DOMConversion`
  * machinery. Rules are contributed via configuration (see
  * {@link DOMImportConfig.rules}), compiled into a tag-bucketed dispatcher at
@@ -270,8 +264,6 @@ export const DOMImportExtension = defineExtension<
  *
  * Throws if the editor was not built with {@link DOMImportExtension} as a
  * dependency.
- *
- * @experimental
  */
 export function $generateNodesFromDOMViaExtension(
   dom: Document | ParentNode,

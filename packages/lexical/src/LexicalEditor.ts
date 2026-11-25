@@ -14,6 +14,7 @@ import type {ElementNode} from './nodes/LexicalElementNode';
 import devInvariant from '@lexical/internal/devInvariant';
 import invariant from '@lexical/internal/invariant';
 import {LEXICAL_VERSION} from '@lexical/internal/version';
+import warnOnlyOnce from '@lexical/internal/warnOnlyOnce';
 
 import {
   $createParagraphNode,
@@ -28,6 +29,7 @@ import {
 import {FULL_RECONCILE, NO_DIRTY_NODES} from './LexicalConstants';
 import {DequeSet} from './LexicalDequeSet';
 import {
+  $isEditorState,
   cloneEditorState,
   type CompactSerializedEditorState,
   createEmptyEditorState,
@@ -177,6 +179,13 @@ export type EditorSetOptions = {
  *   updates, equivalent to `editor.getEditorState().read(callbackFn, {editor})`.
  */
 export type EditorReadMode = 'force-commit' | 'pending' | 'latest';
+
+const unrecognizedReadModeWarning = warnOnlyOnce(
+  `editor.read() was called with a first argument that is not a read mode, ` +
+    `so it read the editor's committed state without flushing pending ` +
+    `updates. Pass one of 'force-commit', 'pending' or 'latest', or a state ` +
+    `of this editor.`,
+);
 
 export interface EditorFocusOptions {
   /**
@@ -404,8 +413,6 @@ export type HTMLConfig = {
 export type LexicalNodeConfig = Klass<LexicalNode> | LexicalNodeReplacement;
 
 /**
- * @experimental
- *
  * The slot type produced by `$getDOMSlot` for a given node, narrowed via
  * the node's static class: `ElementNode` resolves to {@link ElementDOMSlot}
  * (with children-management methods), other nodes to the base
@@ -416,15 +423,15 @@ export type DOMSlotForNode<N extends LexicalNode> = N extends ElementNode
   ? ElementDOMSlot<HTMLElement>
   : DOMSlot<HTMLElement>;
 
-/** @internal @experimental */
+/** @internal */
 export interface EditorDOMRenderConfig {
-  /** @internal @experimental */
+  /** @internal */
   $createDOM: <T extends LexicalNode>(
     node: T,
     editor: LexicalEditor,
   ) => HTMLElement;
   /**
-   * @internal @experimental
+   * @internal
    *
    * The default impl dispatches to `node.getDOMSlot(dom)`. The return type is
    * narrowed via {@link DOMSlotForNode}: callers passing an `ElementNode` get
@@ -436,12 +443,12 @@ export interface EditorDOMRenderConfig {
     dom: HTMLElement,
     editor: LexicalEditor,
   ) => DOMSlotForNode<N>;
-  /** @internal @experimental */
+  /** @internal */
   $exportDOM: <T extends LexicalNode>(
     node: T,
     editor: LexicalEditor,
   ) => DOMExportOutput;
-  /** @internal @experimental */
+  /** @internal */
   $extractWithChild: <T extends LexicalNode>(
     node: T,
     childNode: LexicalNode,
@@ -449,7 +456,7 @@ export interface EditorDOMRenderConfig {
     destination: 'clone' | 'html',
     editor: LexicalEditor,
   ) => boolean;
-  /** @internal @experimental */
+  /** @internal */
   $decorateDOM: <T extends LexicalNode>(
     node: T,
     prevNode: null | T,
@@ -457,7 +464,7 @@ export interface EditorDOMRenderConfig {
     editor: LexicalEditor,
   ) => void;
   /**
-   * @internal @experimental named-slots
+   * @internal
    *
    * Where a named slot's container should attach, for hosts rendered
    * entirely in-lexical (no chrome framework). The reconciler consults
@@ -479,20 +486,20 @@ export interface EditorDOMRenderConfig {
     hostDom: HTMLElement,
     editor: LexicalEditor,
   ) => HTMLElement | null;
-  /** @internal @experimental */
+  /** @internal */
   $updateDOM: <T extends LexicalNode>(
     nextNode: T,
     prevNode: T,
     dom: HTMLElement,
     editor: LexicalEditor,
   ) => boolean;
-  /** @internal @experimental */
+  /** @internal */
   $shouldInclude: <T extends LexicalNode>(
     node: T,
     selection: null | BaseSelection,
     editor: LexicalEditor,
   ) => boolean;
-  /** @internal @experimental */
+  /** @internal */
   $shouldExclude: <T extends LexicalNode>(
     node: T,
     selection: null | BaseSelection,
@@ -956,7 +963,7 @@ export function getTransformSetFromKlass(
   return transforms;
 }
 
-/** @internal @experimental */
+/** @internal */
 export const DEFAULT_EDITOR_DOM_CONFIG: EditorDOMRenderConfig = {
   $createDOM: (node, editor) => node.createDOM(editor._config, editor),
   $decorateDOM: (_node, _prevNode, _dom, _editor) => {},
@@ -1257,7 +1264,7 @@ export class LexicalEditor {
   /** @internal */
   _blockCursorElement: null | HTMLDivElement;
   /**
-   * @internal @experimental
+   * @internal
    *
    * Latches to `true` the first time {@link $setSlot} runs in this
    * editor. Gates the commit-time slot-containment clamp so editors that never
@@ -1943,15 +1950,44 @@ export class LexicalEditor {
    */
   read<T>(callbackFn: () => T): T;
   /**
+   * Reads `editorState` with this editor active, without flushing anything:
+   * use it for a state of this editor that is not its current one, such as
+   * the `editorState` and `prevEditorState` an update listener receives. Node
+   * methods called in the read can use `$getEditor()`.
+   *
+   * Releases before this overload read the editor's current state instead of
+   * `editorState` (or throw, on the oldest). Code that may run on such a
+   * release (a library whose peer range includes one) should use
+   * `editorState.read(callbackFn, {editor})` instead.
+   * @param editorState - The state to read, one of this editor's.
+   * @param callbackFn - A function that has access to read-only editor state.
+   */
+  read<T>(editorState: EditorState, callbackFn: () => T): T;
+  /**
    * Executes a read of the editor's state in the given `mode`, with the editor
    * context available. See {@link EditorReadMode} for the available modes.
    * @param mode - Which editor state to read and whether to flush first.
    * @param callbackFn - A function that has access to read-only editor state.
    */
   read<T>(mode: EditorReadMode, callbackFn: () => T): T;
-  read<T>(...args: [() => T] | [EditorReadMode, () => T]): T {
-    const [mode, callbackFn]: [EditorReadMode, () => T] =
+  read<T>(...args: [() => T] | [EditorReadMode | EditorState, () => T]): T {
+    const [modeOrState, callbackFn]: [EditorReadMode | EditorState, () => T] =
       args.length === 1 ? ['force-commit', args[0]] : args;
+    if ($isEditorState(modeOrState)) {
+      return modeOrState.read(callbackFn, {editor: this});
+    }
+    const mode = modeOrState;
+    if (mode !== 'force-commit' && mode !== 'pending' && mode !== 'latest') {
+      // An object here is a state from another copy of lexical, whose
+      // committed-state fallback would read the wrong document.
+      invariant(
+        typeof mode !== 'object' || mode === null,
+        'editor.read: the first argument is an object but not an EditorState from the lexical package used by this editor',
+      );
+      // Any other value (undefined forwarded from an optional mode) keeps
+      // reading the committed state, as before.
+      unrecognizedReadModeWarning();
+    }
     if (mode === 'force-commit') {
       if (!isDispatchingCommitListeners(this)) {
         $commitPendingUpdates(this);
@@ -1962,8 +1998,8 @@ export class LexicalEditor {
             `update was not committed early, so that listeners observe ` +
             `commits in order, and the read observed the state being ` +
             `committed. Inside listeners, read with ` +
-            `editor.getEditorState().read(fn, {editor}) or ` +
-            `editor.read('latest', fn) instead.`,
+            `editor.read(editorState, fn) or editor.read('latest', fn) ` +
+            `instead.`,
         );
       }
     }
@@ -2091,13 +2127,17 @@ export class LexicalEditor {
    *
    * The form is passed on explicitly rather than picked up by the call below:
    * `EditorState.toJSON()` with no argument always writes the legacy form, so
-   * that its return type is true of what it returns.
+   * that its return type is true of what it returns. The state is read with
+   * this editor active, so its nodes' exportJSON can call $getEditor().
    *
    * @returns A JSON-serializable javascript object
    */
   toJSON(): SerializedEditor {
     return {
-      editorState: this._editorState.toJSON($isCompactExport()),
+      editorState: this._editorState.toJSON({
+        compact: $isCompactExport(),
+        editor: this,
+      }),
     };
   }
 }

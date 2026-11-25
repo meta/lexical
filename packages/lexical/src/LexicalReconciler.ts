@@ -314,10 +314,21 @@ let activePrevEditorState: EditorState;
 let activeNextNodeMap: NodeMap;
 let activePrevKeyToDOMMap: Map<NodeKey, HTMLElement & LexicalPrivateDOM>;
 let activeDirtyChildrenByParent: Map<NodeKey, Set<NodeKey>>;
+// The previous slot container of each slot value
+// whose DOM this reconciliation has moved (see $createNode), recorded before
+// the move: once the DOM is moved, its parentElement no longer names the
+// container (see $slotContainerForKey).
+let activeMovedSlotContainers: Map<NodeKey, HTMLElement>;
 let mutatedNodes: MutatedNodes;
 let activeEditorDOMRenderConfig: EditorDOMRenderConfig;
 
-function $destroyNode(key: NodeKey, parentDOM: null | HTMLElement): void {
+function $destroyNode(
+  key: NodeKey,
+  parentDOM: null | HTMLElement,
+  // Leave slot containers in place: the caller's DOM they sat in is being
+  // replaced as a whole (see $createNode).
+  keepSlotContainers: boolean = false,
+): void {
   const node = activePrevNodeMap.get(key);
   // A node "moved" across parents in the same transaction still exists in
   // the next node map. We only detach its DOM from the old parent here;
@@ -342,7 +353,13 @@ function $destroyNode(key: NodeKey, parentDOM: null | HTMLElement): void {
 
   if ($isElementNode(node)) {
     const children = $createChildrenArray(node, activePrevNodeMap);
-    $destroyChildren(children, 0, children.length - 1, null);
+    $destroyChildren(
+      children,
+      0,
+      children.length - 1,
+      null,
+      keepSlotContainers,
+    );
   }
 
   // Slots are a separate channel from the linked-list children, so the
@@ -355,8 +372,10 @@ function $destroyNode(key: NodeKey, parentDOM: null | HTMLElement): void {
   // where remove() is a harmless no-op on a detached parent.
   if (node !== undefined) {
     for (const slotKey of $readSlots(node).values()) {
-      const container = $slotContainerForKey(slotKey);
-      $destroyNode(slotKey, null);
+      const container = keepSlotContainers
+        ? null
+        : $slotContainerForKey(slotKey);
+      $destroyNode(slotKey, null, keepSlotContainers);
       if (container !== null) {
         container.remove();
       }
@@ -376,12 +395,13 @@ function $destroyChildren(
   _startIndex: number,
   endIndex: number,
   dom: null | HTMLElement,
+  keepSlotContainers: boolean = false,
 ): void {
   for (let startIndex = _startIndex; startIndex <= endIndex; ++startIndex) {
     const child = children[startIndex];
 
     if (child !== undefined) {
-      $destroyNode(child, dom);
+      $destroyNode(child, dom, keepSlotContainers);
     }
   }
 }
@@ -470,7 +490,7 @@ function $setElementDirection(dom: HTMLElement, node: ElementNode): void {
   }
 }
 
-// @experimental named-slots. Slots are a separate channel from the
+// Slots are a separate channel from the
 // linked-list children: each slot subtree renders into its own
 // non-keyed container, and its text is concatenated with no separator to
 // match `ElementNode.getTextContent`. Containers are synchronous hidden
@@ -485,7 +505,7 @@ function $setElementDirection(dom: HTMLElement, node: ElementNode): void {
 // reconciles normally.
 // Leaves `subTreeTextContent` unchanged (restored on exit); the caller folds
 // the returned text in slots-first.
-// @experimental named-slots. Build a hidden slot placeholder element (DOM only,
+// Build a hidden slot placeholder element (DOM only,
 // no Lexical state), shared by the mount and reconcile paths so the two never
 // drift. The container is left unattached — the caller inserts it (appended on a
 // fresh mount, slots-first on reconcile) — and starts `display: none`, revealed
@@ -551,7 +571,7 @@ function $readSlots(node: LexicalNode): ReadonlyMap<string, NodeKey> {
     : EMPTY_SLOTS;
 }
 
-// @experimental named-slots. Synchronous in-lexical slot attachment: a host
+// Synchronous in-lexical slot attachment: a host
 // with a `$getSlotTargetElement` render-config override has the reconciler
 // attach and reveal the container in the same commit that (re)mounts it —
 // no listener or framework hop. A null target (the default) leaves placement
@@ -576,18 +596,22 @@ function $applySlotTarget(
   }
 }
 
-// @experimental named-slots. A slot value's DOM is mounted directly inside its
+// A slot value's DOM is mounted directly inside its
 // own `[data-lexical-slot]` container, so the container is that DOM's parent.
 // Resolving by the slotted key (rather than scanning the host's direct children
 // by name) survives the container being relocated out of the host — e.g. a
 // decorator host that moves its slot containers into its decorate() chrome — and
 // can't match a slot subtree's own nested slot container.
 function $slotContainerForKey(slotKey: NodeKey): HTMLElement | null {
+  const movedFrom = activeMovedSlotContainers.get(slotKey);
+  if (movedFrom !== undefined) {
+    return movedFrom;
+  }
   const slotDom = activePrevKeyToDOMMap.get(slotKey);
   return slotDom !== undefined ? slotDom.parentElement : null;
 }
 
-// @experimental named-slots. Reconcile mirror of `$mountSlotChildren`.
+// Reconcile mirror of `$mountSlotChildren`.
 // Slot containers already sit slots-first in the host DOM from the create
 // path, so reconciling each in place keeps DOM order. Same name + key →
 // reconcile in place; same name + new key → destroy old subtree, mount the
@@ -718,6 +742,16 @@ function $createNode(key: NodeKey, slot: DOMSlot | null): HTMLElement {
         const slotChildDomDetached =
           nextSlotHost !== null && existingDOM.parentElement !== slot.element;
         if (modelMoved || slotChildDomDetached) {
+          // A slot value's DOM sits in its slot container. Moving it makes
+          // its parentElement the new place, so keep the old container for
+          // the cleanup of the slot it left, which may run later in this
+          // reconciliation (a host rendered after the new place).
+          if (prevSlotHost !== null && !activeMovedSlotContainers.has(key)) {
+            const prevContainer = existingDOM.parentElement;
+            if (prevContainer !== null) {
+              activeMovedSlotContainers.set(key, prevContainer);
+            }
+          }
           slot.insertChild(existingDOM);
           return $reconcileNode(key, slot.element);
         }
@@ -761,7 +795,7 @@ function $createNode(key: NodeKey, slot: DOMSlot | null): HTMLElement {
     if (indent !== 0) {
       setElementIndent(dom, indent);
     }
-    // @experimental named-slots. Slots render slots-first, ahead of the
+    // Slots render slots-first, ahead of the
     // linked-list children, each into its own container nested in the
     // host DOM. Their text folds into the host's cache ahead of the
     // child text to match `ElementNode.getTextContent`. The slots'
@@ -832,7 +866,7 @@ function $createNode(key: NodeKey, slot: DOMSlot | null): HTMLElement {
       }
       // Decorators are always non editable
       dom.contentEditable = 'false';
-      // @experimental named-slots. A decorator can host editable slots; each
+      // A decorator can host editable slots; each
       // mounts into its own detached contentEditable container that the
       // lexical-react component relocates into the decorate() chrome. The slot
       // text is already folded into `text` by getTextContent
@@ -844,6 +878,26 @@ function $createNode(key: NodeKey, slot: DOMSlot | null): HTMLElement {
       }
     }
     subTreeTextContent += text;
+  }
+
+  // A node that was in the previous state but is built anew here (its
+  // element's updateDOM asked for a new DOM, it sits under such an element,
+  // or it took a parent's only child slot from its old ancestor) is not
+  // reconciled against its previous children and slot values. Destroy the
+  // ones that left the state, so that they leave the DOM map and report
+  // 'destroyed'; $destroyNode skips the ones still in the next state. The
+  // DOM they rendered is replaced as a whole, so slot containers are left as
+  // they are (a container found through a slot value's DOM can already be
+  // the value's new one).
+  const prevNode = activePrevNodeMap.get(key);
+  if (prevNode !== undefined) {
+    if ($isElementNode(prevNode)) {
+      const prevChildren = $createChildrenArray(prevNode, activePrevNodeMap);
+      $destroyChildren(prevChildren, 0, prevChildren.length - 1, null, true);
+    }
+    for (const prevSlotKey of $readSlots(prevNode).values()) {
+      $destroyNode(prevSlotKey, null, true);
+    }
   }
 
   if (slot !== null) {
@@ -1302,7 +1356,7 @@ function $tryReconcileSuffixWithSizeDelta(
       newSuffix += DOUBLE_LINE_BREAK;
     }
   }
-  // @experimental named-slots. `cachedParentText` holds the host's combined
+  // `cachedParentText` holds the host's combined
   // cache (slot text folded slots-first ahead of the child text). The suffix
   // we just rebuilt is child-only, so strip the slot prefix to recover the
   // child-only cache before splicing, and write child-only here — the slot
@@ -1517,7 +1571,7 @@ function $reconcileChildren(
             i++;
           }
 
-          // @experimental named-slots. Strip the slot prefix to recover the
+          // Strip the slot prefix to recover the
           // child-only cache, splice the child suffix, and write child-only —
           // the slot fold in `$reconcileNode` re-prepends the slot text.
           // `slotLen` is `0` for non-slot hosts (slice is a no-op), so their
@@ -1839,7 +1893,7 @@ function $reconcileNode(
     if (treatAllNodesAsDirty || nextFormat !== prevNode.__format) {
       setElementFormat(dom, nextFormat);
     }
-    // @experimental named-slots reconcile. Slot edits dirty the host
+    // Slot edits dirty the host
     // through __slotHost propagation, so a clean host means its slots are
     // unchanged and the cache already holds their text — only diff when
     // dirty and the node has (or had) slots. Returns the slot text to fold
@@ -1949,7 +2003,7 @@ function $reconcileNode(
       if (decorator !== null) {
         reconcileDecorator(key, decorator);
       }
-      // @experimental named-slots. Mirror the element-host slot reconcile for
+      // Mirror the element-host slot reconcile for
       // decorator hosts (including its isDirty gate: a clean host means its
       // slots are unchanged). Slot text is already folded into `text` by
       // getTextContent, so this is render-only ($reconcileSlotChildren
@@ -2198,6 +2252,7 @@ export function $reconcileRoot(
   activeEditorStateReadOnly = nextEditorState._readOnly;
   activePrevKeyToDOMMap = cloneMap(editor._keyToDOMMap);
   activeDirtyChildrenByParent = $buildDirtyChildrenByParent();
+  activeMovedSlotContainers = new Map();
   // We keep track of mutated nodes so we can trigger mutation
   // listeners later in the update cycle.
   const currentMutatedNodes = new Map();
@@ -2227,6 +2282,8 @@ export function $reconcileRoot(
   activePrevKeyToDOMMap = undefined;
   // @ts-ignore
   activeDirtyChildrenByParent = undefined;
+  // @ts-ignore
+  activeMovedSlotContainers = undefined;
   // @ts-ignore
   mutatedNodes = undefined;
   activeEditorDOMRenderConfig = DEFAULT_EDITOR_DOM_CONFIG;

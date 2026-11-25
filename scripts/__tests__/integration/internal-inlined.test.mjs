@@ -17,7 +17,10 @@ import {packagesManager} from '../../shared/packagesManager.mjs';
 // leaving a runtime dependency. Guard that invariant: no published build
 // artifact (JS, MJS, or .d.ts) of any other package may reference the
 // `@lexical/internal` specifier. A failure means it leaked out as an external
-// (e.g. it was added to the build's externals/wwwMappings sets).
+// (e.g. it was added to the build's externals/wwwMappings sets). Only a quoted
+// specifier counts: dev builds keep comments, and an
+// `eslint-disable @lexical/internal/...` directive in one is not a reference.
+const INTERNAL_SPECIFIER = /(['"])@lexical\/internal(\/[^'"]*)?\1/;
 describe('@lexical/internal is inlined out of published builds', () => {
   for (const pkg of packagesManager.getPublicPackages()) {
     if (pkg.getNpmName() === '@lexical/internal') {
@@ -29,7 +32,7 @@ describe('@lexical/internal is inlined out of published builds', () => {
       });
       expect(files).not.toHaveLength(0);
       const offenders = files.filter(fn =>
-        fs.readFileSync(fn, 'utf8').includes('@lexical/internal'),
+        INTERNAL_SPECIFIER.test(fs.readFileSync(fn, 'utf8')),
       );
       expect(offenders).toEqual([]);
     });

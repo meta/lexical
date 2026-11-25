@@ -1701,6 +1701,15 @@ function $handleInput(event: InputEvent): boolean {
   const data = event.data;
   const targetRange = getTargetRange(event);
 
+  // Mobile Safari on iOS 26 commits a composition by deleting the composed
+  // text (deleteCompositionText) and inserting it again
+  // (insertFromComposition). Once the text is deleted, that insertion is not
+  // the redundant one hadOrphanedCompositionEvents skips: skipped, the
+  // composed word would be lost.
+  if (event.inputType === 'deleteCompositionText') {
+    inputState.hadOrphanedCompositionEvents = false;
+  }
+
   let handled = false;
   let rerenderText = false;
   if (data != null && $isRangeSelection(selection)) {
@@ -1915,6 +1924,8 @@ function $cleanupComposedSubclass(compositionKey: NodeKey | null): void {
   const composedNode = $getNodeByKey(compositionKey);
   if (
     !$isTextNode(composedNode) ||
+    // Exactly TextNode, which needs no replacing
+    // eslint-disable-next-line @lexical/internal/no-constant-node-type-comparison
     composedNode.getType() === 'text' ||
     $isTokenOrSegmented(composedNode) ||
     !composedNode.isAttached()

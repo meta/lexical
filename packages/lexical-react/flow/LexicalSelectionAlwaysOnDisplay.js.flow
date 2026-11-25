@@ -10,6 +10,6 @@
 /**
  * LexicalSelectionAlwaysOnDisplay
  */
-declare export function SelectionAlwaysOnDisplay({
+declare export function SelectionAlwaysOnDisplay(v: {
   onReposition?: (node: HTMLElement[]) => void,
 }): null;

@@ -42,7 +42,5 @@ const AnchorRule = defineImportRule({
  * `CoreImportExtension`), so any editor that uses the link extension can
  * import `<a>` through the `DOMImportExtension` pipeline without further
  * configuration.
- *
- * @experimental
  */
 export const LinkImportRules = [AnchorRule];

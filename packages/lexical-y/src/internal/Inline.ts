@@ -7,6 +7,7 @@
  */
 
 import type {Hidden} from './Hidden';
+import type {View} from './Unread';
 import type {Item} from '@y/y';
 
 import {ContentFormat, ContentString, ContentType} from '@y/y';
@@ -20,7 +21,8 @@ import {
   type TextNode,
 } from 'lexical';
 
-import {type Formats, isLiveContent} from './Cursor';
+import {type Formats} from './Cursor';
+import {attrsOf} from './Ident';
 import {
   $foreignFlatKeys,
   $isWrapper,
@@ -37,7 +39,8 @@ import {
   TYPE_KEY,
   WRAPPER_PREFIX,
 } from './Schema';
-import {isGone, unheldLength} from './Seen';
+import {Folder} from './Seen';
+import {heldRuns, isGoneFromLineIn, isLeftOutIn, type LeftOut} from './Shown';
 
 // Inline content as atoms, the form both the editor's side ($pushInline)
 // and the shared side (readAtoms) are compared in: one atom per content unit
@@ -68,6 +71,12 @@ export class Atoms {
   runs: Run[] = [];
   /** The old items of marker / run-end atoms (old atoms only). */
   items = new Map<number, Item>();
+  /**
+   * The id of the stored character each atom is (`client:clock`), where set
+   * to an array before old atoms are read (see readAtoms): what identifies a
+   * character wherever it moves (see Writer#heldIds).
+   */
+  ids: string[] | null = null;
   /**
    * Where each text range comes from (desired atoms only): the text node it
    * was in before this update. The diff keeps an old character only for the
@@ -290,42 +299,56 @@ export function $pushInline(
 /**
  * Atoms of the shared items from `start` (inclusive) up to `stop`
  * (exclusive, null = end), with the formats in effect at `start`, as the
- * editor shows them: without what is held back (see Hidden). Returns the
- * formats stored at `stop`, held-back ones too (where a write cursor starts,
- * see Cursor).
+ * editor shows them: without what is held back, with the deleted items the
+ * hold keeps showing (see Hidden). Returns the formats stored at `stop`
+ * (see Shown.isStoredIn: held insertions in, kept deletions out), folded from
+ * `storedFormats`, the stored formats at `start` (where a write cursor
+ * starts, see Cursor, and what a line hands on).
  */
 export function readAtoms(
+  view: View | null,
   start: Item | null,
   stop: Item | null,
   formats: Formats,
   out: Atoms,
   hidden: Hidden | null = null,
+  frontier: Item | null = null,
+  end: {folded: Item | null} | null = null,
+  storedFormats: Formats = formats,
+  leftOut: LeftOut = null,
 ): Formats {
-  const current = new Map(formats);
-  // The formats the editor shows: `current` without held-back ones.
+  const current = new Map(storedFormats);
+  // The formats the editor shows (see Reader#held).
   const shown = hidden === null ? current : new Map(formats);
   let attrs: Attrs | null = null;
+  // Format items up to `frontier` are in `formats` already (see
+  // seedFrontier). What is handed on is stored; what the atoms show, held.
+  const stored = new Folder(current, view, 'stored', hidden, null, frontier);
+  const showing =
+    hidden === null
+      ? null
+      : new Folder(shown, view, 'shown', hidden, null, frontier);
   for (let it = start; it !== null && it !== stop; it = it.right) {
-    if (isGone(it)) {
+    stored.step(it);
+    if (showing !== null) {
+      showing.step(it);
+    }
+    if (isGoneFromLineIn(view, it, hidden)) {
       continue;
     }
     const content = it.content;
     if (content instanceof ContentFormat) {
-      applyFormat(current, content);
-      if (shown !== current && !hidden!.hides(it)) {
-        applyFormat(shown, content);
-      }
       attrs = null;
       continue;
     }
-    if (!it.countable) {
+    if (!it.countable || isLeftOutIn(view, it, leftOut)) {
       continue;
     }
     if (attrs === null) {
-      attrs = Object.fromEntries(shown);
+      attrs = attrsOf(shown) as Attrs;
     }
     if (hidden !== null) {
-      const runs = hidden.runs(it);
+      const runs = heldRuns(it, hidden);
       if (runs.length > 1 || runs[0][1]) {
         // Partly or wholly held back: only shown text counts (a held node
         // or marker is not there).
@@ -333,6 +356,7 @@ export function readAtoms(
           let pos = 0;
           for (const [len, isHidden] of runs) {
             if (!isHidden) {
+              pushIds(out, it, pos, len);
               pushStoredText(out, content.str.slice(pos, pos + len), attrs);
             }
             pos += len;
@@ -341,6 +365,7 @@ export function readAtoms(
         continue;
       }
     }
+    pushIds(out, it, 0, it.length);
     if (content instanceof ContentString) {
       pushStoredText(out, content.str, attrs);
     } else if (content instanceof ContentType) {
@@ -360,14 +385,23 @@ export function readAtoms(
       }
     }
   }
+  if (stop !== null) {
+    stored.note(current, stop.left);
+  }
+  if (end !== null) {
+    end.folded = stored.pending;
+  }
   return current;
 }
 
-function applyFormat(formats: Formats, content: ContentFormat): void {
-  if (content.value === null) {
-    formats.delete(content.key);
-  } else {
-    formats.set(content.key, content.value);
+/** Note the ids of `len` characters of `it` from `from` (see Atoms.ids). */
+function pushIds(out: Atoms, it: Item, from: number, len: number): void {
+  const ids = out.ids;
+  if (ids !== null) {
+    const prefix = it.id.client + ':';
+    for (let i = 0; i < len; i++) {
+      ids.push(prefix + (it.id.clock + from + i));
+    }
   }
 }
 
@@ -394,21 +428,6 @@ function pushStoredText(out: Atoms, text: string, attrs: Attrs): void {
   for (const run of text.match(/\t+|[^\t]+/g) || []) {
     out.pushText(run, run[0] === '\t' ? attrs : plain);
   }
-}
-
-/** Live content items from `start` up to `stop` (exclusive). */
-export function countLive(
-  start: Item | null,
-  stop: Item | null,
-  hidden: Hidden | null = null,
-): number {
-  let n = 0;
-  for (let it = start; it !== null && it !== stop; it = it.right) {
-    if (isLiveContent(it)) {
-      n += unheldLength(it, hidden);
-    }
-  }
-  return n;
 }
 
 // ---------------------------------------------------------------------------

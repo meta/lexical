@@ -180,6 +180,46 @@ describe('changeset entry format', () => {
     expect(warnings).toEqual([expect.stringMatching(/drop the "\(#123\)"/)]);
   });
 
+  it('warns when a deprecation or chore changes types without Detect', () => {
+    const deprecation =
+      "---\n'lexical': patch\n---\n\n[deprecation] Deprecate type parameters on `getFirstChild`\n\nAdds a non-generic first overload.\n\nReplacement: a node guard.\n\nRemoval: not scheduled.\n";
+    expect(validate(deprecation)).toEqual({
+      errors: [],
+      warnings: [expect.stringMatching(/no "Detect:" paragraph.*\[breaking\]/)],
+    });
+    expect(
+      validate(
+        "---\n'lexical': patch\n---\n\n[refactor] Remove redundant generics on `registerCommand`\n",
+      ).warnings,
+    ).toEqual([expect.stringMatching(/this \[chore\] entry mentions/)]);
+    for (const summary of [
+      'Make `LexicalCommand` branded',
+      '`getParent` now returns `ElementNode`',
+      'Rename the type params of `$getState`',
+    ]) {
+      expect(
+        validate(`---\n'lexical': patch\n---\n\n[chore] ${summary}\n`).warnings,
+        summary,
+      ).toHaveLength(1);
+    }
+
+    // A Detect paragraph answers the question, and other categories are
+    // left alone.
+    expect(
+      validate(
+        deprecation.replace(
+          'Removal:',
+          'Detect: none; calls without a type argument infer nothing.\n\nRemoval:',
+        ),
+      ),
+    ).toEqual({errors: [], warnings: []});
+    expect(
+      validate(
+        "---\n'lexical': patch\n---\n\n[fix] Restore the Flow overloads of `getParent`\n",
+      ),
+    ).toEqual({errors: [], warnings: []});
+  });
+
   it('rejects minor bumps for non-breaking categories', () => {
     const {errors} = validate(
       "---\n'@lexical/list': minor\n---\n\n[feature] Add a thing\n",

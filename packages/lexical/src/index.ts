@@ -191,6 +191,7 @@ export type {
   CompactSerializedEditorState,
   EditorState,
   EditorStateReadOptions,
+  EditorStateToJSONOptions,
   ParsableSerializedEditorState,
   SerializedEditorState,
 } from './LexicalEditorState';
@@ -378,15 +379,18 @@ export {
   $parseSerializedNode,
   INTERNAL_getActiveEditorState,
   isCurrentlyReadOnlyMode,
+  isDispatchingCommitListeners,
 } from './LexicalUpdates';
 export {
   $addUpdateTag,
+  $appendAll,
   $applyNodeReplacement,
   $cloneWithProperties,
   $cloneWithPropertiesEphemeral,
   $copyNode,
   $create,
   $createChildrenArray,
+  $deepCopy,
   $findMatchingParent,
   $getAdjacentNode,
   $getDocument,

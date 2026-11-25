@@ -84,6 +84,7 @@ function client(id: number, state: Uint8Array | null = null): Client {
     },
   });
   const binding = new YBinding(editor, doc, {
+    onStatus: null,
     schemaVersion: 1,
     selfCheck: true,
   });

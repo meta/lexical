@@ -48,13 +48,13 @@ declare export function applyFormatFromStyle(
 declare export function applyFormatToDom(
   lexicalNode: DecoratorTextNode,
   domNode: Text | HTMLElement,
-  tagNameToFormat?: {[string]: TextFormatType},
+  tagNameToFormat?: {[key: string]: TextFormatType},
 ): Text | HTMLElement;
 
 declare export function $applyFormatToDom(
   lexicalNode: DecoratorTextNode,
   domNode: Text | HTMLElement,
-  tagNameToFormat?: {[string]: TextFormatType},
+  tagNameToFormat?: {[key: string]: TextFormatType},
 ): Text | HTMLElement;
 
 declare export var DecoratorTextExtension: LexicalExtension<

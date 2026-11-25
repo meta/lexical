@@ -13,8 +13,8 @@ Framework-agnostic accessibility extensions. See [Keyboard Accessibility](/docs/
 
 [@lexical/clipboard](/docs/api/modules/lexical_clipboard)
 
-- [ClipboardDOMImportExtension](/docs/api/modules/lexical_clipboard#clipboarddomimportextension) - Routes `text/html` pastes and drops through the `DOMImportExtension` pipeline (experimental)
-- [ClipboardImportExtension](/docs/api/modules/lexical_clipboard#clipboardimportextension) - Configurable per-MIME-type clipboard import for paste and drop (experimental)
+- [ClipboardDOMImportExtension](/docs/api/modules/lexical_clipboard#clipboarddomimportextension) - Routes `text/html` pastes and drops through the `DOMImportExtension` pipeline
+- [ClipboardImportExtension](/docs/api/modules/lexical_clipboard#clipboardimportextension) - Configurable per-MIME-type clipboard import for paste and drop
 - [GetClipboardDataExtension](/docs/api/modules/lexical_clipboard#getclipboarddataextension) - Configurable serialization of the selection into clipboard MIME types for copy and drag
 
 [@lexical/code](/docs/api/modules/lexical_code)
@@ -46,10 +46,10 @@ Framework-agnostic accessibility extensions. See [Keyboard Accessibility](/docs/
 - [HorizontalRuleExtension](/docs/api/modules/lexical_extension#horizontalruleextension) - HorizontalRuleNode (`<hr>` tag)
 - [IMEExtension](/docs/api/modules/lexical_extension#imeextension) - Centralizes IME composition state as signals
 - [InitialStateExtension](/docs/api/modules/lexical_extension#initialstateextension) - Sets the initial state of the editor (always included)
-- [KeyboardShortcutsExtension](/docs/api/modules/lexical_extension#keyboardshortcutsextension) - Dispatches a table of keyboard shortcuts from a single compiled `KEY_DOWN_COMMAND` listener; the table is merged across the extension graph by name (experimental)
+- [KeyboardShortcutsExtension](/docs/api/modules/lexical_extension#keyboardshortcutsextension) - Dispatches a table of keyboard shortcuts from a single compiled `KEY_DOWN_COMMAND` listener; the table is merged across the extension graph by name
 - [NestedEditorExtension](/docs/api/modules/lexical_extension#nestededitorextension) - Configures an editor as a nested editor of a parent editor (theme inheritance, optionally editable state)
 - [NodeSelectionExtension](/docs/api/modules/lexical_extension#nodeselectionextension) - Tracks selection, typically for DecoratorNodes
-- [NodeSelectionDataSelectedExtension](/docs/api/modules/lexical_extension#nodeselectiondataselectedextension) - Mirrors a node's `NodeSelection` membership onto its host DOM as a `data-selected` attribute so CSS can outline selected `ElementNode` hosts; configured per node type (experimental)
+- [NodeSelectionDataSelectedExtension](/docs/api/modules/lexical_extension#nodeselectiondataselectedextension) - Mirrors a node's `NodeSelection` membership onto its host DOM as a `data-selected` attribute so CSS can outline selected `ElementNode` hosts; configured per node type
 - [NodeStructureExtension](/docs/api/modules/lexical_extension#nodestructureextension) - Enforces the node structure classes declare in `$config()` (`children`, `mergeAdjacent`): joins plain paragraphs into the block that holds them as lines, lifts other blocks out of nodes that hold inline content, wraps stray content, merges equal adjacent siblings; see [Node structure](/docs/serialization/#node-structure) (experimental)
 - [NormalizeInlineElementsExtension](/docs/api/modules/lexical_extension#normalizeinlineelementsextension) - Removes empty inline elements, included by default with `RichTextExtension` and `PlainTextExtension`
 - [NormalizeTripleClickSelectionExtension](/docs/api/modules/lexical_extension#normalizetripleclickselectionextension) - Corrects over-selection after triple click events, included by default with `RichTextExtension` and `PlainTextExtension`
@@ -72,9 +72,9 @@ Framework-agnostic accessibility extensions. See [Keyboard Accessibility](/docs/
 [@lexical/html](/docs/api/modules/lexical_html)
 
 - [BlockIdHTMLExtension](/docs/api/modules/lexical_html/BlockIdHTMLExtension#blockidhtmlextension) - Exports block ids as `data-block-id` and reads them back on import, through the uniqueness rule (experimental)
-- [CoreImportExtension](/docs/api/modules/lexical_html#coreimportextension) - DOM import rules for the core nodes, included implicitly by node-providing extensions (experimental)
-- [DOMImportExtension](/docs/api/modules/lexical_html#domimportextension) - Extension-based replacement for `importDOM`/`DOMConversion`, rules are compiled into a dispatcher at editor build time (experimental)
-- [DOMRenderExtension](/docs/api/modules/lexical_html#domrenderextension) - Overrides the DOM render and export behavior for an editor (experimental)
+- [CoreImportExtension](/docs/api/modules/lexical_html#coreimportextension) - DOM import rules for the core nodes, included implicitly by node-providing extensions
+- [DOMImportExtension](/docs/api/modules/lexical_html#domimportextension) - Extension-based replacement for `importDOM`/`DOMConversion`, rules are compiled into a dispatcher at editor build time
+- [DOMRenderExtension](/docs/api/modules/lexical_html#domrenderextension) - Overrides the DOM render and export behavior for an editor
 
 [@lexical/link](/docs/api/modules/lexical_link)
 
@@ -113,6 +113,7 @@ Experimental micromark/mdast-based Markdown support (every extension in this pac
 - [MdastCommonMarkExtension](/docs/api/modules/lexical_mdast#mdastcommonmarkextension) - Bundle of the six CommonMark extensions
 - [MdastGfmExtension](/docs/api/modules/lexical_mdast#mdastgfmextension) - Bundle of the four GFM extensions
 - [MdastShadowRootQuoteExtension](/docs/api/modules/lexical_mdast#mdastshadowrootquoteextension) - Opt-in: blockquotes as block containers with full-fidelity nested content
+- [MdastQuoteContainerExtension](/docs/api/modules/lexical_mdast#mdastquotecontainerextension) - Opt-in: blockquotes as QuoteContainerNodes, quotes that hold blocks and declare it
 - [MdastHtmlExtension](/docs/api/modules/lexical_mdast#mdasthtmlextension) - Opt-in: raw HTML in Markdown routed through the `@lexical/html` DOM import rules (Markdown inside the tags included), plus generic HTML-encoded export via `$exportViaDOM` / `rawHtmlBlock`
 - [MdastShortcutsExtension](/docs/api/modules/lexical_mdast#mdastshortcutsextension) - Streaming Markdown typing shortcuts, driven by the same grammar as import
 
@@ -134,6 +135,8 @@ Experimental micromark/mdast-based Markdown support (every extension in this pac
 [@lexical/rich-text](/docs/api/modules/lexical_rich-text)
 
 - [RichTextExtension](/docs/api/modules/lexical_rich-text#richtextextension) - Rich Text editor (QuoteNode, HeadingNode), the return key creates a ParagraphNode by default (multiple ParagraphNode per document). Includes configurable `escapeFormatTriggers` to escape text formatting (e.g. code) at text node boundaries, and `shouldHandlePasteAsFiles` to control whether files win over incidental text/HTML clipboard entries on paste
+- [QuoteContainerExtension](/docs/api/modules/lexical_rich-text#quotecontainerextension) - Experimental: QuoteContainerNode, a quote that holds blocks (paragraphs, lists, other quotes), next to QuoteNode
+- [QuoteContainerReplacementExtension](/docs/api/modules/lexical_rich-text#quotecontainerreplacementextension) - Experimental: every quote of the editor is a QuoteContainerNode (a node replacement of QuoteNode)
 
 [@lexical/table](/docs/api/modules/lexical_table)
 

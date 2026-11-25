@@ -34,11 +34,8 @@ interface DOMRenderInitResult {
 }
 
 /**
- * @experimental
- *
  * An extension that allows overriding the render and export behavior for an
- * editor. This is highly experimental and subject to change from one version
- * to the next.
+ * editor.
  **/
 export const DOMRenderExtension = defineExtension<
   DOMRenderConfig,

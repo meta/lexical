@@ -205,7 +205,7 @@ function TextFormatFloatingToolbar({
     });
     return mergeRegister(
       editor.registerUpdateListener(({editorState}) => {
-        editorState.read(() => {
+        editor.read(editorState, () => {
           $updateTextFormatFloatingToolbar();
         });
       }),

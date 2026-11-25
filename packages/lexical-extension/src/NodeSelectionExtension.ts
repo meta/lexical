@@ -41,7 +41,7 @@ export const NodeSelectionExtension = defineExtension({
           const {watchedNodeKeys} = watchedNodeStore.value;
           let nextSelectedNodeKeys: undefined | Set<string>;
           let didChange = false;
-          editorStateStore.value.read(() => {
+          editor.read(editorStateStore.value, () => {
             const selection = $getSelection();
             if (selection) {
               for (const [key, listeners] of watchedNodeKeys.entries()) {

@@ -663,6 +663,10 @@ export function $deleteTableRowAtSelection(): void {
   const columnCount = gridMap[0].length;
   const nextRow = gridMap[focusEndRow + 1];
   const nextRowNode = grid.getChildAtIndex(focusEndRow + 1);
+  // A cell spanning several deleted rows appears in each of them; trim it once.
+  // setRowSpan mutates in place when the cell is already writable in this
+  // update, so the span is read once, before it changes.
+  const visitedCells = new Set<TableCellNode>();
   for (let row = focusEndRow; row >= anchorStartRow; row--) {
     for (let column = columnCount - 1; column >= 0; column--) {
       const {
@@ -670,18 +674,20 @@ export function $deleteTableRowAtSelection(): void {
         startRow: cellStartRow,
         startColumn: cellStartColumn,
       } = gridMap[row][column];
-      if (cellStartColumn !== column) {
+      if (cellStartColumn !== column || visitedCells.has(cell)) {
         // Don't repeat work for the same Cell
         continue;
       }
+      visitedCells.add(cell);
+      const rowSpan = cell.__rowSpan;
       // Rows overflowing top or bottom have to be trimmed
       if (
         cellStartRow < anchorStartRow ||
-        cellStartRow + cell.__rowSpan - 1 > focusEndRow
+        cellStartRow + rowSpan - 1 > focusEndRow
       ) {
         const intersectionStart = Math.max(cellStartRow, anchorStartRow);
         const intersectionEnd = Math.min(
-          cell.__rowSpan + cellStartRow - 1,
+          rowSpan + cellStartRow - 1,
           focusEndRow,
         );
 
@@ -689,12 +695,12 @@ export function $deleteTableRowAtSelection(): void {
           intersectionStart <= intersectionEnd
             ? intersectionEnd - intersectionStart + 1
             : 0;
-        cell.setRowSpan(cell.__rowSpan - overflowRowsCount);
+        cell.setRowSpan(rowSpan - overflowRowsCount);
       }
       // Rows overflowing bottom have to be moved to the next row
       if (
         cellStartRow >= anchorStartRow &&
-        cellStartRow + cell.__rowSpan - 1 > focusEndRow &&
+        cellStartRow + rowSpan - 1 > focusEndRow &&
         // Handle overflow only once
         row === focusEndRow
       ) {
@@ -1291,9 +1297,13 @@ export function $computeTableCellRectSpans(
   let bottomSpan = 1;
   const topRow = map[minRow];
   const bottomRow = map[maxRow];
+  // The rows a cell covers in the map: a row span can reach past the last
+  // row, where the map (and the rectangle) stop.
+  const rowsCovered = (value: TableMapValueType) =>
+    Math.min(value.cell.__rowSpan, map.length - value.startRow);
   for (let col = minColumn; col <= maxColumn; col++) {
-    topSpan = Math.max(topSpan, topRow[col].cell.__rowSpan);
-    bottomSpan = Math.max(bottomSpan, bottomRow[col].cell.__rowSpan);
+    topSpan = Math.max(topSpan, rowsCovered(topRow[col]));
+    bottomSpan = Math.max(bottomSpan, rowsCovered(bottomRow[col]));
   }
   for (let row = minRow; row <= maxRow; row++) {
     leftSpan = Math.max(leftSpan, map[row][minColumn].cell.__colSpan);
@@ -1318,9 +1328,16 @@ export function $computeTableCellRectBoundary(
     cellAMap.startColumn + cellAMap.cell.__colSpan - 1,
     cellBMap.startColumn + cellBMap.cell.__colSpan - 1,
   );
-  let maxRow = Math.max(
-    cellAMap.startRow + cellAMap.cell.__rowSpan - 1,
-    cellBMap.startRow + cellBMap.cell.__rowSpan - 1,
+  // A row span can reach past the last row (a remote update or imported JSON
+  // can leave one); the map stops at the last row, and so does the
+  // rectangle.
+  const lastRow = map.length - 1;
+  let maxRow = Math.min(
+    lastRow,
+    Math.max(
+      cellAMap.startRow + cellAMap.cell.__rowSpan - 1,
+      cellBMap.startRow + cellBMap.cell.__rowSpan - 1,
+    ),
   );
 
   // Keep expanding until we have a complete rectangle
@@ -1352,7 +1369,7 @@ export function $computeTableCellRectBoundary(
           const newMinColumn = Math.min(minColumn, cell.startColumn);
           const newMaxColumn = Math.max(maxColumn, cellEndCol);
           const newMinRow = Math.min(minRow, cell.startRow);
-          const newMaxRow = Math.max(maxRow, cellEndRow);
+          const newMaxRow = Math.min(lastRow, Math.max(maxRow, cellEndRow));
 
           // Check if boundaries changed
           if (

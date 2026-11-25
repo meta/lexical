@@ -23,7 +23,7 @@ import {
   seed,
   tokens,
 } from '../utils/collabY.mjs';
-import {E2E_PORT, test} from '../utils/index.mjs';
+import {E2E_PORT, getLocalDateValue, test} from '../utils/index.mjs';
 
 test.skip(({isCollab}) => isCollab !== 'y', 'Requires collab Y (@lexical/y)');
 test.afterEach(closeSessions);
@@ -297,6 +297,9 @@ test.describe('Collab Y: version gate', () => {
     // The binding's warning, logged by the playground as `message (code)`:
     // tolerated by its code, and checked below by code and reason.
     session.expect(/\(@lexical\/y\/unsupported-layout\)$/);
+    // The test writes the layout record raw, standing in for a newer
+    // client's update (real ones arrive as remote updates, not reported).
+    session.expect(/\(@lexical\/y\/raw-yjs-write\)$/);
     await seed(clients, ['g1z']);
     // A newer client adds a newer layout version to the document's layout
     // record (the root's `lexical-y:<n>: true` attributes, a record that only
@@ -354,6 +357,9 @@ test.describe('Collab Y: version gate', () => {
     const {clients, session} = await openClients(browser);
     const [a, b] = clients;
     session.expect(/\(@lexical\/y\/unsupported-schema\)$/);
+    // The test writes the schema record raw, standing in for a newer
+    // client's update (real ones arrive as remote updates, not reported).
+    session.expect(/\(@lexical\/y\/raw-yjs-write\)$/);
     await seed(clients, ['v1z']);
     // A newer version of the app (`schemaVersion` 99) wrote to the document:
     // it records its version on the root (`lexical-y-schema:<n>: true`, a
@@ -391,6 +397,43 @@ test.describe('Collab Y: version gate', () => {
       expect(await c.blocks()).toEqual(['paragraph:v1z']);
       expect(c.problems).toEqual([]);
     }
+  });
+});
+
+test.describe('Collab Y: the playground schema version', () => {
+  test('a tab of the previous playground opens an edited document read only', async ({
+    browser,
+  }) => {
+    // Version 2 stores an all-day DateTimeNode as a date-only value, which
+    // version 1 would read as a UTC instant.
+    const {clients, session} = await openClients(browser, {n: 1});
+    session.expect(/\(@lexical\/y\/unsupported-schema\)$/);
+    await seed(clients, ['s2z']);
+    const older = await session.open('B', {
+      params: {collabYSchemaVersion: '1'},
+      status: 'readonly',
+    });
+    await expect(older.editor).toHaveAttribute('contenteditable', 'false');
+    await expect(older.page.locator('.collab-y-notice')).toHaveAttribute(
+      'data-reason',
+      'newer',
+    );
+    expect(await older.blocks()).toEqual(['paragraph:s2z']);
+  });
+
+  test('another tab gets the same all-day date', async ({browser}) => {
+    const {clients} = await openClients(browser);
+    const [a, b] = clients;
+    await a.editor.focus();
+    await a.type('/today');
+    await a.page
+      .locator('#typeahead-menu ul li[aria-selected="true"]:has-text("Today")')
+      .waitFor();
+    await a.press('Enter');
+    await expect(b.page.locator('[data-lexical-datetime]')).toHaveAttribute(
+      'data-lexical-datetime',
+      getLocalDateValue(new Date()),
+    );
   });
 });
 

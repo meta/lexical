@@ -1,0 +1,13 @@
+---
+'@lexical/y': minor
+---
+
+[breaking] Store NodeState values on text as paired runs (layout 4), and read and write layout 4 only: `MIN_LAYOUT`, `LAYOUT_VERSION` and `SEED_LAYOUT` are now 4
+
+A NodeState value on text (`s:<key>`) is now an opener and an end that names it, as a text format, a link or a comment id already was in layout 3: two collaborators' overlapping values of one state nest instead of cutting each other short, a value's undo removes exactly its own run, and every name the binding writes on text has one mechanism. A new room records only `lexical-y:4`. Rooms stored at layout 1, 2 or 3 open read only, showing their content, until they are migrated to layout 4 (`@lexical/y/migrate/3to4`, after `@lexical/y/migrate/2to3`, and `@lexical/y/migrate/1to2` before that for layout 1), which keeps every character, node and line marker with its Yjs id and reads the same before and after. Older `@lexical/y` releases open a layout 4 room read only (`UNSUPPORTED_LAYOUT_WARNING`, reason `'newer'`). The binding no longer writes, changes or deletes a format item of a name it does not own (one that is not `t`, `k`, `f:`, `p:`, `w:` or `s:`): text typed next to one a raw writer stored takes the value the name has there.
+
+Migration: upgrade every client of a room together. A server migrates each stored room when it loads it, before serving it, with `prepareYRoom` (`@lexical/y/server`) or `migrateYState` (`@lexical/y/migrate`), whose default steps now include `@lexical/y/migrate/3to4` (a step list of your own adds it after `@lexical/y/migrate/2to3`); keep the generation fence (`checkYSession`) on every relay, and replace the incarnation of rooms not yet seeded (`needsNewIncarnation(room, SEED_LAYOUT)`), since the seed layout changed. A runner call that names its target passes `to: 4` (the default target is `MIN_LAYOUT`), and code that expects a new room to record `lexical-y:1`, `lexical-y:2` or `lexical-y:3` reads `lexical-y:4` instead.
+
+Detect: rooms whose root records `lexical-y:3` (or lower) but not `lexical-y:4`; `UNSUPPORTED_LAYOUT_WARNING` with `reason: 'older'`; server step lists of your own without `@lexical/y/migrate/3to4`; code that reads the `lexical-y:1`, `lexical-y:2` or `lexical-y:3` root attributes of a new room.
+
+Verify: open a stored layout 3 room that holds NodeState values on text after migrating it on the server: it is editable and reads as before; without the migration it opens read only and nothing is written. Set one NodeState key to two values over overlapping ranges from two clients at once: both ranges keep their value outside the overlap.

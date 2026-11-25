@@ -2044,7 +2044,8 @@ function getCorner(
   if (cellValue.startRow === rect.minRow) {
     rowName = 'minRow';
   } else if (
-    cellValue.startRow + cellValue.cell.__rowSpan - 1 ===
+    // A row span can reach past the last row, where the rect stops.
+    cellValue.startRow + cellValue.cell.__rowSpan - 1 >=
     rect.maxRow
   ) {
     rowName = 'maxRow';

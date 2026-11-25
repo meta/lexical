@@ -91,6 +91,7 @@ function peer(
         }),
         configExtension(YCollabExtension, {
           doc,
+          onYStatus: null,
           schemaVersion: 1,
           selfCheck: false,
         }),

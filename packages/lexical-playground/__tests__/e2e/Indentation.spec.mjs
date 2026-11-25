@@ -78,14 +78,13 @@ test.describe('Identation', () => {
             <span data-lexical-text="true">yar</span>
           </p>
           <ul class="PlaygroundEditorTheme__ul" dir="auto">
-            <li class="PlaygroundEditorTheme__listItem" value="1">
+            <li class="PlaygroundEditorTheme__listItem">
               <span data-lexical-text="true">itemitem 2</span>
             </li>
             <li
-              class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__nestedListItem"
-              value="2">
+              class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__nestedListItem">
               <ul class="PlaygroundEditorTheme__ul">
-                <li class="PlaygroundEditorTheme__listItem" value="1">
+                <li class="PlaygroundEditorTheme__listItem">
                   <span data-lexical-text="true">item 3</span>
                 </li>
               </ul>
@@ -149,17 +148,15 @@ test.describe('Identation', () => {
           </p>
           <ul class="PlaygroundEditorTheme__ul" dir="auto">
             <li
-              class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__nestedListItem"
-              value="1">
+              class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__nestedListItem">
               <ul class="PlaygroundEditorTheme__ul">
-                <li class="PlaygroundEditorTheme__listItem" value="1">
+                <li class="PlaygroundEditorTheme__listItem">
                   <span data-lexical-text="true">itemitem 2</span>
                 </li>
                 <li
-                  class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__nestedListItem"
-                  value="2">
+                  class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__nestedListItem">
                   <ul class="PlaygroundEditorTheme__ul">
-                    <li class="PlaygroundEditorTheme__listItem" value="1">
+                    <li class="PlaygroundEditorTheme__listItem">
                       <span data-lexical-text="true">item 3</span>
                     </li>
                   </ul>
@@ -234,21 +231,18 @@ test.describe('Identation', () => {
           </p>
           <ul class="PlaygroundEditorTheme__ul" dir="auto">
             <li
-              class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__nestedListItem"
-              value="1">
+              class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__nestedListItem">
               <ul class="PlaygroundEditorTheme__ul">
                 <li
-                  class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__nestedListItem"
-                  value="1">
+                  class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__nestedListItem">
                   <ul class="PlaygroundEditorTheme__ul">
-                    <li class="PlaygroundEditorTheme__listItem" value="1">
+                    <li class="PlaygroundEditorTheme__listItem">
                       <span data-lexical-text="true">itemitem 2</span>
                     </li>
                     <li
-                      class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__nestedListItem"
-                      value="2">
+                      class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__nestedListItem">
                       <ul class="PlaygroundEditorTheme__ul">
-                        <li class="PlaygroundEditorTheme__listItem" value="1">
+                        <li class="PlaygroundEditorTheme__listItem">
                           <span data-lexical-text="true">item 3</span>
                         </li>
                       </ul>
@@ -325,17 +319,15 @@ test.describe('Identation', () => {
           </p>
           <ul class="PlaygroundEditorTheme__ul" dir="auto">
             <li
-              class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__nestedListItem"
-              value="1">
+              class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__nestedListItem">
               <ul class="PlaygroundEditorTheme__ul">
-                <li class="PlaygroundEditorTheme__listItem" value="1">
+                <li class="PlaygroundEditorTheme__listItem">
                   <span data-lexical-text="true">itemitem 2</span>
                 </li>
                 <li
-                  class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__nestedListItem"
-                  value="2">
+                  class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__nestedListItem">
                   <ul class="PlaygroundEditorTheme__ul">
-                    <li class="PlaygroundEditorTheme__listItem" value="1">
+                    <li class="PlaygroundEditorTheme__listItem">
                       <span data-lexical-text="true">item 3</span>
                     </li>
                   </ul>
@@ -400,14 +392,13 @@ test.describe('Identation', () => {
             <span data-lexical-text="true">yar</span>
           </p>
           <ul class="PlaygroundEditorTheme__ul" dir="auto">
-            <li class="PlaygroundEditorTheme__listItem" value="1">
+            <li class="PlaygroundEditorTheme__listItem">
               <span data-lexical-text="true">itemitem 2</span>
             </li>
             <li
-              class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__nestedListItem"
-              value="2">
+              class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__nestedListItem">
               <ul class="PlaygroundEditorTheme__ul">
-                <li class="PlaygroundEditorTheme__listItem" value="1">
+                <li class="PlaygroundEditorTheme__listItem">
                   <span data-lexical-text="true">item 3</span>
                 </li>
               </ul>
@@ -468,13 +459,13 @@ test.describe('Identation', () => {
       page,
       html`
         <ul class="PlaygroundEditorTheme__ul" dir="auto">
-          <li class="PlaygroundEditorTheme__listItem" value="1">
+          <li class="PlaygroundEditorTheme__listItem">
             <span data-lexical-text="true">hello1</span>
           </li>
-          <li class="PlaygroundEditorTheme__listItem" value="2">
+          <li class="PlaygroundEditorTheme__listItem">
             <span data-lexical-text="true">hello2</span>
           </li>
-          <li class="PlaygroundEditorTheme__listItem" value="3">
+          <li class="PlaygroundEditorTheme__listItem">
             <span data-lexical-text="true">hello3</span>
           </li>
         </ul>
