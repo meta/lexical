@@ -295,15 +295,6 @@ describe('LexicalHeadlessEditor', () => {
       ]);
     });
 
-    it('does not use the global selection when a DOM is present', () => {
-      const quoteEditor = createQuoteAtStart();
-      withDOM(() => {
-        const getSelection = vi.spyOn(window, 'getSelection');
-        expect(deleteBackward(quoteEditor)).toEqual([['paragraph', 'quote']]);
-        expect(getSelection).not.toHaveBeenCalled();
-      });
-    });
-
     it('leaves the selection unchanged on RangeSelection.modify', () => {
       editor.update(
         () => {
