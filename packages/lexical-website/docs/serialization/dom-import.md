@@ -567,6 +567,14 @@ interface WhitespaceImportConfig {
 }
 ```
 
+An adjacent sibling for which `isInline` returns `false` ends the line. So
+does leaving an ancestor, or entering an element nested in an inline
+sibling, when `isInline` returns `false` for it and it is a block tag
+(`<div>`, `<p>`, ...), since the importer starts a new block at those
+alone: an element that only has `display: block` stays on the line. A
+block tag entered this way ends the line only if it holds text, as an
+empty one (a `<div>` around an `<svg>` icon, say) produces no content.
+
 The defaults match the legacy behavior: an element preserves
 whitespace if its `nodeName` is `'PRE'` or its inline `style.whiteSpace`
 starts with `'pre'`; an element is inline if its inline `style.display`

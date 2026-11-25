@@ -114,8 +114,14 @@ describe('CoreImportExtension', () => {
       '<p>see <a href="https://example.com"><span style="display:block">here</span></a> now</p>',
       'see here now',
     ],
+    ['<div>a <span><div></div></span> b</div>', 'a b'],
+    [
+      '<div>Click <a href="https://example.com"><div><svg><path d="M0 0"></path></svg></div>Download</a></div>',
+      'Click Download',
+    ],
+    ['<div>a <span><div> </div></span> b</div>', 'a b'],
   ])(
-    'keeps a space next to an inline element styled display:block: %s',
+    'keeps a space next to an inline element that stays on the line (display:block, or a block with no text): %s',
     (html, expected) => {
       using editor = buildEditor();
       importInto(editor, html);

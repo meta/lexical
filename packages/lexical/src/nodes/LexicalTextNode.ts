@@ -1641,7 +1641,7 @@ function $convertTextDOMNode(domNode: Node): DOMConversionOutput {
     let isStartOfLine = true;
     while (
       previousText !== null &&
-      (previousText = findTextInLine(previousText, false)) !== null
+      (previousText = findTextInLine(previousText, false, domNode_)) !== null
     ) {
       const previousTextContent = previousText.textContent || '';
       if (previousTextContent.length > 0) {
@@ -1662,7 +1662,7 @@ function $convertTextDOMNode(domNode: Node): DOMConversionOutput {
     let isEndOfLine = true;
     while (
       nextText !== null &&
-      (nextText = findTextInLine(nextText, true)) !== null
+      (nextText = findTextInLine(nextText, true, domNode_)) !== null
     ) {
       const nextTextContent = (nextText.textContent || '').replace(
         /^( |\t|\r?\n)+/,
@@ -1689,7 +1689,21 @@ function isLineBreakingDomNode(node: HTMLElement): boolean {
   return isBlockDomNode(node);
 }
 
-function findTextInLine(text: Text, forward: boolean): null | Text {
+// A block we walk into from a sibling only starts a new line if it holds text
+// the importer will emit. One that holds none (an empty <div>, or a <div>
+// around an <svg> icon) produces no content and no line break, so the line
+// carries on past it.
+function holdsText(node: Node): boolean {
+  return /[^ \t\r\n]/.test(node.textContent || '');
+}
+
+// `origin` is the text whose spaces are being decided: `text` itself, or the
+// text the walk started from when it keeps stepping over whitespace-only text.
+function findTextInLine(
+  text: Text,
+  forward: boolean,
+  origin: Text,
+): null | Text {
   let node: Node = text;
 
   while (true) {
@@ -1698,8 +1712,13 @@ function findTextInLine(text: Text, forward: boolean): null | Text {
       (sibling = forward ? node.nextSibling : node.previousSibling) === null
     ) {
       const parentElement = node.parentElement;
-      // Leaving a block ends the line, whatever inline content comes next
-      if (parentElement === null || isLineBreakingDomNode(parentElement)) {
+      // Leaving a block that holds the origin ends the line, whatever inline
+      // content comes next. Leaving a block we walked into does not (see
+      // holdsText).
+      if (
+        parentElement === null ||
+        (isLineBreakingDomNode(parentElement) && parentElement.contains(origin))
+      ) {
         return null;
       }
       node = parentElement;
@@ -1718,7 +1737,11 @@ function findTextInLine(text: Text, forward: boolean): null | Text {
     while ((descendant = forward ? node.firstChild : node.lastChild) !== null) {
       node = descendant;
       // Entering a block nested in an inline starts a new line
-      if (isHTMLElement(node) && isLineBreakingDomNode(node)) {
+      if (
+        isHTMLElement(node) &&
+        isLineBreakingDomNode(node) &&
+        holdsText(node)
+      ) {
         return null;
       }
     }

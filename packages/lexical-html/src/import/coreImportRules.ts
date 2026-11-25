@@ -316,10 +316,21 @@ function isLineBreakingNode(
   );
 }
 
+// A block we walk into from a sibling only starts a new line if it holds text
+// the importer will emit. One that holds none (an empty <div>, or a <div>
+// around an <svg> icon) produces no content and no line break (see
+// TransparentBlockRule), so the line carries on past it.
+function holdsText(node: Node): boolean {
+  return /[^ \t\r\n]/.test(node.textContent || '');
+}
+
+// `origin` is the text whose spaces are being decided: `text` itself, or the
+// text the walk started from when it keeps stepping over whitespace-only text.
 function findAdjacentTextOnLine(
   text: Text,
   forward: boolean,
   wsConfig: WhitespaceImportConfig,
+  origin: Text,
 ): Text | null {
   let node: Node = text;
   while (true) {
@@ -328,8 +339,13 @@ function findAdjacentTextOnLine(
       (sibling = forward ? node.nextSibling : node.previousSibling) === null
     ) {
       const parent: Node | null = node.parentNode;
-      // Leaving a block ends the line, whatever inline content comes next
-      if (parent === null || isLineBreakingNode(parent, wsConfig)) {
+      // Leaving a block that holds the origin ends the line, whatever inline
+      // content comes next. Leaving a block we walked into does not (see
+      // holdsText).
+      if (
+        parent === null ||
+        (isLineBreakingNode(parent, wsConfig) && parent.contains(origin))
+      ) {
         return null;
       }
       node = parent;
@@ -342,7 +358,7 @@ function findAdjacentTextOnLine(
     while ((descendant = forward ? node.firstChild : node.lastChild) !== null) {
       node = descendant;
       // Entering a block nested in an inline starts a new line
-      if (isLineBreakingNode(node, wsConfig)) {
+      if (isLineBreakingNode(node, wsConfig) && holdsText(node)) {
         return null;
       }
     }
@@ -370,7 +386,12 @@ function collapseWhitespace(
     let isStartOfLine = true;
     while (
       neighbor !== null &&
-      (neighbor = findAdjacentTextOnLine(neighbor, false, wsConfig)) !== null
+      (neighbor = findAdjacentTextOnLine(
+        neighbor,
+        false,
+        wsConfig,
+        textNode,
+      )) !== null
     ) {
       const neighborContent = neighbor.textContent || '';
       if (neighborContent.length > 0) {
@@ -390,7 +411,12 @@ function collapseWhitespace(
     let isEndOfLine = true;
     while (
       neighbor !== null &&
-      (neighbor = findAdjacentTextOnLine(neighbor, true, wsConfig)) !== null
+      (neighbor = findAdjacentTextOnLine(
+        neighbor,
+        true,
+        wsConfig,
+        textNode,
+      )) !== null
     ) {
       const neighborContent = (neighbor.textContent || '').replace(
         /^( |\t|\r?\n)+/,

@@ -172,6 +172,13 @@ export type IsPreserveWhitespaceDom = (node: Node) => boolean;
  * tag-name set) and additionally treats elements with an explicit
  * non-inline `display` style as block.
  *
+ * An adjacent sibling for which this returns `false` ends the line. So does
+ * leaving an ancestor, or entering an element nested in an inline sibling,
+ * when this returns `false` for it and it is a block tag (`<div>`, `<p>`, ...),
+ * since the importer starts a new block at those alone: an element that only
+ * has `display: block` stays on the line. A block tag entered this way ends the
+ * line only if it holds text, as an empty one produces no content.
+ *
  * @experimental
  */
 export type IsInlineForWhitespace = (node: Node) => boolean;
