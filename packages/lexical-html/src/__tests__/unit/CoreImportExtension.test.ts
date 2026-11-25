@@ -89,6 +89,40 @@ describe('CoreImportExtension', () => {
     });
   });
 
+  test.each([
+    ['<div><p>a </p><span>b</span></div>', ['a', 'b']],
+    ['<div><span>a</span><p> b</p></div>', ['a', 'b']],
+    ['<div>a <span><div>b</div></span> c</div>', ['a', 'b', 'c']],
+  ])(
+    'trims a space at a block boundary next to an inline tag: %s',
+    (html, expected) => {
+      using editor = buildEditor();
+      importInto(editor, html);
+      editor.read(() => {
+        expect(
+          $getRoot()
+            .getAllTextNodes()
+            .map(n => n.getTextContent()),
+        ).toEqual(expected);
+      });
+    },
+  );
+
+  test.each([
+    ['<p><span style="display:block">a </span><span>b</span></p>', 'a b'],
+    [
+      '<p>see <a href="https://example.com"><span style="display:block">here</span></a> now</p>',
+      'see here now',
+    ],
+  ])(
+    'keeps a space next to an inline element styled display:block: %s',
+    (html, expected) => {
+      using editor = buildEditor();
+      importInto(editor, html);
+      expect(editor.read(() => $getRoot().getTextContent())).toBe(expected);
+    },
+  );
+
   test('inline format tags propagate via ImportTextFormat', () => {
     using editor = buildEditor();
     importInto(editor, '<p>a <strong>b <em>c</em></strong> <code>d</code></p>');
@@ -284,8 +318,8 @@ describe('CoreImportExtension', () => {
   });
 
   test('whitespace config can override what counts as an inline sibling', () => {
-    // With a custom isInline that treats <hr> as inline, the trailing space
-    // before <hr> is preserved instead of being trimmed against a block.
+    // With a custom isInline that treats <hr> as inline, the space before
+    // <hr> is preserved instead of being trimmed against a block.
     using editor = buildEditorFromExtensions(
       defineExtension({
         dependencies: [
@@ -304,12 +338,15 @@ describe('CoreImportExtension', () => {
         name: 'host',
       }),
     );
-    importInto(editor, '<p>a <hr>b</p>');
+    importInto(editor, '<div>a <hr>b</div>');
     editor.read(() => {
-      const all = $getRoot().getAllTextNodes();
-      // With <hr> treated as inline, the trailing space after "a" is kept.
-      const a = all.find(t => t.getTextContent() === 'a ');
-      assert(a !== undefined, 'expected "a " (with trailing space)');
+      // With <hr> treated as inline, the space after "a" is kept (the empty
+      // <hr> import leaves "a " and "b" to merge).
+      expect(
+        $getRoot()
+          .getAllTextNodes()
+          .map(t => t.getTextContent()),
+      ).toEqual(['a b']);
     });
   });
 
