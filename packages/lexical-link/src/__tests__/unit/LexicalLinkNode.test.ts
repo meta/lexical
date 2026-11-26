@@ -17,6 +17,7 @@ import {
   LinkExtension,
   type LinkNode,
   type SerializedLinkNode,
+  TOGGLE_LINK_COMMAND,
 } from '@lexical/link';
 import {$createMarkNode, $isMarkNode} from '@lexical/mark';
 import {
@@ -1071,6 +1072,34 @@ describe('formatUrl', () => {
     expect(formatUrl('subdomain.example.com/path')).toBe(
       'https://subdomain.example.com/path',
     );
+  });
+});
+
+// https://github.com/facebook/lexical/issues/5305
+describe('TOGGLE_LINK_COMMAND at a collapsed selection', () => {
+  const extension = defineExtension({
+    dependencies: [LinkExtension, RichTextExtension],
+    name: '[test-toggle-link-collapsed]',
+  });
+
+  test('leaves the text around a caret outside a link unlinked', () => {
+    using editor = buildEditorFromExtensions(extension);
+    editor.update(
+      () => {
+        const text = $createTextNode('Link text');
+        $getRoot().clear().append($createParagraphNode().append(text));
+        text.select(4, 4);
+      },
+      {discrete: true},
+    );
+    editor.dispatchCommand(TOGGLE_LINK_COMMAND, 'https://lexical.dev/');
+    expect(
+      editor.read(() =>
+        $getRoot()
+          .getAllTextNodes()
+          .map(node => node.getParentOrThrow().getType()),
+      ),
+    ).toEqual(['paragraph']);
   });
 });
 
