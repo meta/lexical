@@ -1252,9 +1252,35 @@ function onBeforeInput(event: InputEvent, editor: LexicalEditor): void {
     () => {
       if (!$isInputEventTargetingCapturedSelection(event, editor)) {
         dispatchCommand(editor, BEFORE_INPUT_COMMAND, event);
+      } else if (isNativeHistoryFromCapturedControl(event, editor)) {
+        event.preventDefault();
       }
     },
     {event},
+  );
+}
+
+/**
+ * Chromium and WebKit keep one undo stack per page, so an undo or redo pressed
+ * in a decorator's input with no edit of its own on that stack is fired at the
+ * editor root instead, and would run the browser's native history over the
+ * editor's DOM (#3761, and #6714 for a control outside the editor). The
+ * shortcut is the input's, so it does nothing. Firefox keeps a history per
+ * control and fires the control's own events at the root (#8738), so there an
+ * undo reaching the root is the control's.
+ */
+function isNativeHistoryFromCapturedControl(
+  event: InputEvent,
+  editor: LexicalEditor,
+): boolean {
+  const composedTarget = getComposedEventTarget(event);
+  return (
+    !IS_FIREFOX &&
+    (event.inputType === 'historyUndo' || event.inputType === 'historyRedo') &&
+    !(
+      isHTMLElement(composedTarget) &&
+      isDOMCapturingSelection(composedTarget, editor)
+    )
   );
 }
 

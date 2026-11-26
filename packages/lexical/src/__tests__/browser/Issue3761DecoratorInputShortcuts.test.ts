@@ -178,6 +178,35 @@ describe('Shortcuts in a decorator input (#3761)', () => {
     expect(editor.read(() => $getRoot().getTextContent())).toBe(editorText);
   });
 
+  // Chromium keeps one undo stack per page, so an undo in an input with no
+  // edit of its own would undo the editor's typing natively.
+  test('a real undo in an empty input leaves the editor alone', async () => {
+    const {editor, input, root} = createEditor();
+    await userEvent.click(root.querySelector('p')!);
+    await userEvent.keyboard('{End} and more');
+    const editorText = editor.read(() => $getRoot().getTextContent());
+    expect(editorText).toContain('and more');
+    await userEvent.click(input);
+    await userEvent.keyboard(
+      IS_APPLE ? '{Meta>}z{/Meta}' : '{Control>}z{/Control}',
+    );
+    expect(root.textContent).toContain('and more');
+    expect(editor.read(() => $getRoot().getTextContent())).toBe(editorText);
+    expect(document.activeElement).toBe(input);
+  });
+
+  test('a real undo in an input with its own edit undoes that edit', async () => {
+    const {editor, input} = createEditor();
+    const editorText = editor.read(() => $getRoot().getTextContent());
+    await userEvent.click(input);
+    await userEvent.keyboard('abc');
+    await userEvent.keyboard(
+      IS_APPLE ? '{Meta>}z{/Meta}' : '{Control>}z{/Control}',
+    );
+    expect(input.value).toBe('');
+    expect(editor.read(() => $getRoot().getTextContent())).toBe(editorText);
+  });
+
   test('a real select all selects only the input', async () => {
     const {editor, input} = createEditor();
     const editorText = editor.read(() => $getRoot().getTextContent());
