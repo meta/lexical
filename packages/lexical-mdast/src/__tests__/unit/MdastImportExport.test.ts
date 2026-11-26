@@ -8,7 +8,7 @@
 
 // @vitest-environment node
 
-import type {Link, Nodes, Paragraph, Root} from 'mdast';
+import type {Link, Nodes, Paragraph, PhrasingContent, Root} from 'mdast';
 
 import {
   buildEditorFromExtensions,
@@ -54,6 +54,7 @@ import {
   defineExtension,
   type LexicalEditor,
   type LexicalNode,
+  ParagraphNode,
   TEXT_TYPE_TO_FORMAT,
   type TextFormatType,
   type TextNode,
@@ -844,6 +845,121 @@ describe('@lexical/mdast import/export', () => {
     const editedExportParses = parses;
     expect(editor.read(() => $convertToMarkdownString())).toBe(edited);
     expect(parses).toBe(editedExportParses);
+  });
+
+  it('keeps a block whose touching deletes are joined as its own in selection exports', () => {
+    let parses = 0;
+    const text = (value: string): PhrasingContent => ({type: 'text', value});
+    using editor = buildEditorFromExtensions(
+      MdastCommonMarkExtension,
+      MdastGfmExtension,
+      configExtension(MdastExtension, {
+        exportRules: [
+          {
+            // A and B are written as plain text, which is joined across the
+            // two blocks; C holds a literal link and two deletes, which are
+            // joined inside C.
+            $export: (node, context) => {
+              context.next();
+              const value = node.getTextContent();
+              return value === 'C'
+                ? {
+                    children: [
+                      text('('),
+                      {
+                        children: [text('https://a.example')],
+                        data: {mdastLinkStyle: 'literal'},
+                        type: 'link',
+                        url: 'https://a.example',
+                      },
+                      text(') '),
+                      {children: [text('x')], type: 'delete'},
+                      {children: [text('y')], type: 'delete'},
+                    ],
+                    type: 'paragraph',
+                  }
+                : text(value);
+            },
+            type: ParagraphNode,
+          },
+        ],
+        mdastExtensions: [
+          {
+            transforms: [
+              () => {
+                parses++;
+              },
+            ],
+          },
+        ],
+        toMarkdownExtensions: [
+          {
+            handlers: {
+              root: (node: Root, _parent, state, info) =>
+                node.children
+                  .map(child => state.handle(child, node, state, info))
+                  .join('\n\n'),
+            },
+          },
+        ],
+      }),
+    );
+    editor.update(
+      () =>
+        $getRoot()
+          .clear()
+          .append(
+            ...['A', 'B', 'C'].map(value =>
+              $createParagraphNode().append($createTextNode(value)),
+            ),
+          ),
+      {discrete: true},
+    );
+    const counts: number[] = [];
+    for (const [start, end] of [
+      [0, 3],
+      [0, 2],
+      [2, 3],
+      [2, 3],
+    ]) {
+      editor.update(
+        () => {
+          const texts = $getRoot().getAllTextNodes();
+          const last = texts[end - 1];
+          texts[start]
+            .select(0, 0)
+            .focus.set(last.getKey(), last.getTextContentSize(), 'text');
+        },
+        {discrete: true},
+      );
+      parses = 0;
+      editor.read(() => $convertSelectionToMarkdownString());
+      counts.push(parses);
+    }
+    // Only the first export parses, for C's literal link. Exporting A and B
+    // alone does not drop what C read, so exporting C after it parses
+    // nothing; it would if C were kept for the root.
+    expect(counts).toEqual([2, 0, 0, 0]);
+  });
+
+  // Joining texts at the top level makes fewer nodes than were marked for
+  // blocks, which an export must not trip over. The list markers are lost,
+  // as before this test.
+  it('exports a list on its own', () => {
+    using editor = buildEditorFromExtensions(
+      MdastCommonMarkExtension,
+      MdastGfmExtension,
+    );
+    editor.update(() => $convertFromMarkdownString('- a\n- b'), {
+      discrete: true,
+    });
+    expect(() =>
+      editor.read(() =>
+        $convertToMarkdownString(
+          $assertNodeType($getRoot().getFirstChildOrThrow(), $isElementNode),
+        ),
+      ),
+    ).not.toThrow();
   });
 
   it('reuses literal validation across subtree and selection exports', () => {
