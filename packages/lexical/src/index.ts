@@ -383,6 +383,7 @@ export {
 } from './LexicalUpdates';
 export {
   $addUpdateTag,
+  $appendAll,
   $applyNodeReplacement,
   $cloneWithProperties,
   $cloneWithPropertiesEphemeral,

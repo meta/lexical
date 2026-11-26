@@ -258,7 +258,6 @@ export function $dfsIterator(
  * Like {@link $dfs}, but also descends into named slots. Slots are not on the
  * linked-list spine, so each host's slot subtrees are emitted slots-first,
  * right after the host node and before its linked-list children.
- * @experimental
  * @param startNode - The node to start the search (inclusive), defaults to the root node.
  * @param endNode - The node to end the search (inclusive), defaults to all descendants of startNode.
  * Like {@link $dfs}, reaching endNode stops the traversal before visiting any of its
@@ -278,7 +277,6 @@ export function $dfsWithSlots(
  * Slot-aware {@link $dfsIterator}: a host's slot subtrees are emitted
  * slots-first, right after the host node and before its linked-list children.
  * The caret iterator drives the linked-list spine untouched.
- * @experimental
  * @param startNode - The node to start the search (inclusive), defaults to the root node.
  * @param endNode - The node to end the search (inclusive), defaults to all descendants of startNode.
  * Like {@link $dfs}, reaching endNode stops the traversal before visiting any of its
@@ -444,7 +442,6 @@ export function $reverseDfsIterator(
 /**
  * Like {@link $reverseDfs}, but also descends into named slots. Mirror of
  * {@link $dfsWithSlots}.
- * @experimental
  * @param startNode - The node to start the search (inclusive), defaults to the root node.
  * @param endNode - The node to end the search (inclusive), defaults to all descendants of startNode.
  * Mirroring {@link $dfsWithSlots}, reaching endNode stops the traversal without
@@ -467,7 +464,6 @@ export function $reverseDfsWithSlots(
  * traversed. Because the caret spine streams nodes, "left the host subtree" is
  * detected when a node at the host's depth or shallower arrives, flushing the
  * host's pending slots. The caret iterator drives the spine untouched.
- * @experimental
  * @param startNode - The node to start the search (inclusive), defaults to the root node.
  * @param endNode - The node to end the search (inclusive), defaults to all descendants of startNode.
  * Mirroring {@link $dfsWithSlotsIterator}, reaching endNode stops the traversal

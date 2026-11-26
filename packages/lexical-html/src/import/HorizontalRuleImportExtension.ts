@@ -12,7 +12,5 @@ import {HorizontalRuleRule} from './coreImportRules';
  * Import rules for {@link HorizontalRuleNode}. The `<hr>` rule is part of
  * {@link CoreImportRules} (gated on `HorizontalRuleNode` registration), so
  * this array exists only for backwards compatibility and introspection.
- *
- * @experimental
  */
 export const HorizontalRuleImportRules = [HorizontalRuleRule];

@@ -13,7 +13,6 @@ import {selAny, selComment, selTag, selText} from './sel';
  * runtime shape returned by these factory methods is opaque; consumers
  * should never inspect or construct selector objects directly.
  *
- * @experimental
  * @lexical-pure-namespace
  */
 export const sel = {

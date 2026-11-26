@@ -120,8 +120,6 @@ const QuoteRule = defineImportRule({
  * Either way the contribution is merged after rich-text's and therefore
  * prepended in front of it, so this rule is reached first and shadows the
  * default `@lexical/rich-text/blockquote` rule.
- *
- * @experimental
  */
 export const ShadowRootQuoteRule = defineImportRule({
   $import: (ctx, el) =>
@@ -201,8 +199,6 @@ const GoogleDocsTitleSpanRule = defineImportRule({
  * `CoreImportExtension`), so any editor that uses the rich-text
  * extension can import these tags through the `DOMImportExtension`
  * pipeline without further configuration.
- *
- * @experimental
  */
 export const RichTextImportRules = [
   HeadingRule,
