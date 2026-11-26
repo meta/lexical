@@ -6,7 +6,9 @@
  *
  */
 
-import {buildEditorFromExtensions} from '@lexical/extension';
+import {buildEditorFromExtensions, configExtension} from '@lexical/extension';
+import {HistoryExtension} from '@lexical/history';
+import {domOverride, DOMRenderExtension} from '@lexical/html';
 import {RichTextExtension} from '@lexical/rich-text';
 import {
   $create,
@@ -24,7 +26,9 @@ import {
   isHTMLElement,
   type LexicalCommand,
   type LexicalEditor,
+  ParagraphNode,
   SELECT_ALL_COMMAND,
+  setDOMUnmanaged,
   UNDO_COMMAND,
 } from 'lexical';
 import {assert, describe, expect, onTestFinished, test, vi} from 'vitest';
@@ -60,7 +64,7 @@ function createEditor(): {
         $create(InputDecoratorNode),
       );
     },
-    dependencies: [RichTextExtension],
+    dependencies: [RichTextExtension, HistoryExtension],
     name: 'test',
     nodes: [InputDecoratorNode],
   });
@@ -205,6 +209,61 @@ describe('Shortcuts in a decorator input (#3761)', () => {
     );
     expect(input.value).toBe('');
     expect(editor.read(() => $getRoot().getTextContent())).toBe(editorText);
+  });
+
+  // An input that a render override puts in plain unmanaged DOM, rather than
+  // in a decorator, owns its undo too.
+  test('a real undo in an input in unmanaged DOM undoes that edit', async () => {
+    const editor = buildEditorFromExtensions({
+      $initialEditorState: () => {
+        $getRoot().append(
+          $createParagraphNode().append($createTextNode('editor text')),
+        );
+      },
+      dependencies: [
+        RichTextExtension,
+        HistoryExtension,
+        configExtension(DOMRenderExtension, {
+          overrides: [
+            domOverride([ParagraphNode], {
+              $createDOM: (_node, $next) => {
+                const dom = $next();
+                const field = document.createElement('span');
+                field.contentEditable = 'false';
+                field.appendChild(document.createElement('input'));
+                setDOMUnmanaged(field);
+                dom.insertBefore(field, dom.firstChild);
+                return dom;
+              },
+              $getDOMSlot: (_node, dom, $next) => {
+                const field = dom.firstElementChild;
+                return isHTMLElement(field)
+                  ? $next().withAfter(field)
+                  : $next();
+              },
+            }),
+          ],
+        }),
+      ],
+      name: 'test',
+    });
+    const root = document.createElement('div');
+    root.contentEditable = 'true';
+    document.body.appendChild(root);
+    editor.setRootElement(root);
+    onTestFinished(() => {
+      editor.setRootElement(null);
+      root.remove();
+      editor.dispose();
+    });
+    const input = root.querySelector('input')!;
+    await userEvent.click(input);
+    await userEvent.keyboard('abc');
+    await userEvent.keyboard(
+      IS_APPLE ? '{Meta>}z{/Meta}' : '{Control>}z{/Control}',
+    );
+    expect(input.value).toBe('');
+    expect(editor.read(() => $getRoot().getTextContent())).toBe('editor text');
   });
 
   test('a real select all selects only the input', async () => {

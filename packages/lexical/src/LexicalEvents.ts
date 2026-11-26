@@ -1252,7 +1252,7 @@ function onBeforeInput(event: InputEvent, editor: LexicalEditor): void {
     () => {
       if (!$isInputEventTargetingCapturedSelection(event, editor)) {
         dispatchCommand(editor, BEFORE_INPUT_COMMAND, event);
-      } else if (isNativeHistoryFromCapturedControl(event, editor)) {
+      } else if ($isNativeHistoryFromCapturedControl(event, editor)) {
         event.preventDefault();
       }
     },
@@ -1267,9 +1267,10 @@ function onBeforeInput(event: InputEvent, editor: LexicalEditor): void {
  * editor's DOM (#3761, and #6714 for a control outside the editor). The
  * shortcut is the input's, so it does nothing. Firefox keeps a history per
  * control and fires the control's own events at the root (#8738), so there an
- * undo reaching the root is the control's.
+ * undo reaching the root is the control's. An undo targeting the control
+ * itself, in a decorator or in a node's unmanaged DOM, is always its own.
  */
-function isNativeHistoryFromCapturedControl(
+function $isNativeHistoryFromCapturedControl(
   event: InputEvent,
   editor: LexicalEditor,
 ): boolean {
@@ -1279,7 +1280,8 @@ function isNativeHistoryFromCapturedControl(
     (event.inputType === 'historyUndo' || event.inputType === 'historyRedo') &&
     !(
       isHTMLElement(composedTarget) &&
-      isDOMCapturingSelection(composedTarget, editor)
+      (isDOMCapturingSelection(composedTarget, editor) ||
+        $isSelectionCapturedInDecoratorInput(composedTarget, composedTarget))
     )
   );
 }
