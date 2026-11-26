@@ -17,6 +17,7 @@ import {
   $getRoot,
   $getSelection,
   $isNodeSelection,
+  $isRangeSelection,
   $setSlot,
   createEditor,
   IS_APPLE,
@@ -130,6 +131,84 @@ describe('$handleDecoratorClickModifiers', () => {
           true,
         );
         expect(selection.getNodes()).toEqual([]);
+      },
+      {discrete: true},
+    );
+  });
+
+  test.each([false, true])(
+    'includes both selected and clicked nodes (backward=%s)',
+    backward => {
+      const editor = createThrowingEditor();
+      editor.update(
+        () => {
+          const first = $createHorizontalRuleNode();
+          const between = $createTextNode('between');
+          const last = $createHorizontalRuleNode();
+          $getRoot().append(
+            first,
+            $createParagraphNode().append(between),
+            last,
+          );
+          const origin = backward ? last : first;
+          const target = backward ? first : last;
+          $handleDecoratorClickModifiers(
+            new MouseEvent(
+              'click',
+              IS_APPLE ? {metaKey: true} : {ctrlKey: true},
+            ),
+            origin.getKey(),
+          );
+          expect(
+            $handleDecoratorClickModifiers(
+              new MouseEvent('click', {shiftKey: true}),
+              target.getKey(),
+            ),
+          ).toBe(true);
+          const range = $getSelection();
+          assert($isRangeSelection(range));
+          expect(range.anchor.key).toBe($getRoot().getKey());
+          expect(range.focus.key).toBe($getRoot().getKey());
+          expect([range.anchor.offset, range.focus.offset]).toEqual(
+            backward ? [3, 0] : [0, 3],
+          );
+          expect(range.getNodes()).toContain(between);
+        },
+        {discrete: true},
+      );
+    },
+  );
+
+  test('keeps the first rule when Shift-click crosses it, until a new caret is placed', () => {
+    const editor = createThrowingEditor();
+    editor.update(
+      () => {
+        const before = $createHorizontalRuleNode();
+        const origin = $createHorizontalRuleNode();
+        const after = $createHorizontalRuleNode();
+        const text = $createTextNode('next');
+        $getRoot().append(
+          before,
+          origin,
+          after,
+          $createParagraphNode().append(text),
+        );
+        $handleDecoratorClickModifiers(
+          new MouseEvent('click', IS_APPLE ? {metaKey: true} : {ctrlKey: true}),
+          origin.getKey(),
+        );
+        const shift = new MouseEvent('click', {shiftKey: true});
+        $handleDecoratorClickModifiers(shift, before.getKey());
+        $handleDecoratorClickModifiers(shift, after.getKey());
+        const range = $getSelection();
+        assert($isRangeSelection(range));
+        expect(range.getNodes()).toEqual([origin, after]);
+
+        const caret = text.select(2, 2);
+        $handleDecoratorClickModifiers(shift, before.getKey());
+        expect(caret.anchor.key).toBe(text.getKey());
+        expect(caret.anchor.offset).toBe(2);
+        expect(caret.focus.offset).toBe(0);
       },
       {discrete: true},
     );

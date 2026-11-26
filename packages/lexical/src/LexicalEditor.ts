@@ -318,6 +318,9 @@ export interface InputState {
   isSelectionChangeFromMouseDown: boolean;
   /** A mouse press that may start a selection drag, then its latest move. */
   mouseDrag: MouseEvent | null;
+  /** The last selected node anchoring a Shift gesture, and the current
+   * mouse press until click handlers have observed whether it was canceled. */
+  shiftClick: {origin: NodeKey; mouseDown: MouseEvent | null} | null;
   /**
    * The pointerType of the latest pointerdown in the root element ('touch',
    * 'pen' or 'mouse'; '' until the first), on every platform. The
@@ -367,6 +370,7 @@ export function createInputState(): InputState {
     postDeleteSelectionToRestore: null,
     savedInputMode: undefined,
     selectionChangeFromDOMUpdatePoints: null,
+    shiftClick: null,
     unprocessedBeforeInputData: null,
   };
 }

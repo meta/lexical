@@ -1434,6 +1434,18 @@ export function registerRichText(
       event => {
         const selection = $getSelection();
         if ($isNodeSelection(selection)) {
+          // A canceled Shift-mousedown did not move the selection. Its click
+          // still reaches command listeners (e.g. decorator controls).
+          const shiftClick = editor._inputState.shiftClick;
+          if (
+            event.shiftKey &&
+            shiftClick &&
+            shiftClick.mouseDown &&
+            shiftClick.mouseDown.defaultPrevented &&
+            selection.has(shiftClick.origin)
+          ) {
+            return false;
+          }
           // A click on an already-selected node is an interaction with that
           // node (its own click handler may select it, open an editor, …),
           // not a deselect gesture. Keep the selection when the click target

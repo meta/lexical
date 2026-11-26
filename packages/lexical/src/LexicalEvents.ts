@@ -24,6 +24,7 @@ import {
   $createRangeSelection,
   $createTextNode,
   $getChildCaret,
+  $getCommonAncestor,
   $getPreviousSelection,
   $getRoot,
   $getSelection,
@@ -151,6 +152,7 @@ import {
   getDOMSelection,
   getDOMSelectionFromTarget,
   getDOMSelectionPoints,
+  getDOMShadowRoots,
   getEditorPropertyFromDOMNode,
   getEditorsToPropagate,
   getNearestEditorFromDOMNode,
@@ -638,6 +640,9 @@ function onClick(event: PointerEvent, editor: LexicalEditor): void {
     }
 
     dispatchCommand(editor, CLICK_COMMAND, event);
+    if (editor._inputState.shiftClick) {
+      editor._inputState.shiftClick.mouseDown = null;
+    }
   });
 }
 
@@ -808,7 +813,98 @@ function registerTapListenerIOS(
   );
 }
 
+function $getShiftClickOrigin(previousOrigin: NodeKey | null): NodeKey | null {
+  const selection = $getSelection();
+  if ($isNodeSelection(selection)) {
+    // NodeSelection enumerates its keys in insertion order. A Shift-click on
+    // text extends from the last node still selected, in either document order.
+    const nodes = selection.getNodes();
+    return nodes.length > 0 ? nodes[nodes.length - 1].getKey() : null;
+  }
+  if (
+    previousOrigin &&
+    $isRangeSelection(selection) &&
+    !selection.isCollapsed()
+  ) {
+    // Only continue a range that is still anchored beside the original node.
+    const node = $getAdjacentNode(selection.anchor, selection.isBackward());
+    return node && node.getKey() === previousOrigin ? previousOrigin : null;
+  }
+  return null;
+}
+
+// Once mousedown has finished, its defaultPrevented flag reflects listeners
+// registered after the editor too. A NodeSelection has no native anchor;
+// take only the focus from the browser's hit test, including on a line's
+// trailing whitespace. The anchor belongs on the far side of the whole node.
+function $getShiftClickRange(
+  editor: LexicalEditor,
+  press: MouseEvent,
+  originKey: NodeKey,
+  domSelection: Selection,
+): RangeSelection | null {
+  const root = editor.getRootElement();
+  if (!root) {
+    return null;
+  }
+  const tree = root.getRootNode();
+  const {clientX: x, clientY: y} = press;
+  const target =
+    (isDOMDocumentNode(tree) || isDOMShadowRoot(tree)) &&
+    tree.elementFromPoint &&
+    tree.elementFromPoint(x, y);
+  if (
+    !target ||
+    getNearestEditorFromDOMNode(target) !== editor ||
+    isDOMCapturingSelection(target, editor)
+  ) {
+    return null;
+  }
+  const hit = $getNearestNodeFromDOMNode(target);
+  if (!$isTextNode(hit) && !$isElementNode(hit) && !$isLineBreakNode(hit)) {
+    return null;
+  }
+  const doc = root.ownerDocument;
+  const caret =
+    doc.caretPositionFromPoint &&
+    doc.caretPositionFromPoint(x, y, {
+      shadowRoots: getDOMShadowRoots(root),
+    });
+  const fallback =
+    !caret && doc.caretRangeFromPoint ? doc.caretRangeFromPoint(x, y) : null;
+  let dom = caret ? caret.offsetNode : fallback && fallback.startContainer;
+  let offset = caret ? caret.offset : fallback ? fallback.startOffset : 0;
+  // Older WebKit can retarget a hit test inside a shadow tree to its host.
+  if (!dom || !root.contains(dom)) {
+    const native = getDOMSelectionPoints(domSelection, root);
+    dom = native.focusNode;
+    offset = native.focusOffset;
+  }
+  const resolved =
+    dom &&
+    getNearestEditorFromDOMNode(dom) === editor &&
+    $internalResolveSelectionPoint(dom, offset, null, editor);
+  const origin = $getNodeByKey(originKey);
+  if (!resolved || !origin || !origin.getParent()) {
+    return null;
+  }
+  const [focus] = resolved;
+  const common = $getCommonAncestor(origin, focus.getNode());
+  if (!common || common.commonAncestor.is(origin)) {
+    return null;
+  }
+  const range = $createRangeSelection();
+  range.focus.set(focus.key, focus.offset, focus.type);
+  $setPointFromCaret(range.anchor, $getSiblingCaret(origin, 'next'));
+  if (!focus.isBefore(range.anchor)) {
+    $setPointFromCaret(range.anchor, $getSiblingCaret(origin, 'previous'));
+  }
+  return range;
+}
+
 function onPointerDown(event: PointerEvent, editor: LexicalEditor) {
+  const previous = editor._inputState.shiftClick;
+  editor._inputState.shiftClick = null;
   // TODO implement text drag & drop
   // Resolve to the composed target so a pointerdown inside a decorator's
   // open shadow root reports the real internal element rather than the
@@ -822,6 +918,16 @@ function onPointerDown(event: PointerEvent, editor: LexicalEditor) {
     event.button === 0
   ) {
     updateEditorSync(editor, () => {
+      if (
+        event.shiftKey &&
+        !(IS_APPLE ? event.metaKey : event.ctrlKey) &&
+        getNearestEditorFromDOMNode(target) === editor
+      ) {
+        const origin = $getShiftClickOrigin(previous && previous.origin);
+        if (origin !== null) {
+          editor._inputState.shiftClick = {mouseDown: null, origin};
+        }
+      }
       // Drag & drop should not recompute selection until mouse up; otherwise the initially
       // selected content is lost.
       if (!isDOMCapturingSelection(target, editor)) {
@@ -2049,6 +2155,9 @@ function onCompositionEnd(
 
 function onKeyDown(event: KeyboardEvent, editor: LexicalEditor): void {
   const inputState = editor._inputState;
+  if (!event.shiftKey) {
+    inputState.shiftClick = null;
+  }
   if (IS_IOS) {
     // The virtual keyboard emits Shift events for manual toggles, but not for
     // automatic capitalization. Other key events may clear this state, never
@@ -2308,6 +2417,22 @@ function $selectMouseDown(
   if (registration !== undefined) {
     for (const ed of registration.editors) {
       ed._inputState.isSelectionChangeFromMouseDown = false;
+    }
+  }
+  const shiftClick = editor._inputState.shiftClick;
+  if (shiftClick && shiftClick.mouseDown) {
+    if (shiftClick.mouseDown.defaultPrevented) {
+      return;
+    }
+    const range = $getShiftClickRange(
+      editor,
+      shiftClick.mouseDown,
+      shiftClick.origin,
+      domSelection,
+    );
+    if (range) {
+      $setSelection(range);
+      return;
     }
   }
   const domAnchorNode = getDOMSelectionPoints(
@@ -2585,7 +2710,12 @@ export function addRootElementEvents(
     // selection that the listener made, but not one after its release: in
     // Firefox, that of a Shift-click that a table took can come after the
     // click, and report a caret put since.
-    if (press && press.defaultPrevented && !event.buttons) {
+    const shiftPress = inputState.shiftClick && inputState.shiftClick.mouseDown;
+    if (
+      !event.buttons &&
+      ((press && press.defaultPrevented) ||
+        (shiftPress && shiftPress.defaultPrevented))
+    ) {
       inputState.isSelectionChangeFromMouseDown = false;
     }
     if (!drag || event.pointerType !== 'mouse') {
@@ -2688,6 +2818,9 @@ export function addRootElementEvents(
         endMouseDrag(),
       mousedown: event => {
         const inputState = editor._inputState;
+        if (inputState.shiftClick && event.detail === 1) {
+          inputState.shiftClick.mouseDown = event;
+        }
         inputState.mouseDrag =
           event.button === 0 &&
           event.detail === 1 &&

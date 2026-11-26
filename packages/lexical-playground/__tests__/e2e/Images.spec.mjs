@@ -691,12 +691,11 @@ test.describe('Images', () => {
         page,
         '.editor-image img[alt="Yellow flower in tilt shift lens"]',
       );
-      await page.keyboard.down('Shift');
       await click(
         page,
         '.editor-image img[alt="Daylight fir trees forest glacier green high ice landscape"]',
+        {modifiers: ['ControlOrMeta']},
       );
-      await page.keyboard.up('Shift');
 
       await insertSampleImage(page);
       await page.keyboard.type(' <- it works!');
