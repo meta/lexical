@@ -140,6 +140,7 @@ export type TypeaheadMenuPluginProps<TOption extends MenuOption> = {
   parent?: HTMLElement;
   preselectFirstItem?: boolean;
   ignoreEntityBoundary?: boolean;
+  openInTransition?: boolean;
 };
 
 /**
@@ -164,6 +165,7 @@ export function LexicalTypeaheadMenuPlugin<TOption extends MenuOption>({
   parent,
   preselectFirstItem = true,
   ignoreEntityBoundary = false,
+  openInTransition = true,
 }: TypeaheadMenuPluginProps<TOption>): JSX.Element | null {
   const [editor] = useLexicalComposerContext();
   const [resolution, setResolution] = useState<MenuResolution | null>(null);
@@ -274,12 +276,15 @@ export function LexicalTypeaheadMenuPlugin<TOption extends MenuOption>({
             editor.getRootElement(),
           );
           if (isRangePositioned) {
-            startTransition(() =>
-              openTypeahead({
-                getRect: () => range.getBoundingClientRect(),
-                match,
-              }),
-            );
+            const nextResolution: MenuResolution = {
+              getRect: () => range.getBoundingClientRect(),
+              match,
+            };
+            if (openInTransition) {
+              startTransition(() => openTypeahead(nextResolution));
+            } else {
+              openTypeahead(nextResolution);
+            }
             return;
           }
         }
@@ -300,6 +305,7 @@ export function LexicalTypeaheadMenuPlugin<TOption extends MenuOption>({
     closeTypeahead,
     openTypeahead,
     ignoreEntityBoundary,
+    openInTransition,
   ]);
 
   useEffect(
