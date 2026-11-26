@@ -257,7 +257,7 @@ function flushMutations(
                 // by something else and is evicted too.
                 (key
                   ? editor.getElementByKey(key) !== addedDOM
-                  : // @experimental named-slots. Slot containers are keyless
+                  : // Slot containers are keyless
                     // reconciler scaffolding: a flush that observes one being
                     // parked in its host or relocated by an explicit mount must
                     // not evict it as foreign DOM. Gated on the editor slot

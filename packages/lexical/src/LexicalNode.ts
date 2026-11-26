@@ -124,7 +124,6 @@ export type SerializedLexicalNode = {
    * The `$` prefix keeps the framework-owned key out of the namespace a
    * third-party subclass may already use for its own serialized `slots`
    * property (mirroring the reserved NodeState `'$'` key).
-   * @experimental named-slots
    */
   $slots?: Record<string, SerializedLexicalNode>;
 };
@@ -232,8 +231,6 @@ export interface StaticNodeConfigValue<
    */
   readonly stateConfigs?: readonly RequiredNodeStateConfig[];
   /**
-   * @experimental named-slots
-   *
    * Canonical order for this host's named slots. Declared names render,
    * fold, serialize, and traverse in this order; occupied names that are
    * not declared follow in code-unit order. Order is derived from this
@@ -795,7 +792,7 @@ export type LexicalParseJSON<S extends SerializedLexicalNode> = Pick<
 export interface LexicalPrivateDOM {
   __lexicalTextContent?: string | undefined | null;
   /**
-   * @experimental named-slots. Byte length of the slot text folded slots-first
+   * Byte length of the slot text folded slots-first
    * into the front of `__lexicalTextContent` for a host element. The suffix
    * fast path splices the linked-list child suffix, which lives after this
    * prefix, so it strips this many leading chars to recover the child-only
@@ -1042,8 +1039,6 @@ const NON_ENUMERABLE_PROP_DESC: PropertyDescriptor = {
  * {@link $setSlot}) since most nodes have none. Declaring this off the base
  * {@link LexicalNode} is what lets {@link $setSlot} / {@link $removeSlot}
  * reject a non-host at compile time.
- *
- * @experimental
  */
 export interface SlotHostNode {
   /** @internal */
@@ -1055,8 +1050,6 @@ export interface SlotHostNode {
  * {@link DecoratorNode}. Its up-pointer is `__slotHost` rather than `__parent`
  * (the two are mutually exclusive), so the slot boundary behaves like a shadow
  * root.
- *
- * @experimental
  */
 export interface SlotChildNode {
   /** @internal */
@@ -1750,8 +1743,6 @@ export class LexicalNode {
    * {@link ElementNode} overrides this to return an {@link ElementDOMSlot}
    * with children-management semantics (used by the reconciler to place
    * managed children).
-   *
-   * @experimental
    */
   getDOMSlot(element: HTMLElement): DOMSlot<HTMLElement> {
     return new DOMSlot(element);

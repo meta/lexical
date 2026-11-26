@@ -84,8 +84,6 @@ export function $isLineBreakNode(
  * element. Used by the LineBreak importer to drop stray `<br>` elements
  * that the legacy `$generateNodesFromDOM` also skipped (matches the
  * behavior of `LineBreakNode.importDOM`).
- *
- * @experimental
  */
 export function isOnlyChildInBlockNode(node: Node): boolean {
   const parentElement = node.parentElement;
@@ -113,8 +111,6 @@ export function isOnlyChildInBlockNode(node: Node): boolean {
  * element (excluding the only-child case). Used by the LineBreak
  * importer to drop trailing `<br>` elements like the Apple-interchange
  * clipboard artifact (matches `LineBreakNode.importDOM`).
- *
- * @experimental
  */
 export function isLastChildInBlockNode(node: Node): boolean {
   const parentElement = node.parentElement;

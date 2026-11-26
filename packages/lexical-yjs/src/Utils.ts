@@ -51,7 +51,7 @@ import {$createCollabTextNode, CollabTextNode} from './CollabTextNode';
 // Mirrors the file-local alias used in CollabElementNode / CollabDecoratorNode.
 type IntentionallyMarkedAsDirtyElement = boolean;
 
-// @experimental named-slots. Slots are a structural channel separate from the
+// Slots are a structural channel separate from the
 // linked-list children (excluded from the auto property->attribute path via the
 // sets below) and live under this reserved attribute key. The key reuses the
 // host's `__slots` field name on purpose: '$' can't prefix it ('$' breaks
@@ -100,7 +100,7 @@ const rootExcludedProperties = new Set<string>([
 ]);
 const textExcludedProperties = new Set<string>(['__text']);
 
-// @experimental named-slots. Writes the slots Y.Map onto a host shared type.
+// Writes the slots Y.Map onto a host shared type.
 // yjs types an XmlElement attribute value as string (its default KV), so a
 // nested Y.Map value needs a cast; isolated here — the single, encapsulated
 // cast — instead of repeated at each host call. Generic over the Y.Map's value
@@ -114,7 +114,7 @@ export function setSlotsAttr<T>(
   sharedType.setAttribute(SLOTS_ATTR_KEY, slotsY as any);
 }
 
-// @experimental named-slots. Mirrors the reserved-name invariant in core's
+// Mirrors the reserved-name invariant in core's
 // $setSlot. Slot names arrive peer-controlled through the slots Y.Map, so a
 // reserved name must be skipped during reconcile rather than allowed to reach
 // $setSlot, whose invariant would throw inside the observer editor.update.
@@ -122,7 +122,7 @@ export function isReservedSlotName(name: string): boolean {
   return name === '__proto__' || name === 'constructor' || name === 'prototype';
 }
 
-// @experimental named-slots. Mirrors the value invariant in core's $setSlot (a
+// Mirrors the value invariant in core's $setSlot (a
 // slot value is any non-inline ElementNode or DecoratorNode — the slot link
 // itself is the shadow boundary), so a peer-controlled value can be validated
 // during reconcile rather than allowed to reach $setSlot, whose invariant
@@ -223,7 +223,7 @@ export function getIndexOfYjsNode(
   return i;
 }
 
-// @experimental named-slots. Syncs one slot value's content (lexical -> yjs),
+// Syncs one slot value's content (lexical -> yjs),
 // dispatching on the collab/lexical node pair. Shared by element and decorator
 // hosts; the CollabTextNode branch is inert for a decorator host, where a slot
 // value is always a shadow-root element or non-inline decorator, never text.
@@ -272,7 +272,7 @@ export function $syncSlotContentFromLexical(
   }
 }
 
-// @experimental named-slots. Seeds a freshly created host's slots Y.Map. Both
+// Seeds a freshly created host's slots Y.Map. Both
 // element (xmlText) and decorator (xmlElem) hosts reach this through the create
 // path, where no matched key exists for syncSlotsFromLexical to recurse through,
 // so each slot value's collab node is built and registered here.

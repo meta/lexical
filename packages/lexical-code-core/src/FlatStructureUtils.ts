@@ -367,7 +367,9 @@ function $addsToCodeToken(
   if (
     sameClass
       ? !hasNodeState(next)
-      : prev.getType() !== CodeHighlightNode.getType() ||
+      : // Exactly CodeHighlightNode for prev, any subclass for next
+        // eslint-disable-next-line @lexical/internal/no-constant-node-type-comparison
+        prev.getType() !== CodeHighlightNode.getType() ||
         !(next instanceof CodeHighlightNode)
   ) {
     return false;

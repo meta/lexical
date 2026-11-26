@@ -587,8 +587,6 @@ const TransparentBlockRule = defineImportRule({
  * registration-gated `<hr>` rule for {@link HorizontalRuleNode} (see
  * {@link HorizontalRuleRule}). Intended to be registered as a dependency
  * of every editor that uses {@link DOMImportExtension}.
- *
- * @experimental
  */
 export const CoreImportRules = [
   IgnoreScriptStyleRule,

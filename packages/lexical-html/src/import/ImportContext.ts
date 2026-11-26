@@ -51,7 +51,6 @@ type ImportContextRecord = ContextRecord<typeof DOMImportContextSymbol>;
  * per-session storage, lazily initialize it inside your rule (e.g.
  * `if (!ctx.session.has(cfg)) ctx.session.set(cfg, new …())`).
  *
- * @experimental
  * @__NO_SIDE_EFFECTS__
  */
 export function createImportState<V>(
@@ -73,16 +72,12 @@ export function createImportState<V>(
  * Defaults to `'unknown'`. Apps that need a different vocabulary can
  * define their own {@link ImportStateConfig} with whatever value type
  * they want.
- *
- * @experimental
  */
 export type ImportSourceKind = 'paste' | 'unknown';
 
 /**
  * Built-in import-context state identifying how this import was initiated.
  * Callers of `$generateNodesFromDOM` should set it via the `context` option.
- *
- * @experimental
  */
 export const ImportSource: ImportStateConfig<ImportSourceKind> =
   createImportState<ImportSourceKind>('importSource', () => 'unknown');
@@ -107,8 +102,6 @@ export const ImportSource: ImportStateConfig<ImportSourceKind> =
  * DOM to the rules; only fall back to peeking at `ImportSourceDataTransfer`
  * when the source-detection signal genuinely lives in a companion
  * slot.
- *
- * @experimental
  */
 export const ImportSourceDataTransfer: ImportStateConfig<DataTransfer | null> =
   createImportState<DataTransfer | null>(
@@ -122,8 +115,6 @@ export const ImportSourceDataTransfer: ImportStateConfig<DataTransfer | null> =
  * produced during the current subtree. Used by inline-format wrappers
  * (`<b>`, `<i>`, `<u>`, …) to propagate formatting through the context
  * record instead of via the legacy `forChild` chain.
- *
- * @experimental
  */
 export const ImportTextFormat: ImportStateConfig<number> = createImportState(
   'textFormat',
@@ -143,8 +134,6 @@ export const ImportTextFormat: ImportStateConfig<number> = createImportState(
  * record to a CSS string and calls `setStyle` on the new TextNode.
  * Once TextNode adopts a parsed style record, the materialization
  * step will go away.
- *
- * @experimental
  */
 export const ImportTextStyle: ImportStateConfig<
   Readonly<Record<string, string>>
@@ -159,8 +148,6 @@ export const ImportTextStyle: ImportStateConfig<
  * `\n` / `\t` into `LineBreakNode` / `TabNode`). The default matches the
  * legacy behavior: the element itself is `<pre>` or its inline
  * `white-space` style begins with `'pre'`.
- *
- * @experimental
  */
 export type IsPreserveWhitespaceDom = (node: Node) => boolean;
 
@@ -171,8 +158,6 @@ export type IsPreserveWhitespaceDom = (node: Node) => boolean;
  * {@link isInlineDomNode} from `lexical` (style.display or a fixed inline
  * tag-name set) and additionally treats elements with an explicit
  * non-inline `display` style as block.
- *
- * @experimental
  */
 export type IsInlineForWhitespace = (node: Node) => boolean;
 
@@ -181,8 +166,6 @@ export type IsInlineForWhitespace = (node: Node) => boolean;
  * {@link ImportWhitespaceConfig} either as a `contextDefaults` entry on
  * the {@link DOMImportExtension} or per-call on `$generateNodesFromDOM`'s
  * `context` option.
- *
- * @experimental
  */
 export interface WhitespaceImportConfig {
   /** See {@link IsPreserveWhitespaceDom}. */
@@ -194,8 +177,6 @@ export interface WhitespaceImportConfig {
 /**
  * Default {@link WhitespaceImportConfig.preservesWhitespace}: matches
  * `<pre>` and any element with `white-space: pre*`.
- *
- * @experimental
  */
 export function defaultPreservesWhitespace(node: Node): boolean {
   if (!isHTMLElement(node)) {
@@ -213,8 +194,6 @@ export function defaultPreservesWhitespace(node: Node): boolean {
  * inline iff its inline `display` style is `inline*` OR (no explicit
  * non-inline display) its nodeName is a known inline tag (`isInlineDomNode`).
  * Text nodes are always inline; comments and other non-elements are not.
- *
- * @experimental
  */
 export function defaultIsInline(node: Node): boolean {
   if (isDOMTextNode(node)) {
@@ -238,8 +217,6 @@ export function defaultIsInline(node: Node): boolean {
  * (collapse vs. preserve, what counts as an inline sibling). Override per
  * editor via {@link DOMImportConfig.contextDefaults} or per call via
  * {@link GenerateNodesFromDOMOptions.context}.
- *
- * @experimental
  */
 export const ImportWhitespaceConfig: ImportStateConfig<WhitespaceImportConfig> =
   createImportState<WhitespaceImportConfig>('whitespaceConfig', () => ({
@@ -262,8 +239,6 @@ export const ImportWhitespaceConfig: ImportStateConfig<WhitespaceImportConfig> =
  * subtree): write to {@link ImportOverlays} when the overlay should
  * apply for the whole document; use `$importChildren`'s `rules` when
  * the overlay should only apply for a deeper region.
- *
- * @experimental
  */
 export const ImportOverlays: ImportStateConfig<
   readonly CompiledOverlayRules[]
@@ -318,7 +293,6 @@ function getImportContext(
 
 /**
  * Read an import context value during an import operation.
- * @experimental
  */
 export function $getImportContextValue<V>(
   cfg: ImportStateConfig<V>,
@@ -330,8 +304,6 @@ export function $getImportContextValue<V>(
 /**
  * Run `f` with the given context pairs applied on top of the editor's
  * current import context.
- *
- * @experimental
  */
 export const $withImportContext: (
   cfg: readonly ImportContextPairOrUpdater[],

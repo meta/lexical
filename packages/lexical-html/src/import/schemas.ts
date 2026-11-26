@@ -26,8 +26,6 @@ import {isAlignmentValue} from './coreImportRules';
  * quote) and block-level DecoratorNodes (HorizontalRuleNode,
  * ImageNode-as-block, etc.). Used by {@link BlockSchema},
  * {@link RootSchema}, and {@link NestedBlockSchema}.
- *
- * @experimental
  */
 export function $isBlockLevel(node: LexicalNode): boolean {
   return (
@@ -59,8 +57,6 @@ export function $isBlockLevel(node: LexicalNode): boolean {
  * The returned list will contain a mix of blocks and wrapped inline
  * runs. The enclosing schema (typically {@link BlockSchema}) will
  * then package those inline wrappers into paragraphs as usual.
- *
- * @experimental
  */
 export function $distributeInlineWrapper(
   children: readonly LexicalNode[],
@@ -159,14 +155,12 @@ export function $applySchema(
  * supported {@link ElementFormatType} values) to each block-level child
  * Lexical node that does not yet have its own format.
  *
- * Mirrors the part of the legacy `wrapContinuousInlines` that wrote
+ * Mirrors the part of the legacy `$wrapContinuousInlines` that wrote
  * `node.setFormat(textAlign)` onto pre-existing block children when the
  * DOM parent carried `style.textAlign`. Pair with
  * {@link $paragraphPackageRun} (which carries the same propagation onto
  * paragraphs synthesized around inline runs) to fully replicate the
  * legacy behavior on a run of mixed children.
- *
- * @experimental
  */
 export function $propagateTextAlignToBlockChildren(
   children: LexicalNode[],
@@ -190,7 +184,7 @@ export function $propagateTextAlignToBlockChildren(
 /**
  * Wrap a run of inline lexical nodes in a fresh paragraph, propagating the
  * `text-align` of `domParent` as the paragraph's format type (matching the
- * legacy `wrapContinuousInlines` behavior).
+ * legacy `$wrapContinuousInlines` behavior).
  */
 function $paragraphPackageRun(
   run: LexicalNode[],
@@ -221,8 +215,6 @@ function $paragraphPackageRun(
  * Default schema for block-level positions (root of the document, the body
  * of a block element node). Accepts block lexical nodes; packages runs of
  * inline children into fresh paragraph nodes.
- *
- * @experimental
  */
 export const BlockSchema: ChildSchema = {
   $accepts: $isBlockLevel,
@@ -234,8 +226,6 @@ export const BlockSchema: ChildSchema = {
  * Schema for inline-only positions (the body of an inline lexical node such
  * as a link). Accepts non-block lexical nodes; runs of block children are
  * dropped (`onReject: 'drop'` is the default).
- *
- * @experimental
  */
 export const InlineSchema: ChildSchema = {
   $accepts: child => !$isBlockLevel(child),
@@ -249,8 +239,6 @@ export const InlineSchema: ChildSchema = {
  * children are emitted with a line break between consecutive runs (instead
  * of being wrapped in a paragraph, which would introduce an extra level of
  * nesting).
- *
- * @experimental
  */
 export const NestedBlockSchema: ChildSchema = {
   $accepts: $isBlockLevel,
@@ -270,8 +258,6 @@ export const NestedBlockSchema: ChildSchema = {
  * {@link BlockSchema}; aliased for clarity at the entry point and so it can
  * be overridden separately in the future (e.g. to synthesize a `ListNode`
  * around runs of orphan `ListItemNode`s).
- *
- * @experimental
  */
 export const RootSchema: ChildSchema = {
   $accepts: $isBlockLevel,
