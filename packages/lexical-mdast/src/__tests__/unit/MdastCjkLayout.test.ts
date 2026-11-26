@@ -34,8 +34,19 @@ it('builds a CJK-friendly import without a layout warning', () => {
     }),
   );
   onTestFinished(() => editor.dispose());
-  editor.update(() => $convertFromMarkdownString('Hello**🎉 launch**'), {
-    discrete: true,
-  });
+  // The other inputs put a marker beside a tab or a NUL, which micromark
+  // reads as codes of their own, so the import classifies the code itself
+  // and does not slice the text around it.
+  for (const markdown of [
+    'Hello**🎉 launch**',
+    'a\t**x**',
+    'a\0**x**',
+    '**x**\t',
+    '**x**\0',
+  ]) {
+    editor.update(() => $convertFromMarkdownString(markdown), {
+      discrete: true,
+    });
+  }
   expect(warn).not.toHaveBeenCalled();
 });

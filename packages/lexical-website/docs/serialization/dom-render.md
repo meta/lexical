@@ -1,26 +1,5 @@
 # DOMRenderExtension
 
-:::warning Experimental
-
-`DOMRenderExtension` and everything described on this page are marked
-`@experimental` and may change between any two Lexical releases —
-including breaking renames, signature changes, or behavior changes —
-until the API stabilizes. We track issues and proposals in the
-[GitHub repo](https://github.com/meta/lexical); breaking changes
-will be called out in release notes. Apps that depend on this
-extension should pin their Lexical version and treat upgrades as
-intentional.
-
-The legacy on-class `createDOM` / `updateDOM` / `exportDOM` and the
-default `$generateHtmlFromNodes` entry are unchanged and remain the
-supported default for production apps that don't want to track an
-experimental API.
-
-The DOMRenderExtension API was introduced in Lexical v0.44.0,
-with significant additions in v0.45.0
-
-:::
-
 `DOMRenderExtension` lets you override how Lexical nodes are rendered
 to the DOM during reconciliation (the `createDOM` / `updateDOM` /
 `decorateDOM` cycle) and how they're serialized to HTML for clipboard

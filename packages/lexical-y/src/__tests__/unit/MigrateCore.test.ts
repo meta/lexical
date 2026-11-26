@@ -102,7 +102,11 @@ function bind(
       },
     }),
   );
-  const binding = new YBinding(editor, doc, {schemaVersion: 1, ...options});
+  const binding = new YBinding(editor, doc, {
+    onStatus: null,
+    schemaVersion: 1,
+    ...options,
+  });
   const stop = binding.start();
   binding.initialize();
   return {
@@ -304,6 +308,7 @@ describe.each([false, true])('the binding and layout migrations, gc %s', gc => {
           catalogAppExtension(CFG),
           configExtension(YCollabExtension, {
             doc: createYDoc(OLD, {gc}),
+            onYStatus: null,
             schemaVersion: 1,
             synced: true,
           }),

@@ -19,6 +19,8 @@ export default function Settings(): JSX.Element {
     settings: {
       measureTypingPerf,
       isCollab,
+      useCollabY,
+      collabYOffline,
       isRichText,
       hasNestedTables,
       hasFitNestedTables,
@@ -68,6 +70,18 @@ export default function Settings(): JSX.Element {
               }}
               checked={isCollab}
               text="Collaboration"
+            />
+          )}
+          {isRichText && isCollab && useCollabY && (
+            <Switch
+              onClick={() => {
+                // Read when the editor is built: reload with the new value.
+                const url = new URL(window.location.href);
+                url.searchParams.set('collabYOffline', String(!collabYOffline));
+                window.location.href = url.toString();
+              }}
+              checked={collabYOffline}
+              text="Collab Y Offline"
             />
           )}
           {isDevPlayground && (

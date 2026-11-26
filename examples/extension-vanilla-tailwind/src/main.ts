@@ -62,14 +62,15 @@ const LazyExtension = defineExtension({
 const StateViewExtension = defineExtension({
   dependencies: [EditorStateExtension],
   name: '@lexical/extension-vanilla-tailwind-example/StateView',
-  register(_editor, _config, state) {
+  register(editor, _config, state) {
     const editorState = state.getDependency(EditorStateExtension).output;
     // Using signals from @preact/signals-core allows us to do what is done
     // from the legacy React plugins without having to wrap a component
     // around a hook, plus it's all framework independent.
     return effect(() => {
+      const value = editorState.value;
       stateRef.textContent = JSON.stringify(
-        editorState.value.toJSON(true),
+        value.read(() => value.toJSON(true), {editor}),
         undefined,
         2,
       );

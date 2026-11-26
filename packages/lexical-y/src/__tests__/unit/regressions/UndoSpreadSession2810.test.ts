@@ -46,6 +46,7 @@ import {seedYState} from '../../../headless';
 
 const CONFIG = {
   extensions: [RichTextExtension, MarkStateExtension],
+  onWarn: null,
   schemaVersion: 1,
 };
 const WORDS = ['alpha', 'beta', 'gamma', 'delta', 'note', 'run'];
@@ -177,7 +178,9 @@ for (const gc of [true, false]) {
                 // Every edit of a client until its undo is one step, as in
                 // the session (it ran well inside the capture timeout).
                 captureTimeout: 2 ** 30,
+
                 doc,
+                onYStatus: null,
                 schemaVersion: 1,
                 synced: true,
               }),

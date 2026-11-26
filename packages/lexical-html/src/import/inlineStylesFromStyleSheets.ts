@@ -25,8 +25,6 @@ import {isDOMDocumentNode, isHTMLElement} from 'lexical';
  *
  * No-op for {@link ParentNode}s that are not {@link Document}s — only a
  * full document carries `styleSheets` we can iterate.
- *
- * @experimental
  */
 export const $inlineStylesFromStyleSheets: DOMPreprocessFn = (
   dom,

@@ -319,19 +319,20 @@ describe('UNDERSCORE_AFTER_UNICODE_PUNCTUATION', () => {
     });
   });
 
-  test('typing an underscore format right after a letter still does not format it', () => {
-    using editor = buildEditorFromExtensions([MarkdownShortcutTestExtension]);
-    typeMarkdown(editor, 'See \u00E9_here_');
-    editor.read(() => {
-      const paragraph = $getRoot().getFirstChildOrThrow();
-      assert($isParagraphNode(paragraph), 'Root child must be a paragraph');
-      const textNodes = paragraph.getChildren().filter($isTextNode);
-      expect(textNodes.map(node => node.getTextContent())).toEqual([
-        'See \u00E9_here_',
-      ]);
-      expect(textNodes[0].hasFormat('italic')).toBe(false);
-    });
-  });
+  test.each(['See \u00E9_here_', 'See \u4E2D_here_'])(
+    'typing %j, an underscore format right after a letter, does not format it',
+    typed => {
+      using editor = buildEditorFromExtensions([MarkdownShortcutTestExtension]);
+      typeMarkdown(editor, typed);
+      editor.read(() => {
+        const paragraph = $getRoot().getFirstChildOrThrow();
+        assert($isParagraphNode(paragraph), 'Root child must be a paragraph');
+        const textNodes = paragraph.getChildren().filter($isTextNode);
+        expect(textNodes.map(node => node.getTextContent())).toEqual([typed]);
+        expect(textNodes[0].hasFormat('italic')).toBe(false);
+      });
+    },
+  );
 });
 
 describe('WRAPPING_PRESERVES_FORMAT', () => {

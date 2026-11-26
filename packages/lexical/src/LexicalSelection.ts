@@ -87,6 +87,7 @@ import {
 } from './LexicalUpdates';
 import {SKIP_SELECTION_FOCUS_TAG} from './LexicalUpdateTags';
 import {
+  $appendAll,
   $findMatchingParent,
   $getCompositionKey,
   $getDOMSlot,
@@ -124,6 +125,7 @@ import {
   isDOMNode,
   isDOMShadowRoot,
   isDOMTextNode,
+  isEditorFocusHost,
   isHTMLElement,
   isSelectionWithinEditor,
   removeDOMBlockCursorElement,
@@ -520,19 +522,11 @@ function $insertText(
     return;
   }
 
-  const atStartOfInline =
-    anchorParent.isInline() && offset === 0 && !anchorNode.__prev;
-  const atEndOfInline =
-    anchorParent.isInline() && offset === anchorSize && !anchorNode.__next;
-  const formatDiffers =
-    anchorNode.getFormat() !== format || anchorNode.getStyle() !== style;
-
-  if (atStartOfInline || atEndOfInline || formatDiffers) {
-    if (
-      anchorNode.getTextContent() === '' &&
-      !atStartOfInline &&
-      !atEndOfInline
-    ) {
+  // A boundary of an inline parent that refuses text was already handled by
+  // needsRedirect above, so the parent accepts text at this point and it is
+  // inserted in place.
+  if (anchorNode.getFormat() !== format || anchorNode.getStyle() !== style) {
+    if (anchorNode.getTextContent() === '') {
       anchorNode.setFormat(format);
       anchorNode.setStyle(style);
     } else {
@@ -568,7 +562,8 @@ function $insertTextAtPoint(
   if (
     atBoundary &&
     parent.isInline() &&
-    !(before ? anchorNode.__prev : anchorNode.__next)
+    !(before ? anchorNode.__prev : anchorNode.__next) &&
+    !(before ? parent.canInsertTextBefore() : parent.canInsertTextAfter())
   ) {
     $getSiblingCaret(parent, before ? 'previous' : 'next').insert(textNode);
   } else {
@@ -1360,7 +1355,7 @@ export class RangeSelection implements BaseSelection {
         firstNode.constructor.name,
         firstNode.getType(),
       );
-      firstBlock.append(...firstToInsert.getChildren());
+      $appendAll(firstBlock, firstToInsert.getChildren());
       firstToInsert = blocks[1];
     }
     if (firstToInsert) {
@@ -1393,7 +1388,7 @@ export class RangeSelection implements BaseSelection {
         (insertedParagraph.canMergeWhenEmpty() ||
           INTERNAL_$isBlock(lastToInsert))
       ) {
-        lastInsertedBlock.append(...insertedParagraph.getChildren());
+        $appendAll(lastInsertedBlock, insertedParagraph.getChildren());
         insertedParagraph.remove();
       } else if (insertedParagraph.isEmpty()) {
         // The split-off paragraph could not be merged into the last inserted
@@ -1471,7 +1466,7 @@ export class RangeSelection implements BaseSelection {
       : [];
     const newBlock = block.insertNewAfter(this, false) as ElementNode | null;
     if (newBlock) {
-      newBlock.append(...nodesToInsert);
+      $appendAll(newBlock, nodesToInsert);
       newBlock.selectStart();
       return newBlock;
     }
@@ -3384,7 +3379,6 @@ function $getSlotHostInFrame(
  * (both frames null), evaluated before any direction work, so non-slot and
  * headless callers are unaffected.
  *
- * @experimental named-slots
  * @internal
  */
 export function $clampRangeSelectionToSlotFrame(
@@ -4261,8 +4255,10 @@ export function $updateDOMSelection(
     // restore / selection mutation above, which can become stale (e.g. when
     // setting the DOM selection focuses the contentEditable as a side effect).
     // Shallow is sufficient here for the same reason as the Firefox branch
-    // above: the equality check doesn't cross the shadow boundary.
-    rootElement === getActiveElement(rootElement)
+    // above: the containment check doesn't cross the shadow boundary. A caret
+    // in a named slot or another editable island focuses that island, not the
+    // root.
+    isEditorFocusHost(editor, rootElement, getActiveElement(rootElement))
   ) {
     const selectionTarget: null | Range | HTMLElement | Text =
       $isRangeSelection(nextSelection) &&
@@ -4386,7 +4382,9 @@ function $extractInlineFromBlocks(nodes: LexicalNode[]): LexicalNode[] {
     }
     if (($isElementNode(node) || $isDecoratorNode(node)) && !node.isInline()) {
       if ($isElementNode(node)) {
-        inlineNodes.push(...$extractInlineFromBlocks(node.getChildren()));
+        for (const inline of $extractInlineFromBlocks(node.getChildren())) {
+          inlineNodes.push(inline);
+        }
       }
       continue;
     }
@@ -4499,7 +4497,10 @@ function $splitNodeAtPoint(
     );
     const newElement = node.insertNewAfter(insertPoint) as ElementNode | null;
     if (newElement) {
-      newElement.append(firstToAppend, ...firstToAppend.getNextSiblings());
+      $appendAll(newElement, [
+        firstToAppend,
+        ...firstToAppend.getNextSiblings(),
+      ]);
     } else if (stopAtUnsplittableNode) {
       return [node, offset];
     }

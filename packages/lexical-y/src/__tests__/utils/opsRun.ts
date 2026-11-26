@@ -34,7 +34,11 @@ import {
 import {createYCollabConfig, createYDoc, YCollabExtension} from '../..';
 import {seedYState} from '../../headless';
 
-const CONFIG = {extensions: [RichTextExtension], schemaVersion: 1};
+const CONFIG = {
+  extensions: [RichTextExtension],
+  onWarn: null,
+  schemaVersion: 1,
+};
 export const KEYS = ['b', 'i', 's'] as const;
 export type Key = (typeof KEYS)[number];
 const FMT: Record<Key, TextFormatType> = {
@@ -171,6 +175,7 @@ export function run(spec: Run, gc: boolean): string {
             captureTimeout: 2 ** 30,
             doc,
             layoutUpgrade: null,
+            onYStatus: null,
             schemaVersion: 1,
             synced: true,
           }),

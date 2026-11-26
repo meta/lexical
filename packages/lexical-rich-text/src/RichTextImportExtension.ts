@@ -6,7 +6,12 @@
  *
  */
 
-import {BlockSchema, defineImportRule, sel} from '@lexical/html';
+import {
+  BlockSchema,
+  defineImportRule,
+  type DOMImportContext,
+  sel,
+} from '@lexical/html';
 import {
   $setDirectionFromDOM,
   $setFormatFromDOM,
@@ -16,8 +21,10 @@ import {
 
 import {
   $createHeadingNode,
+  $createQuoteContainerNode,
   $createQuoteNode,
   type HeadingTagType,
+  type QuoteNode,
 } from './index';
 
 /**
@@ -47,14 +54,37 @@ const HeadingRule = defineImportRule({
   name: '@lexical/rich-text/heading',
 });
 
+/**
+ * Fills `node` from a `<blockquote>`. A quote that is a shadow root (a
+ * {@link QuoteContainerNode}, or a `QuoteNode` with the `shadowRoot` state)
+ * holds blocks, so its children are imported as blocks (`BlockSchema`: runs
+ * of inline content are wrapped in paragraphs); any other quote holds the
+ * inline content.
+ */
+function $importQuote(
+  ctx: DOMImportContext,
+  el: HTMLElement,
+  node: QuoteNode,
+): QuoteNode[] {
+  $setFormatFromDOM(node, el);
+  setNodeIndentFromDOM(el, node);
+  $setDirectionFromDOM(node, el);
+  return [
+    node.splice(
+      0,
+      0,
+      ctx.$importChildren(
+        el,
+        node.isShadowRoot() ? {schema: BlockSchema} : undefined,
+      ),
+    ),
+  ];
+}
+
 const QuoteRule = defineImportRule({
-  $import: (ctx, el) => {
-    const node = $createQuoteNode();
-    $setFormatFromDOM(node, el);
-    setNodeIndentFromDOM(el, node);
-    $setDirectionFromDOM(node, el);
-    return [node.splice(0, 0, ctx.$importChildren(el))];
-  },
+  // With a node replacement of QuoteNode by QuoteContainerNode, the quote
+  // made here is a container, and is filled with blocks.
+  $import: (ctx, el) => $importQuote(ctx, el, $createQuoteNode()),
   match: sel.tag('blockquote'),
   name: '@lexical/rich-text/blockquote',
 });
@@ -90,19 +120,42 @@ const QuoteRule = defineImportRule({
  * Either way the contribution is merged after rich-text's and therefore
  * prepended in front of it, so this rule is reached first and shadows the
  * default `@lexical/rich-text/blockquote` rule.
+ */
+export const ShadowRootQuoteRule = defineImportRule({
+  $import: (ctx, el) =>
+    $importQuote(ctx, el, $createQuoteNode({shadowRoot: true})),
+  match: sel.tag('blockquote'),
+  name: '@lexical/rich-text/blockquote-shadow-root',
+});
+
+/**
+ * Opt-in replacement for the default `<blockquote>` rule that imports the
+ * quote as a {@link QuoteContainerNode}: block-level children such as `<p>`,
+ * lists and nested `<blockquote>`s are kept as blocks, and runs of inline
+ * content are wrapped in paragraphs (`BlockSchema`).
+ *
+ * Not part of {@link RichTextImportRules}. The editor must register
+ * `QuoteContainerNode` (`QuoteContainerExtension`), and the rule must outrank
+ * the default one, as described for {@link ShadowRootQuoteRule}:
+ * ```ts
+ * defineExtension({
+ *   dependencies: [
+ *     QuoteContainerExtension,
+ *     configExtension(DOMImportExtension, {rules: [QuoteContainerRule]}),
+ *   ],
+ *   name: '@app/quotes',
+ * })
+ * ```
+ * An editor that replaces `QuoteNode` with `QuoteContainerNode`
+ * (`QuoteContainerReplacementExtension`) does not need it: there the default
+ * rule builds a container already.
  *
  * @experimental
  */
-export const ShadowRootQuoteRule = defineImportRule({
-  $import: (ctx, el) => {
-    const node = $createQuoteNode({shadowRoot: true});
-    $setFormatFromDOM(node, el);
-    setNodeIndentFromDOM(el, node);
-    $setDirectionFromDOM(node, el);
-    return [node.splice(0, 0, ctx.$importChildren(el, {schema: BlockSchema}))];
-  },
+export const QuoteContainerRule = defineImportRule({
+  $import: (ctx, el) => $importQuote(ctx, el, $createQuoteContainerNode()),
   match: sel.tag('blockquote'),
-  name: '@lexical/rich-text/blockquote-shadow-root',
+  name: '@lexical/rich-text/blockquote-container',
 });
 
 /**
@@ -146,8 +199,6 @@ const GoogleDocsTitleSpanRule = defineImportRule({
  * `CoreImportExtension`), so any editor that uses the rich-text
  * extension can import these tags through the `DOMImportExtension`
  * pipeline without further configuration.
- *
- * @experimental
  */
 export const RichTextImportRules = [
   HeadingRule,

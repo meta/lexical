@@ -298,6 +298,7 @@ function mixedPeer(id: number, blockIds: boolean, update: Uint8Array | null) {
         ...(blockIds ? [BlockIdExtension] : []),
         configExtension(YCollabExtension, {
           doc,
+          onYStatus: null,
           schemaVersion: 1,
           selfCheck: true,
         }),

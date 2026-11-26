@@ -9,11 +9,13 @@
 // @vitest-environment node
 
 import type {MdastConfig, MdastPunctuationMode} from '../../index';
-import type {Paragraph} from 'mdast';
+import type {Paragraph, Text} from 'mdast';
 import type {Extension as MicromarkExtension} from 'micromark-util-types';
 
 import {buildEditorFromExtensions} from '@lexical/extension';
-import {$createLinkNode} from '@lexical/link';
+import {$createLinkNode, $isLinkNode} from '@lexical/link';
+import {$createListItemNode, $createListNode, $isListNode} from '@lexical/list';
+import {$createMarkNode, $isMarkNode, MarkNode} from '@lexical/mark';
 import {
   $createParagraphNode,
   $createTextNode,
@@ -21,7 +23,9 @@ import {
   $isTextNode,
   configExtension,
   defineExtension,
+  type Klass,
   type LexicalEditor,
+  type LexicalNode,
   ParagraphNode,
   TEXT_TYPE_TO_FORMAT,
   TextNode,
@@ -37,7 +41,7 @@ import {
   MdastGfmExtension,
 } from '../../index';
 
-const {bold, italic, strikethrough} = TEXT_TYPE_TO_FORMAT;
+const {bold, code, italic, strikethrough} = TEXT_TYPE_TO_FORMAT;
 
 type Runs = [text: string, format: number][];
 
@@ -45,6 +49,7 @@ function createEditor(
   exportPunctuation?: MdastPunctuationMode,
   importPunctuation?: MdastPunctuationMode,
   config: Partial<MdastConfig> = {},
+  nodes: Klass<LexicalNode>[] = [],
 ): LexicalEditor {
   const editor = buildEditorFromExtensions(
     defineExtension({
@@ -57,6 +62,7 @@ function createEditor(
         }),
       ],
       name: '[root]',
+      nodes,
     }),
   );
   onTestFinished(() => editor.dispose());
@@ -116,6 +122,23 @@ function exportRaw(markdown: string): string {
 function importRuns(editor: LexicalEditor, markdown: string): Runs {
   editor.update(() => $convertFromMarkdownString(markdown), {discrete: true});
   return editor.read('latest', $getRuns);
+}
+
+/**
+ * `runs` with each run joined to the run just before it when the two have
+ * the same format.
+ */
+function mergeRuns(runs: Runs): Runs {
+  const merged: Runs = [];
+  for (const [text, format] of runs) {
+    const last = merged[merged.length - 1];
+    if (last && last[1] === format) {
+      last[0] += text;
+    } else {
+      merged.push([text, format]);
+    }
+  }
+  return merged;
 }
 
 describe('Mdast punctuation modes', () => {
@@ -499,6 +522,80 @@ describe('Mdast punctuation modes', () => {
     ]);
   });
 
+  // markdown, strict import, CJK-friendly import. A run of punctuation
+  // closes before, or opens after, a CJK character, an ideographic
+  // variation selector or punctuation outside the BMP only in a
+  // CJK-friendly import.
+  it.each<[name: string, markdown: string, strict: Runs, cjkFriendly: Runs]>([
+    // The last ideographic variation selector, and the code point after it.
+    [
+      'U+E01EF',
+      '\u{e01ef}**“x”**',
+      [['\u{e01ef}**“x”**', 0]],
+      [
+        ['\u{e01ef}', 0],
+        ['“x”', bold],
+      ],
+    ],
+    [
+      'U+E01F0',
+      '\u{e01f0}**“x”**',
+      [['\u{e01f0}**“x”**', 0]],
+      [['\u{e01f0}**“x”**', 0]],
+    ],
+    // Ideographs whose second halves are U+DC00 and U+DFFF.
+    [
+      'U+20000',
+      '\u{20000}**“x”**',
+      [['\u{20000}**“x”**', 0]],
+      [
+        ['\u{20000}', 0],
+        ['“x”', bold],
+      ],
+    ],
+    [
+      'U+203FF',
+      '\u{203ff}**“x”**',
+      [['\u{203ff}**“x”**', 0]],
+      [
+        ['\u{203ff}', 0],
+        ['“x”', bold],
+      ],
+    ],
+    // Punctuation whose first half is U+D800, which the strict import reads
+    // as a letter, as micromark reads it.
+    [
+      'U+10100',
+      '**“x”**\u{10100}',
+      [['**“x”**\u{10100}', 0]],
+      [
+        ['“x”', bold],
+        ['\u{10100}', 0],
+      ],
+    ],
+    // A selector after CJK punctuation after U+FFFF, the last code point of
+    // the BMP.
+    [
+      'U+FFFF',
+      '\uffff。\ufe00**“x”**',
+      [['\uffff。\ufe00**“x”**', 0]],
+      [
+        ['\uffff。\ufe00', 0],
+        ['“x”', bold],
+      ],
+    ],
+  ])(
+    'reads %s by the code point at the end of a range',
+    (_, markdown, strict, cjkFriendly) => {
+      expect(
+        importRuns(createEditor(undefined, 'strict-commonmark'), markdown),
+      ).toEqual(strict);
+      expect(
+        importRuns(createEditor(undefined, 'cjk-friendly'), markdown),
+      ).toEqual(cjkFriendly);
+    },
+  );
+
   it('reads a selector after a code of its own in a chunk of its own', () => {
     const editor = createEditor(undefined, 'cjk-friendly');
     const read = (markdown: string) => importRuns(editor, markdown);
@@ -554,6 +651,49 @@ describe('Mdast punctuation modes', () => {
     }
   });
 
+  it.each<[name: string, runs: Runs, markdown: string]>([
+    [
+      'before bold',
+      [
+        ['世', 0],
+        ['\0', bold],
+      ],
+      '世**\0**',
+    ],
+    [
+      'after bold',
+      [
+        ['\0', bold],
+        ['世', 0],
+      ],
+      '**\0**世',
+    ],
+    [
+      'before strikethrough',
+      [
+        ['世', 0],
+        ['\0', strikethrough],
+      ],
+      '世~~\0~~',
+    ],
+    [
+      'after strikethrough',
+      [
+        ['\0', strikethrough],
+        ['世', 0],
+      ],
+      '~~\0~~世',
+    ],
+  ])(
+    'writes a CJK character %s with U+0000 at its edge as typed',
+    (_, runs, markdown) => {
+      expect(roundTrip(runs, 'cjk-friendly')).toEqual([
+        markdown,
+        runs.map(([text, format]) => [text.replace('\0', '\ufffd'), format]),
+      ]);
+    },
+  );
+
   it('writes no reference beside `~` without strikethrough', () => {
     const editor = buildEditorFromExtensions(
       defineExtension({dependencies: [MdastExtension], name: '[root]'}),
@@ -575,23 +715,72 @@ describe('Mdast punctuation modes', () => {
     );
   });
 
-  it('reads a `*` run beside a `_` run alike in both import modes', () => {
-    for (const importPunctuation of [
-      'strict-commonmark',
-      'cjk-friendly',
-    ] as const) {
-      expect(
-        importRuns(
-          createEditor(undefined, importPunctuation),
-          'foo**_bar_**baz',
-        ),
-      ).toEqual([
+  it.each<[markdown: string, runs: Runs]>([
+    // A `*` run beside a `_` run.
+    [
+      'foo**_bar_**baz',
+      [
         ['foo**', 0],
         ['bar', italic],
         ['**baz', 0],
-      ]);
-    }
-  });
+      ],
+    ],
+    // A `_` run inside a word.
+    ['a__x__', [['a__x__', 0]]],
+    // micromark lets a `*` run beside a marker of another construct open or
+    // close on that side, as beside a letter, so the run beside `~` both
+    // opens and closes, and a run of one and a run of two do not match.
+    // CommonMark reads these as `~<em>x</em>*` and `*<em>x</em>~`.
+    ['~*x**', [['~*x**', 0]]],
+    ['**x*~', [['**x*~', 0]]],
+    // An escaped marker.
+    [
+      '\\**x**',
+      [
+        ['*', 0],
+        ['x', italic],
+        ['*', 0],
+      ],
+    ],
+    // The `~` runs below read as the strict import and
+    // micromark-extension-gfm-strikethrough read them.
+    ['~~x~~~', [['~~x~~~', 0]]],
+    [
+      '\\~~~x~~',
+      [
+        ['~', 0],
+        ['x', strikethrough],
+      ],
+    ],
+    ['b~~~a~~~b', [['b~~~a~~~b', 0]]],
+    // A `~~` that emphasis or a link label holds does not match one outside.
+    [
+      '*~~a*~~',
+      [
+        ['~~a', italic],
+        ['~~', 0],
+      ],
+    ],
+    [
+      '~~[a~~](b)',
+      [
+        ['~~', 0],
+        ['a~~', 0],
+      ],
+    ],
+  ])(
+    'reads %j without CJK characters alike in both import modes',
+    (markdown, runs) => {
+      for (const importPunctuation of [
+        'strict-commonmark',
+        'cjk-friendly',
+      ] as const) {
+        expect(
+          importRuns(createEditor(undefined, importPunctuation), markdown),
+        ).toEqual(runs);
+      }
+    },
+  );
 
   it('keeps backslashes before a reference and a leading U+FEFF', () => {
     for (const runs of [
@@ -669,6 +858,505 @@ describe('Mdast punctuation modes', () => {
     expect(editor.read('latest', () => $convertToMarkdownString())).toBe(
       '**你好。**&#x4E16;=',
     );
+  });
+
+  it.each<[string, Runs, string]>([
+    [
+      'a CJK character after `-`',
+      [
+        ['-世', 0],
+        ['!', bold],
+      ],
+      '-世**!**',
+    ],
+    [
+      'a CJK character before `.`',
+      [
+        ['!', bold],
+        ['世.', 0],
+      ],
+      '**!**世.',
+    ],
+    [
+      'a CJK character after `+`',
+      [
+        ['+世', 0],
+        ['!', bold],
+      ],
+      '+世**!**',
+    ],
+    [
+      'a letter after `-`',
+      [
+        ['-a', 0],
+        ['。', bold],
+      ],
+      '-a**。**',
+    ],
+    [
+      'a letter before `.`',
+      [
+        ['。', bold],
+        ['a.', 0],
+      ],
+      '**。**a.',
+    ],
+    [
+      'a letter after `+`',
+      [
+        ['+a', 0],
+        ['。', bold],
+      ],
+      '+a**。**',
+    ],
+  ])('writes %s as typed in GFM', (_, runs, markdown) => {
+    // An email literal, which these start, needs an `@` that the export
+    // escapes, so the autolink literal syntax reads the character as it
+    // reads the reference.
+    for (const importPunctuation of [
+      'cjk-friendly',
+      'strict-commonmark',
+    ] as const) {
+      const editor = createEditor('cjk-friendly', importPunctuation);
+      editor.update(() => $appendRuns(runs), {discrete: true});
+      expect(editor.read('latest', () => $convertToMarkdownString())).toBe(
+        markdown,
+      );
+    }
+    // A CJK-friendly import reads it back as the same runs.
+    expect(
+      importRuns(createEditor(undefined, 'cjk-friendly'), markdown),
+    ).toEqual(runs);
+  });
+
+  // runs, export for strict readers, export for CJK-friendly readers, and
+  // the export, in either mode, of what that export imports to.
+  it.each<
+    [runs: Runs, strict: string, cjkFriendly: string, reexported: string]
+  >([
+    [
+      [
+        ['www.世', 0],
+        ['!', bold],
+      ],
+      'www\\.&#x4E16;**!**',
+      'www\\.世**!**',
+      '[www.世](http://www.世)**!**',
+    ],
+    [
+      [
+        ['www.世', 0],
+        ['。', bold],
+      ],
+      'www\\.&#x4E16;**。**',
+      'www\\.世**。**',
+      '[www.世](http://www.世)**。**',
+    ],
+    // Only the `.` of `www.` is escaped.
+    [
+      [
+        ['aww. www.世', 0],
+        ['!', bold],
+      ],
+      'aww. www\\.&#x4E16;**!**',
+      'aww. www\\.世**!**',
+      'aww. [www.世](http://www.世)**!**',
+    ],
+    [
+      [
+        ['WWW.é', 0],
+        ['!', bold],
+      ],
+      'WWW\\.&#xE9;**!**',
+      'WWW\\.&#xE9;**!**',
+      '[WWW.é](http://WWW.é)**!**',
+    ],
+    [
+      [
+        ['www.', 0],
+        ['x', bold],
+      ],
+      'www\\.**x**',
+      'www\\.**x**',
+      '[www](http://www).**x**',
+    ],
+    [
+      [
+        ['www.', bold],
+        ['x', 0],
+      ],
+      '**www\\.**&#x78;',
+      '**www\\.**&#x78;',
+      '[**www**](http://www)**.**&#x78;',
+    ],
+    [
+      [
+        ['see www.', 0],
+        ['x', code],
+        [' now', 0],
+      ],
+      'see www\\.`x` now',
+      'see www\\.`x` now',
+      'see [www](http://www).`x` now',
+    ],
+    [[['www.*x', 0]], 'www\\.\\*x', 'www\\.\\*x', '[www.\\*x](http://www.*x)'],
+    [
+      [['www.&#x4E16; now', 0]],
+      'www\\.\\&#x4E16; now',
+      'www\\.\\&#x4E16; now',
+      '[www.\\&#x4E16](http://www.\\&#x4E16); now',
+    ],
+  ])(
+    'keeps the characters after `www.` in %j',
+    (runs, strict, cjkFriendly, reexported) => {
+      // micromark starts a literal on `www.` before a reference, an escape
+      // or a marker, which then reads as part of the link.
+      for (const [mode, markdown] of [
+        ['strict-commonmark', strict],
+        ['cjk-friendly', cjkFriendly],
+      ] as const) {
+        const [exported, imported] = roundTrip(runs, mode, mode);
+        expect(exported).toBe(markdown);
+        // The import still links the decoded text, which may split a run.
+        expect(mergeRuns(imported)).toEqual(runs);
+        // A link found in decoded text has no source syntax to keep, so the
+        // next export writes it as `[text](url)`, which reads back the same.
+        const editor = createEditor(mode, mode);
+        importRuns(editor, exported);
+        expect(editor.read('latest', () => $convertToMarkdownString())).toBe(
+          reexported,
+        );
+        expect(mergeRuns(importRuns(editor, reexported))).toEqual(runs);
+        expect(editor.read('latest', () => $convertToMarkdownString())).toBe(
+          reexported,
+        );
+      }
+    },
+  );
+
+  it('keeps a link after `www.`', () => {
+    const editor = createEditor();
+    editor.update(
+      () => {
+        $getRoot()
+          .clear()
+          .append(
+            $createParagraphNode().append(
+              $createTextNode('www.'),
+              $createLinkNode('u').append($createTextNode('x')),
+            ),
+          );
+      },
+      {discrete: true},
+    );
+    const markdown = editor.read('latest', () => $convertToMarkdownString());
+    expect(markdown).toBe('www\\.[x](u)');
+    editor.update(() => $convertFromMarkdownString(markdown), {discrete: true});
+    editor.read('latest', () => {
+      const x = $getRoot().getAllTextNodes().at(-1);
+      assert(x !== undefined);
+      const link = x.getParent();
+      assert($isLinkNode(link));
+      expect($getRoot().getTextContent()).toBe('www.x');
+      expect(x.getTextContent()).toBe('x');
+      expect(link.getURL()).toBe('u');
+    });
+  });
+
+  // punctuation mode, export.
+  it.each<[MdastPunctuationMode, string]>([
+    ['strict-commonmark', 'see www\\.&#x4E16;**!**'],
+    ['cjk-friendly', 'see www\\.世**!**'],
+  ])(
+    'keeps the characters after a `www.` a mark splits (%s)',
+    (mode, markdown) => {
+      const editor = createEditor(mode, mode, {}, [MarkNode]);
+      editor.update(
+        () => {
+          $getRoot()
+            .clear()
+            .append(
+              $createParagraphNode().append(
+                $createTextNode('see ww'),
+                $createMarkNode(['id']).append($createTextNode('w.世')),
+                $createTextNode('!').setFormat(bold),
+              ),
+            );
+        },
+        {discrete: true},
+      );
+      // The mark has no export rule, so its text goes out beside the text
+      // before it.
+      expect(editor.read('latest', () => $convertToMarkdownString())).toBe(
+        markdown,
+      );
+      expect(mergeRuns(importRuns(editor, markdown))).toEqual([
+        ['see www.世', 0],
+        ['!', bold],
+      ]);
+    },
+  );
+
+  it.each<[MdastPunctuationMode, string]>([
+    ['strict-commonmark', '1\\. x'],
+    ['cjk-friendly', '1\\. x'],
+  ])('escapes text a mark splits as one text (%s)', (mode, markdown) => {
+    const editor = createEditor(mode, mode, {}, [MarkNode]);
+    editor.update(
+      () => {
+        $getRoot()
+          .clear()
+          .append(
+            $createParagraphNode().append(
+              $createTextNode('1'),
+              $createMarkNode(['id']).append($createTextNode('. x')),
+            ),
+          );
+      },
+      {discrete: true},
+    );
+    // `1. x` would start an ordered list.
+    expect(editor.read('latest', () => $convertToMarkdownString())).toBe(
+      markdown,
+    );
+    expect(importRuns(editor, markdown)).toEqual([['1. x', 0]]);
+  });
+
+  const position = {
+    end: {column: 2, line: 1},
+    start: {column: 1, line: 1},
+  };
+  // what the export rule sets on the text `a`, and on `b`, export.
+  it.each<[string, Partial<Text>, Partial<Text>, string]>([
+    ['data', {data: {}}, {data: {}}, '[a][b]'],
+    ['a position', {position}, {position}, '[a][b]'],
+    ['data on the first', {data: {}}, {}, '[a]<b>'],
+    ['data on the second', {}, {data: {}}, '<a>[b]'],
+    // A field that is `undefined` counts as not set.
+    ['undefined data', {data: undefined}, {data: undefined}, '<ab>'],
+  ])(
+    'joins a text beside another only with nothing set (%s)',
+    (_, first, second, markdown) => {
+      const editor = createEditor(
+        undefined,
+        undefined,
+        {
+          exportRules: [
+            {
+              $export: node =>
+                $isTextNode(node)
+                  ? {
+                      type: 'text',
+                      value: node.getTextContent(),
+                      ...(node.getTextContent() === 'a' ? first : second),
+                    }
+                  : null,
+              type: TextNode,
+            },
+          ],
+          toMarkdownExtensions: [
+            {
+              handlers: {
+                text: (node: Text) =>
+                  node.data || node.position
+                    ? `[${node.value}]`
+                    : `<${node.value}>`,
+              },
+            },
+          ],
+        },
+        [MarkNode],
+      );
+      editor.update(
+        () => {
+          $getRoot()
+            .clear()
+            .append(
+              $createParagraphNode().append(
+                $createTextNode('a'),
+                $createMarkNode(['id']).append($createTextNode('b')),
+              ),
+            );
+        },
+        {discrete: true},
+      );
+      expect(editor.read('latest', () => $convertToMarkdownString())).toBe(
+        markdown,
+      );
+    },
+  );
+
+  it('keeps a text with a symbol key apart from the text beside it', () => {
+    // A symbol an export rule may key its own data with.
+    const tag = Symbol('tag');
+    const editor = createEditor(
+      undefined,
+      undefined,
+      {
+        exportRules: [
+          {
+            $export: node =>
+              $isMarkNode(node)
+                ? [{[tag]: true, type: 'text', value: node.getTextContent()}]
+                : null,
+            type: MarkNode,
+          },
+        ],
+        toMarkdownExtensions: [
+          {
+            handlers: {
+              text: (node: Text) =>
+                tag in node ? `[${node.value}]` : `<${node.value}>`,
+            },
+          },
+        ],
+      },
+      [MarkNode],
+    );
+    editor.update(
+      () => {
+        $getRoot()
+          .clear()
+          .append(
+            $createParagraphNode().append(
+              $createTextNode('a'),
+              $createMarkNode(['id']).append($createTextNode('b')),
+            ),
+          );
+      },
+      {discrete: true},
+    );
+    expect(editor.read('latest', () => $convertToMarkdownString())).toBe(
+      '<a>[b]',
+    );
+  });
+
+  it.each<[MdastPunctuationMode, string]>([
+    ['strict-commonmark', 'see www\\.&#x4E16;**!**'],
+    ['cjk-friendly', 'see www\\.世**!**'],
+  ])('joins three texts a mark splits (%s)', (mode, markdown) => {
+    const editor = createEditor(mode, mode, {}, [MarkNode]);
+    editor.update(
+      () => {
+        $getRoot()
+          .clear()
+          .append(
+            $createParagraphNode().append(
+              $createTextNode('see w'),
+              $createMarkNode(['id']).append($createTextNode('w')),
+              $createTextNode('w.世'),
+              $createTextNode('!').setFormat(bold),
+            ),
+          );
+      },
+      {discrete: true},
+    );
+    expect(editor.read('latest', () => $convertToMarkdownString())).toBe(
+      markdown,
+    );
+  });
+
+  it.each<[string, boolean | undefined, string, string]>([
+    ['in a paragraph', undefined, '世', '[世**。**](u)'],
+    ['in a checked item', true, '世', '- [x] [世**。**](u)'],
+    ['in a bullet item', false, 'x', '- [x**。**](u)'],
+  ])(
+    "writes the character after a link's `[` %s",
+    (_, checked, text, markdown) => {
+      const editor = createEditor('cjk-friendly');
+      editor.update(
+        () => {
+          const link = $createLinkNode('u').append(
+            $createTextNode(text),
+            $createTextNode('。').setFormat(bold),
+          );
+          $getRoot()
+            .clear()
+            .append(
+              checked === undefined
+                ? $createParagraphNode().append(link)
+                : $createListNode(checked ? 'check' : 'bullet').append(
+                    $createListItemNode(checked || undefined).append(link),
+                  ),
+            );
+        },
+        {discrete: true},
+      );
+      expect(editor.read('latest', () => $convertToMarkdownString())).toBe(
+        markdown,
+      );
+      // A check needs its `]` right after the character, where the run is,
+      // so the link's `[` makes no check.
+      editor.update(() => $convertFromMarkdownString(markdown), {
+        discrete: true,
+      });
+      expect(
+        editor.read('latest', () => {
+          const list = $getRoot().getFirstChild();
+          return $isListNode(list) ? list.getListType() : null;
+        }),
+      ).toBe(checked === undefined ? null : checked ? 'check' : 'bullet');
+    },
+  );
+
+  it("writes the character before a link's `[`", () => {
+    const editor = createEditor('cjk-friendly');
+    editor.update(
+      () =>
+        $getRoot()
+          .clear()
+          .append(
+            $createParagraphNode().append(
+              $createTextNode('。').setFormat(bold),
+              $createTextNode('世'),
+              $createLinkNode('u').append($createTextNode('a')),
+            ),
+          ),
+      {discrete: true},
+    );
+    expect(editor.read('latest', () => $convertToMarkdownString())).toBe(
+      '**。**世[a](u)',
+    );
+  });
+
+  it('keeps a reference beside a GFM marker that an unmarked extension also starts its syntax with', () => {
+    // Which syntax is marked counts, not which markers it starts with, before
+    // or after the marked syntax among the extensions.
+    const syntax: MicromarkExtension = {
+      text: {46: {tokenize: (_effects, _ok, nok) => nok}},
+    };
+    const after = buildEditorFromExtensions(
+      defineExtension({
+        dependencies: [
+          defineExtension({
+            dependencies: [
+              configExtension(MdastExtension, {micromarkExtensions: [syntax]}),
+            ],
+            name: '[syntax]',
+          }),
+          MdastGfmExtension,
+          configExtension(MdastExtension, {exportPunctuation: 'cjk-friendly'}),
+        ],
+        name: '[root]',
+      }),
+    );
+    onTestFinished(() => after.dispose());
+    for (const editor of [
+      createEditor('cjk-friendly', undefined, {micromarkExtensions: [syntax]}),
+      after,
+    ]) {
+      editor.update(
+        () =>
+          $appendRuns([
+            ['你好。', bold],
+            ['世.', 0],
+          ]),
+        {discrete: true},
+      );
+      expect(editor.read('latest', () => $convertToMarkdownString())).toBe(
+        '**你好。**&#x4E16;.',
+      );
+    }
   });
 
   it.each([
@@ -940,14 +1628,17 @@ describe('Mdast punctuation modes', () => {
     editor.update(
       () =>
         $convertFromMarkdownString(
-          '| a | b |\n| - | - |\n| **你好。**世界 | x |',
+          '| a | b |\n| - | - |\n| **你好。**世界 | x |\n| **"다르게"**다. | y |',
         ),
       {discrete: true},
     );
     const lines = editor
       .read('latest', () => $convertToMarkdownString())
       .split('\n');
-    expect(lines[2]).toBe('| **你好。**世界 | x |');
+    expect(lines.slice(2)).toEqual([
+      '| **你好。**世界   | x |',
+      '| **"다르게"**다. | y |',
+    ]);
     expect(lines.map(line => line.length)).toEqual(
       lines.map(() => lines[2].length),
     );

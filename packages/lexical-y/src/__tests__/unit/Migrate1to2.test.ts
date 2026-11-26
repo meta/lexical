@@ -138,7 +138,11 @@ function liveItems(doc: Y.Doc): string[] {
 function checkStamp(state: Uint8Array, cfg: Cfg, gc: boolean): boolean {
   const before = createYDoc(state, {gc});
   const layout = recordedLayout(before);
-  const result = migrateYState(state, [step1to2], {gc, to: 2});
+  const result = migrateYState(state, [step1to2], {
+    gc,
+    pending: 'discard',
+    to: 2,
+  });
   if (layout !== 1) {
     expect(layout).toBe(2);
     expect(result.receipt.changed).toBe(false);
@@ -165,9 +169,10 @@ function checkStamp(state: Uint8Array, cfg: Cfg, gc: boolean): boolean {
   ).state;
   expect(recordedLayout(createYDoc(appended, {gc}))).toBe(2);
   // Migrated once.
-  expect(migrateYState(result.state, [step1to2], {gc, to: 2}).state).toBe(
-    result.state,
-  );
+  expect(
+    migrateYState(result.state, [step1to2], {gc, pending: 'discard', to: 2})
+      .state,
+  ).toBe(result.state);
   return true;
 }
 
@@ -232,6 +237,7 @@ describe.skipIf(!LAYOUT1_BUILD).each([false, true])(
       );
       const r = migrateYState(custom, [step1to2], {
         gc,
+        pending: 'discard',
         roots: ['notes'],
         to: 2,
       });
@@ -302,8 +308,20 @@ describe('@lexical/y/migrate/1to2 golden fixtures', () => {
       layout: recordedLayout(createYDoc(state)) ?? 0,
       name,
       output: {
-        gcOff: b64(migrateYState(state, [step1to2], {gc: false, to: 2}).state),
-        gcOn: b64(migrateYState(state, [step1to2], {gc: true, to: 2}).state),
+        gcOff: b64(
+          migrateYState(state, [step1to2], {
+            gc: false,
+            pending: 'discard',
+            to: 2,
+          }).state,
+        ),
+        gcOn: b64(
+          migrateYState(state, [step1to2], {
+            gc: true,
+            pending: 'discard',
+            to: 2,
+          }).state,
+        ),
       },
     }));
     fs.mkdirSync(path.dirname(GOLDEN), {recursive: true});
@@ -325,7 +343,11 @@ describe('@lexical/y/migrate/1to2 golden fixtures', () => {
       ) as Golden[];
       for (const f of fixtures) {
         for (const gc of [false, true]) {
-          const out = migrateYState(unb64(f.input), [step], {gc, to: 2}).state;
+          const out = migrateYState(unb64(f.input), [step], {
+            gc,
+            pending: 'discard',
+            to: 2,
+          }).state;
           expect(b64(out)).toBe(gc ? f.output.gcOn : f.output.gcOff);
         }
       }
@@ -348,7 +370,11 @@ describe('@lexical/y/migrate/1to2 golden fixtures', () => {
     for (const f of fixtures) {
       const input = unb64(f.input);
       for (const gc of [false, true]) {
-        const out = migrateYState(input, [step1to2], {gc, to: 2}).state;
+        const out = migrateYState(input, [step1to2], {
+          gc,
+          pending: 'discard',
+          to: 2,
+        }).state;
         expect(b64(out)).toBe(gc ? f.output.gcOn : f.output.gcOff);
       }
     }

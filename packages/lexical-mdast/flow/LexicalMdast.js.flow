@@ -198,6 +198,12 @@ declare export var MdastHorizontalRuleExtension: LexicalExtension<
   void,
   void,
 >;
+declare export var MdastQuoteContainerExtension: LexicalExtension<
+  ExtensionConfigBase,
+  '@lexical/mdast/QuoteContainer',
+  void,
+  void,
+>;
 declare export var MdastShadowRootQuoteExtension: LexicalExtension<
   ExtensionConfigBase,
   '@lexical/mdast/ShadowRootQuote',

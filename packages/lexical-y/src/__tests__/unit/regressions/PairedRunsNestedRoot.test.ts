@@ -49,6 +49,7 @@ function client(doc: Y.Doc, root: Y.Node, text: string | null) {
     );
   }
   const binding = new YBinding(editor, doc as never, {
+    onStatus: null,
     root,
     schemaVersion: 1,
     selfCheck: true,
@@ -87,8 +88,8 @@ for (const gc of [false, true]) {
       },
       {discrete: true},
     );
-    expect(root.getAttr('lexical-y:3')).toBe(true);
-    expect(doc.get('app').getAttr('lexical-y:3')).toBeUndefined();
+    expect(root.getAttr('lexical-y:4')).toBe(true);
+    expect(doc.get('app').getAttr('lexical-y:4')).toBeUndefined();
     // A reader of the same root, and of a reload, reads the paired runs.
     const reload = createYDoc(Y.encodeStateAsUpdate(doc), {gc});
     const again = reload.get('app').getAttr('editor') as Y.Node;

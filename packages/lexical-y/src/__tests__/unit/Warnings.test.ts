@@ -84,7 +84,11 @@ type Seen = {
  */
 function peer(
   clientID: number,
-  options: YBindingOptions = {schemaVersion: 1, selfCheck: true},
+  options: YBindingOptions = {
+    onStatus: null,
+    schemaVersion: 1,
+    selfCheck: true,
+  },
   onWarn?: ((error: Error) => void) | null,
 ) {
   const doc = createYDoc(null, {gc: false});
@@ -122,7 +126,11 @@ const text = (editor: LexicalEditor) =>
 
 /** Two synced peers sharing `hello` (b reads what a initialized). */
 function pair(
-  options: YBindingOptions = {schemaVersion: 1, selfCheck: true},
+  options: YBindingOptions = {
+    onStatus: null,
+    schemaVersion: 1,
+    selfCheck: true,
+  },
   onWarn?: ((error: Error) => void) | null,
 ) {
   const a = peer(1, options, onWarn);
@@ -200,7 +208,7 @@ describe('@lexical/y warnings', () => {
     for (const nodeEnv of ['development', 'production']) {
       process.env.NODE_ENV = nodeEnv;
       for (const selfCheck of [undefined, false, true]) {
-        const {a, b} = pair({schemaVersion: 1, selfCheck});
+        const {a, b} = pair({onStatus: null, schemaVersion: 1, selfCheck});
         mismatch.on = true;
         a.editor.update(() => $typeAtEnd(' there'), {discrete: true});
         a.editor.update(() => $getRoot().append($p('more')), {
@@ -290,7 +298,10 @@ describe('@lexical/y warnings', () => {
                 throw new Error('handler failure: ' + e.message);
               }
             : null;
-        const {a, b} = pair({schemaVersion: 1, selfCheck: true}, onWarn);
+        const {a, b} = pair(
+          {onStatus: null, schemaVersion: 1, selfCheck: true},
+          onWarn,
+        );
         // Both sides find a mismatch: a local one on a, a remote one on b
         // (which b reports after reading the change in full).
         mismatch.on = true;
@@ -325,7 +336,7 @@ describe('@lexical/y warnings', () => {
         // binding read only.
         const newer = new Y.Doc();
         newer.get('lexical-y').setAttr('lexical-y:99', true);
-        const n = peer(3, {schemaVersion: 1}, onWarn);
+        const n = peer(3, {onStatus: null, schemaVersion: 1}, onWarn);
         expect(() =>
           Y.applyUpdate(n.doc, Y.encodeStateAsUpdate(newer)),
         ).not.toThrow();
@@ -341,14 +352,17 @@ describe('@lexical/y warnings', () => {
 
   test('a handler that edits the editor sees the binding consistent', () => {
     let edited = false;
-    const {a, b} = pair({schemaVersion: 1, selfCheck: true}, () => {
-      if (!edited) {
-        edited = true;
-        b.editor.update(() => $getRoot().append($p('from the handler')), {
-          discrete: true,
-        });
-      }
-    });
+    const {a, b} = pair(
+      {onStatus: null, schemaVersion: 1, selfCheck: true},
+      () => {
+        if (!edited) {
+          edited = true;
+          b.editor.update(() => $getRoot().append($p('from the handler')), {
+            discrete: true,
+          });
+        }
+      },
+    );
     mismatch.on = true;
     a.editor.update(() => $getRoot().append($p('one')), {discrete: true});
     mismatch.on = false;
@@ -398,8 +412,7 @@ describe('@lexical/y warnings: every code and its data', () => {
     src.binding.initialize();
     const stripped = new Y.Doc();
     Y.applyUpdate(stripped, Y.encodeStateAsUpdate(src.doc));
-    stripped.get('lexical-y').deleteAttr('lexical-y:1');
-    stripped.get('lexical-y').deleteAttr('lexical-y:3');
+    stripped.get('lexical-y').deleteAttr('lexical-y:4');
     const noVersion = peer(6);
     Y.applyUpdate(noVersion.doc, Y.encodeStateAsUpdate(stripped));
     noVersion.binding.initialize();
@@ -410,13 +423,15 @@ describe('@lexical/y warnings: every code and its data', () => {
       supported: LAYOUT_VERSION,
     });
 
-    // Layout 3 only: a document that records only layout 1 is read only,
-    // reason 'older' (the app migrates it).
+    // Layout 4 only: a document that records only an older layout is read
+    // only, reason 'older' (the app migrates it).
     const onlyOne = new Y.Doc();
     Y.applyUpdate(onlyOne, Y.encodeStateAsUpdate(src.doc));
-    onlyOne.get('lexical-y').deleteAttr('lexical-y:3');
+    onlyOne.get('lexical-y').deleteAttr('lexical-y:4');
+    onlyOne.get('lexical-y').setAttr('lexical-y:1', true);
     const older = peer(8, {
       layoutUpgrade: null,
+      onStatus: null,
       schemaVersion: 1,
       selfCheck: true,
     });
@@ -426,7 +441,7 @@ describe('@lexical/y warnings: every code and its data', () => {
     expect(older.codes()).toEqual([UNSUPPORTED_LAYOUT_WARNING]);
     expect(older.seen[0].warning.data).toEqual({
       found: 1,
-      min: 3,
+      min: 4,
       reason: 'older',
       supported: LAYOUT_VERSION,
       upgrade: 'read-only',
@@ -456,7 +471,7 @@ describe('@lexical/y warnings: every code and its data', () => {
         },
       }),
       doc,
-      {schemaVersion: 1},
+      {onStatus: null, schemaVersion: 1},
     );
     writer.start();
     writer.editor.update(
@@ -480,7 +495,7 @@ describe('@lexical/y warnings: every code and its data', () => {
         onWarn: e => seen.push(e as LexicalWarning),
       }),
       createYDoc(),
-      {schemaVersion: 1},
+      {onStatus: null, schemaVersion: 1},
     );
     reader.start();
     Y.applyUpdate(reader.doc, Y.encodeStateAsUpdate(doc));
@@ -541,7 +556,10 @@ describe('@lexical/y warnings: every code and its data', () => {
           seen.push([(e as LexicalWarning).code, (e as LexicalWarning).data]);
         },
       });
-      const binding = new YBinding(editor, createYDoc(), {schemaVersion: 1});
+      const binding = new YBinding(editor, createYDoc(), {
+        onStatus: null,
+        schemaVersion: 1,
+      });
       binding.start();
       for (let edit = 0; edit < 2; edit++) {
         editor.update(
@@ -576,7 +594,7 @@ describe('@lexical/y warnings: every code and its data', () => {
 
 describe('@lexical/y options', () => {
   test('captureTimeout: null turns collaborative undo off', () => {
-    const {a} = pair({captureTimeout: null, schemaVersion: 1});
+    const {a} = pair({captureTimeout: null, onStatus: null, schemaVersion: 1});
     expect(a.binding.undoManager).toBe(null);
     a.editor.update(() => $typeAtEnd(' there'), {discrete: true});
     expect(a.binding.undo()).toBe(false);
@@ -631,6 +649,7 @@ describe('@lexical/y options', () => {
   for (const sample of [0, 1]) {
     test(`selfCheckSample ${sample} samples local and remote checks`, () => {
       const {a, b} = pair({
+        onStatus: null,
         schemaVersion: 1,
         selfCheck: true,
         selfCheckSample: sample,

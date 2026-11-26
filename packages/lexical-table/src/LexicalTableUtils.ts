@@ -663,6 +663,10 @@ export function $deleteTableRowAtSelection(): void {
   const columnCount = gridMap[0].length;
   const nextRow = gridMap[focusEndRow + 1];
   const nextRowNode = grid.getChildAtIndex(focusEndRow + 1);
+  // A cell spanning several deleted rows appears in each of them; trim it once.
+  // setRowSpan mutates in place when the cell is already writable in this
+  // update, so the span is read once, before it changes.
+  const visitedCells = new Set<TableCellNode>();
   for (let row = focusEndRow; row >= anchorStartRow; row--) {
     for (let column = columnCount - 1; column >= 0; column--) {
       const {
@@ -670,18 +674,20 @@ export function $deleteTableRowAtSelection(): void {
         startRow: cellStartRow,
         startColumn: cellStartColumn,
       } = gridMap[row][column];
-      if (cellStartColumn !== column) {
+      if (cellStartColumn !== column || visitedCells.has(cell)) {
         // Don't repeat work for the same Cell
         continue;
       }
+      visitedCells.add(cell);
+      const rowSpan = cell.__rowSpan;
       // Rows overflowing top or bottom have to be trimmed
       if (
         cellStartRow < anchorStartRow ||
-        cellStartRow + cell.__rowSpan - 1 > focusEndRow
+        cellStartRow + rowSpan - 1 > focusEndRow
       ) {
         const intersectionStart = Math.max(cellStartRow, anchorStartRow);
         const intersectionEnd = Math.min(
-          cell.__rowSpan + cellStartRow - 1,
+          rowSpan + cellStartRow - 1,
           focusEndRow,
         );
 
@@ -689,12 +695,12 @@ export function $deleteTableRowAtSelection(): void {
           intersectionStart <= intersectionEnd
             ? intersectionEnd - intersectionStart + 1
             : 0;
-        cell.setRowSpan(cell.__rowSpan - overflowRowsCount);
+        cell.setRowSpan(rowSpan - overflowRowsCount);
       }
       // Rows overflowing bottom have to be moved to the next row
       if (
         cellStartRow >= anchorStartRow &&
-        cellStartRow + cell.__rowSpan - 1 > focusEndRow &&
+        cellStartRow + rowSpan - 1 > focusEndRow &&
         // Handle overflow only once
         row === focusEndRow
       ) {

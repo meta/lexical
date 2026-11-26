@@ -9,7 +9,7 @@
 // @vitest-environment node
 
 // A start formats map the writer folds as stored (a held insertion counts,
-// a deleted item the hold keeps showing does not, see Seen.isStoredIn) is
+// a deleted item the hold keeps showing does not, see Shown.isStoredIn) is
 // noted with that lane: when its fold point goes stale and the map is
 // folded again (see Seen.frontierOf), the refold leaves the kept deletions
 // out as the first fold did. It refolded over what the write's view shows,
@@ -18,20 +18,21 @@ import * as Y from '@y/y';
 import {expect, test} from 'vitest';
 
 import {Hidden} from '../../../internal/Hidden';
-import {writeLayout3Formats} from '../../../internal/Layout3';
-import {frontierOf, isStoredIn, noteFolded} from '../../../internal/Seen';
+import {frontierOf, noteFolded} from '../../../internal/Seen';
+import {isStoredIn} from '../../../internal/Shown';
 import {emptyView} from '../../../internal/Unread';
+import {writeLayout4Formats} from '../../../migrate/3to4/frozen/layout4';
 
 for (const gc of [false, true]) {
   test(`a stored start folded again leaves the hold's kept deletions out (gc ${gc})`, () => {
     const doc = new Y.Doc({gc});
     const root = doc.get('lexical-y');
-    root.setAttr('lexical-y:3', true);
+    root.setAttr('lexical-y:4', true);
     root.insert(0, 'abcd');
     const oldBoundary = new Y.Node('\u00b6');
     root.insert(4, [oldBoundary]);
     doc.transact(tr =>
-      writeLayout3Formats(tr, root, [
+      writeLayout4Formats(tr, root, [
         new Map([['f:bold', true]]),
         new Map([['f:bold', true]]),
         new Map([['f:bold', true]]),

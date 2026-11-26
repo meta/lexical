@@ -200,7 +200,7 @@ describe('a collaborator edits at an edge of a range selection (#9526)', () => {
     t.b.update(() => void $selectWords([0], 't2z t3z'));
     const {update} = editYState(
       Y.encodeStateAsUpdate(t.b.doc),
-      {extensions: [MarkStateExtension], schemaVersion: 1},
+      {extensions: [MarkStateExtension], onWarn: null, schemaVersion: 1},
       () => {
         const text = (
           $getRoot().getFirstChildOrThrow() as ElementNode

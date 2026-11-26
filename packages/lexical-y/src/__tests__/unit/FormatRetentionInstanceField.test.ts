@@ -56,7 +56,11 @@ for (const gc of [false, true])
   test(`constructor-enabled formats are retained gc=${gc}`, async () => {
     const doc = createYDoc(null, {gc});
     const e = editor();
-    const b = new YBinding(e, doc, {schemaVersion: 1, selfCheck: true});
+    const b = new YBinding(e, doc, {
+      onStatus: null,
+      schemaVersion: 1,
+      selfCheck: true,
+    });
     b.start();
     e.update(
       () =>
@@ -82,7 +86,11 @@ for (const gc of [false, true])
     );
     const copy = createYDoc(Y.encodeStateAsUpdate(doc), {gc});
     const e2 = editor();
-    const b2 = new YBinding(e2, copy, {schemaVersion: 1, selfCheck: true});
+    const b2 = new YBinding(e2, copy, {
+      onStatus: null,
+      schemaVersion: 1,
+      selfCheck: true,
+    });
     b2.start();
     b2.initialize();
     await flush();

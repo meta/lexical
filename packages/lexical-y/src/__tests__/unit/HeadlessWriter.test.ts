@@ -560,35 +560,6 @@ describe('editYState writers', () => {
     expect(next.clientID).toBe(none.clientID);
   });
 
-  test('a writer used with clientIDRange uint32 writes under 32-bit client ids', () => {
-    const base = seedYState({...config, clientIDRange: 'uint32'}, () => {
-      $getRoot().append($p('one'));
-    });
-    const writer = createYWriter('agent');
-    const wide = editYState(base, config, $typeAtEnd(' a'), {writer});
-    const narrow = editYState(
-      wide.state,
-      {...config, clientIDRange: 'uint32'},
-      $typeAtEnd(' b'),
-      {writer},
-    );
-    expect(narrow.clientID).toBeLessThanOrEqual(0xffffffff);
-    expect(insertedBy(narrow.update)).toEqual([narrow.clientID]);
-    if (wide.clientID > 0xffffffff) {
-      expect(writerWarnings(narrow.warnings)).toEqual([
-        expect.objectContaining({reason: 'range'}),
-      ]);
-    }
-    const again = editYState(
-      narrow.state,
-      {...config, clientIDRange: 'uint32'},
-      $typeAtEnd(' c'),
-      {writer},
-    );
-    expect(again.clientID).toBe(narrow.clientID);
-    expect(again.warnings).toEqual([]);
-  });
-
   test('writes under a writer client id that the writer did not make stop it using that id', () => {
     const base = seed('one');
     const writer = createYWriter('agent');

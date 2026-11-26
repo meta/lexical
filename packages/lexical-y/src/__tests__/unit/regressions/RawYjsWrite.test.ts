@@ -44,7 +44,7 @@ function bind(gc: boolean) {
       },
     }),
   );
-  const binding = new YBinding(editor, doc, {schemaVersion: 1});
+  const binding = new YBinding(editor, doc, {onStatus: null, schemaVersion: 1});
   binding.start();
   binding.initialize();
   const raw = () =>
@@ -148,7 +148,10 @@ describe.each([false, true])('raw Yjs writes, gc %s', gc => {
         name: 'raw-writes-other',
       }),
     );
-    const other = new YBinding(editor, t.doc, {schemaVersion: 1});
+    const other = new YBinding(editor, t.doc, {
+      onStatus: null,
+      schemaVersion: 1,
+    });
     other.start();
     other.initialize();
     editor.update(

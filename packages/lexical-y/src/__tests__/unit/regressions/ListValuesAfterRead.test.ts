@@ -54,6 +54,7 @@ import {afterEach, describe, expect, test} from 'vitest';
 
 import {YBinding, YCollabExtension} from '../../..';
 import {createYDoc, readYState, seedYState} from '../../../headless';
+import {renderedValues, valuesOnUnorderedItems} from '../../catalog/bind';
 
 /** An element with a declared slot next to its children (a card). */
 class CalloutNode extends ElementNode {
@@ -118,7 +119,7 @@ const AppExtension = defineExtension({
   nodes: () => [CalloutNode, ComponentNode, SlotBodyNode],
 });
 
-const config = {extensions: [AppExtension], schemaVersion: 1};
+const config = {extensions: [AppExtension], onWarn: null, schemaVersion: 1};
 
 const $p = (text: string) =>
   $createParagraphNode().append($createTextNode(text));
@@ -271,7 +272,11 @@ function bind(seed: Uint8Array, how: Bind) {
     cleanups.push(() => built.dispose());
     editor = built;
     root = mount(editor);
-    binding = new YBinding(editor, doc, {schemaVersion: 1, selfCheck: true});
+    binding = new YBinding(editor, doc, {
+      onStatus: null,
+      schemaVersion: 1,
+      selfCheck: true,
+    });
     cleanups.push(binding.start());
     binding.initialize();
   } else {
@@ -282,6 +287,7 @@ function bind(seed: Uint8Array, how: Bind) {
           AppExtension,
           configExtension(YCollabExtension, {
             doc,
+            onYStatus: null,
             schemaVersion: 1,
             selfCheck: true,
             synced: how === 'extension',
@@ -305,8 +311,9 @@ function bind(seed: Uint8Array, how: Bind) {
     doc,
     editor,
     json: editor.getEditorState().toJSON(),
-    rendered: Array.from(root.querySelectorAll('li')).map(li => li.value),
+    rendered: renderedValues(root),
     starts: editor.getEditorState().read($starts),
+    unordered: valuesOnUnorderedItems(root),
     values: editor.getEditorState().read($values),
     warnings,
   };
@@ -348,6 +355,7 @@ describe('a freshly bound editor shows the derived fields a fresh reader does', 
           ]);
           expect(bound.values).toEqual([1, 2, 3, 9, 10, 11]);
           expect(bound.rendered).toEqual([1, 2, 3, 9, 10, 11]);
+          expect(bound.unordered).toEqual([]);
           expect(bound.starts).toEqual([1, 9]);
         }
         // Every derived field as an editor with no binding derives it.
@@ -395,6 +403,7 @@ describe('a remote change that turns the binding read only', () => {
           AppExtension,
           configExtension(YCollabExtension, {
             doc: docB,
+            onYStatus: null,
             schemaVersion: 1,
             synced: true,
           }),

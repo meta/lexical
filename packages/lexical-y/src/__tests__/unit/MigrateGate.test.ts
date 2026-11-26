@@ -60,7 +60,11 @@ function bindTo(
 ): {editor: LexicalEditor; binding: YBinding; warnings: string[]} {
   const warnings: string[] = [];
   const editor = editorOf(warnings);
-  const binding = new YBinding(editor, doc, {schemaVersion: 1, ...options});
+  const binding = new YBinding(editor, doc, {
+    onStatus: null,
+    schemaVersion: 1,
+    ...options,
+  });
   binding.start();
   binding.initialize();
   return {binding, editor, warnings};
@@ -103,7 +107,7 @@ describe.each([false, true])('the older gate, gc %s', gc => {
     doc.clientID = 7;
     const editor = editorOf();
     editor.update($commented, {discrete: true});
-    const b = new YBinding(editor, doc, {schemaVersion: 1});
+    const b = new YBinding(editor, doc, {onStatus: null, schemaVersion: 1});
     b.start();
     const app = new Y.UndoManager(doc, {
       captureTimeout: 0,
@@ -160,7 +164,12 @@ describe.each([false, true])('the older gate, gc %s', gc => {
     const remote = createYDoc(Y.encodeStateAsUpdate(local), {gc});
     remote.clientID = 80;
     const sv = Y.encodeStateVector(remote);
-    remote.transact(() => remote.get(ROOT).deleteAttr(`lexical-y:${FLOOR}`));
+    // (A new document records its own layout only, so the record below
+    // the floor is written here: an older release's.)
+    remote.transact(() => {
+      remote.get(ROOT).deleteAttr(`lexical-y:${FLOOR}`);
+      remote.get(ROOT).setAttr(`lexical-y:${FLOOR - 1}`, true);
+    });
     Y.applyUpdate(local, Y.encodeStateAsUpdate(remote, sv), 'remote');
     await flush();
     const dropped = recordedLayout(local);

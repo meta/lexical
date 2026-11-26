@@ -136,6 +136,11 @@ export type CarryConfig = Common & {
   variant: 'join' | 'blocktype';
   decor: boolean;
   deleteHeld: boolean;
+  /**
+   * B appends the untouched block in an update of its own, synced after its
+   * join or block type change (otherwise both are one update).
+   */
+  splitB?: boolean;
   hlScope: 'composer' | 'all';
   untouched: 'none' | 'code' | 'paragraph';
   untouchedVals: Value[];
@@ -443,6 +448,8 @@ function generateCarry(seed: number, gc: boolean): LaneHistory<CarryConfig> {
     ),
     variant: r() < 0.7 ? 'join' : 'blocktype',
   };
+  // Drawn last, so each seed keeps its other choices.
+  cfg.splitB = r() < 0.5;
   return {cfg, gc, ids: seed % 2 === 0 ? [1, 2] : [2, 1], lane: 'carry', seed};
 }
 
@@ -526,6 +533,9 @@ function simplifyCarry(
   const out: CarryConfig[] = [];
   if (c.deleteHeld) {
     out.push({...c, deleteHeld: false});
+  }
+  if (c.splitB) {
+    out.push({...c, splitB: false});
   }
   if (c.untouched !== 'none' && !c.deleteHeld) {
     out.push({...c, untouched: 'none'});
@@ -901,13 +911,7 @@ async function runCarry(h: LaneHistory<CarryConfig>): Promise<Finding[]> {
     });
     await t.sync();
     trace('A composes', {A: t.a, B: t.b});
-    t.b.update(() => {
-      const last = $getRoot().getLastChildOrThrow() as ElementNode;
-      if (cfg.variant === 'join') {
-        last.selectStart().deleteCharacter(true);
-      } else {
-        last.replace($createParagraphNode(), true);
-      }
+    const $appendUntouched = () => {
       if (cfg.untouched !== 'none' || cfg.deleteHeld) {
         const txt =
           $createTextNode('let untouched = 1;').setFormat('underline');
@@ -922,8 +926,26 @@ async function runCarry(h: LaneHistory<CarryConfig>): Promise<Finding[]> {
             : $createCodeNode('javascript');
         $getRoot().getLastChildOrThrow().insertAfter(blk.append(txt));
       }
+    };
+    t.b.update(() => {
+      const last = $getRoot().getLastChildOrThrow() as ElementNode;
+      if (cfg.variant === 'join') {
+        last.selectStart().deleteCharacter(true);
+      } else {
+        last.replace($createParagraphNode(), true);
+      }
+      if (!cfg.splitB) {
+        $appendUntouched();
+      }
       $setSelection(null);
     });
+    if (cfg.splitB) {
+      await t.sync();
+      t.b.update(() => {
+        $appendUntouched();
+        $setSelection(null);
+      });
+    }
     await t.sync();
     trace('B changed the code block', {A: t.a, B: t.b});
     const heldView = view(t.a);
@@ -936,6 +958,7 @@ async function runCarry(h: LaneHistory<CarryConfig>): Promise<Finding[]> {
     const raw = t.a.read(() => $rawValues(keys, line, tStart, tLen));
     const {intended, lastKind} = intendedOf(keys, raw, ops);
     let deleted = false;
+    let removedText = '';
     if (cfg.deleteHeld) {
       t.offline();
       t.b.update(() => {
@@ -944,6 +967,7 @@ async function runCarry(h: LaneHistory<CarryConfig>): Promise<Finding[]> {
           cfg.variant === 'join'
             ? blocks.find(b => b.getTextContent().includes(TEXT))
             : blocks[1];
+        removedText = held?.getTextContent() ?? '';
         held?.remove();
         $setSelection(null);
       });
@@ -982,6 +1006,18 @@ async function runCarry(h: LaneHistory<CarryConfig>): Promise<Finding[]> {
     const views = all.map(view);
     findings.push(...convergenceFindings(views.map(stripTok), labels));
     const final = views[views.length - 1];
+    // The block B removed does not come back on any peer or the fresh
+    // reader.
+    if (deleted && removedText.length > 0) {
+      views.forEach((v, i) => {
+        if (v.map(textOf).join('').includes(removedText)) {
+          findings.push({
+            cls: 'delete-undone',
+            detail: `${labels[i]}: ${JSON.stringify(removedText)} back in ${JSON.stringify(v.map(textOf))}`,
+          });
+        }
+      });
+    }
     const pre = await storedView(preEnd, w, gc);
     const heldPre = pre.findIndex(b => textOf(b).includes(TEXT));
     const heldIn = (v: View) =>

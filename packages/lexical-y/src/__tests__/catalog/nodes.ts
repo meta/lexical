@@ -47,8 +47,10 @@ import {$createOverflowNode, OverflowNode} from '@lexical/overflow';
 import {DecoratorBlockNode} from '@lexical/react/LexicalDecoratorBlockNode';
 import {
   $createHeadingNode,
+  $createQuoteContainerNode,
   $createQuoteNode,
   HeadingNode,
+  QuoteContainerNode,
   QuoteNode,
 } from '@lexical/rich-text';
 import {
@@ -68,6 +70,8 @@ import {
   $createTextNode,
   $getRoot,
   $setSlot,
+  $setState,
+  createState,
   type Klass,
   type LexicalNode,
   LineBreakNode,
@@ -254,6 +258,14 @@ export type Tag =
   /** Without text content. */
   | 'zero-text';
 
+/** Scalar NodeState of the catalog's `text/node-state` shape. */
+export const catalogTone = createState('catalog_tone', {
+  parse: v => (typeof v === 'string' ? v : ''),
+});
+export const catalogRank = createState('catalog_rank', {
+  parse: v => (typeof v === 'number' ? v : 0),
+});
+
 const $p = (...children: LexicalNode[]) =>
   $createParagraphNode().append(...children);
 const $t = (text: string) => $createTextNode(text);
@@ -356,6 +368,19 @@ export const NODE_SHAPES: readonly NodeShape[] = [
     $t(' styled').setStyle('color: red'),
     $t(' code').setFormat('code'),
   ]),
+  // NodeState stored flat on text (`s:<key>`, a paired run from layout 4
+  // on): a string, and a number under a text format.
+  inline(
+    'text/node-state',
+    'text',
+    [TextNode],
+    'lexical',
+    ['node-state'],
+    () => [
+      $setState($t('toned'), catalogTone, 'warm'),
+      $setState($t(' ranked').setFormat('bold'), catalogRank, 3),
+    ],
+  ),
   inline(
     'text/token',
     'text',
@@ -589,6 +614,46 @@ export const NODE_SHAPES: readonly NodeShape[] = [
   ),
   block('quote/text', 'block', [QuoteNode], '@lexical/*', [], () =>
     $createQuoteNode().append($t('quoted')),
+  ),
+  // A quote that is a shadow root (NodeState `shadowRoot`): it holds
+  // paragraphs, as a container does, although its class is a line class.
+  block(
+    'quote/shadow-root',
+    'container',
+    [QuoteNode],
+    '@lexical/*',
+    ['shadow-root'],
+    () =>
+      $createQuoteNode({shadowRoot: true}).append(
+        $p($t('quoted paragraph')),
+        $p($t('second paragraph')),
+      ),
+  ),
+  // A quote that holds blocks: a shadow root whose class declares
+  // `children: 'block'`, stored as a container of lines.
+  block(
+    'quote-container/paragraphs',
+    'container',
+    [QuoteContainerNode],
+    '@lexical/*',
+    ['shadow-root'],
+    () =>
+      $createQuoteContainerNode().append(
+        $p($t('quoted paragraph')),
+        $p($t('second paragraph')),
+      ),
+  ),
+  block(
+    'quote-container/list-and-quote',
+    'container',
+    [QuoteContainerNode, ListNode, ListItemNode],
+    '@lexical/*',
+    ['shadow-root', 'list', 'derived'],
+    () =>
+      $createQuoteContainerNode().append(
+        $catalogList('bullet'),
+        $createQuoteContainerNode().append($p($t('nested quote'))),
+      ),
   ),
   block(
     'code/highlighted',

@@ -152,12 +152,35 @@ export default defineConfig({
           include: [
             'packages/**/__tests__/unit/**/*.test{.ts,.tsx,.js,.jsx}',
             'dev-examples/**/__tests__/unit/**/*.test{.ts,.tsx,.js,.jsx}',
+            'examples/**/__tests__/unit/**/*.test{.ts,.tsx,.js,.jsx}',
           ],
           name: 'unit',
           // Reuse jsdom's implementation while keeping each file's window and
           // module graph isolated (platform mocks depend on that isolation).
           pool: unitPool,
           setupFiles: ['./vitest.setup.mts', './vitest.setup.node.mts'],
+          typecheck: {
+            tsconfig: './tsconfig.test.json',
+          },
+        },
+      },
+      {
+        extends: true,
+        test: {
+          environment: 'node',
+          include: ['packages/**/__tests__/size/**/*.test.ts'],
+          name: 'unit-size',
+          // Each file runs on a child process's main thread, whose stack (and
+          // so the number of arguments a call can take: 131,072 on Node's
+          // main thread, 4x that in a worker thread) is the one production
+          // code runs on. Documents sized past that limit catch a list of
+          // content spread into a call's arguments.
+          pool: 'forks',
+          // After the unit projects, so these CPU-heavy files never compete
+          // with jsdom suites that use the 5 s default timeout.
+          sequence: {groupOrder: 1},
+          setupFiles: ['./vitest.setup.node.mts'],
+          testTimeout: 300_000,
           typecheck: {
             tsconfig: './tsconfig.test.json',
           },

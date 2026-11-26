@@ -523,7 +523,11 @@ describe('LexicalCodeNode tests', () => {
       describe('rtl code lines', () => {
         const RTL_TEXT = 'تجربة';
 
-        async function setupRTLCode(editor: LexicalEditor) {
+        async function setupRTLCode(
+          editor: LexicalEditor,
+          text = RTL_TEXT,
+          offset = 1,
+        ) {
           registerRichText(editor);
           registerTabIndentation(editor);
           registerCodeHighlighting(editor);
@@ -532,14 +536,14 @@ describe('LexicalCodeNode tests', () => {
             const code = $createCodeNode('plaintext');
             root.append(code);
             code.selectStart();
-            $getSelection()!.insertRawText(RTL_TEXT);
+            $getSelection()!.insertRawText(text);
           });
           await editor.update(() => {
             const highlightNode = $dfs().find(({node}) =>
               $isCodeHighlightNode(node),
             )!.node;
             invariant($isTextNode(highlightNode));
-            highlightNode.select(1, 1);
+            highlightNode.select(offset, offset);
           });
         }
 
@@ -561,6 +565,26 @@ describe('LexicalCodeNode tests', () => {
             expect(selection.isCollapsed()).toBe(true);
             const anchorNode = selection.anchor.getNode();
             invariant($isTextNode(anchorNode));
+            expect(selection.anchor.offset).toBe(0);
+          });
+        });
+
+        test('MOVE_TO_END moves caret to visual right when the line starts with an emoji', async () => {
+          const {editor} = testEnv;
+          await setupRTLCode(editor, `🎉 ${RTL_TEXT}`, 4);
+
+          await editor.dispatchCommand(
+            MOVE_TO_END,
+            new KeyboardEvent('keydown'),
+          );
+
+          await editor.update(() => {
+            const selection = $getSelection();
+            invariant(
+              $isRangeSelection(selection),
+              'Expected selection to be RangeSelection',
+            );
+            expect(selection.isCollapsed()).toBe(true);
             expect(selection.anchor.offset).toBe(0);
           });
         });

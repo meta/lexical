@@ -131,7 +131,12 @@ function clients(
         dependencies: [
           RichTextExtension,
           ListExtension,
-          configExtension(YCollabExtension, {doc, schemaVersion: 1, selfCheck}),
+          configExtension(YCollabExtension, {
+            doc,
+            onYStatus: null,
+            schemaVersion: 1,
+            selfCheck,
+          }),
           ...(blockIds ? [BlockIdExtension] : []),
         ],
         name: `@lexical/y/test/drift-${i}`,

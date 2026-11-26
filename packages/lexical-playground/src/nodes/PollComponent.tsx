@@ -147,7 +147,7 @@ export default function PollComponent({
   useEffect(() => {
     return mergeRegister(
       editor.registerUpdateListener(({editorState}) => {
-        setSelection(editorState.read(() => $getSelection()));
+        setSelection(editor.read(editorState, () => $getSelection()));
       }),
       editor.registerCommand(
         CLICK_COMMAND,

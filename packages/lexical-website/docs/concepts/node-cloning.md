@@ -8,7 +8,8 @@ Lexical provides several ways to clone nodes, each serving a different purpose:
 
 1. `static clone()` - Internal API for state management
 2. `$copyNode()` - Public API for creating new nodes
-3. `getWritable()` - Public API for node modifications
+3. `$deepCopy()` - Public API for copying a node together with its subtree
+4. `getWritable()` - Public API for node modifications
 
 ## The `clone` Method
 
@@ -144,6 +145,49 @@ const copy = $copyNode(existingNode);
    someParent.append(duplicate);
    ```
 
+`$copyNode` is shallow: the copy has no children. To copy a node together
+with everything inside it, use [`$deepCopy`](#using-deepcopy).
+
+## Using `$deepCopy`
+
+### What is `$deepCopy`?
+
+`$deepCopy` returns a copy of a node, its children and its named slots,
+recursively, all with new keys. It works by serializing the subtree to
+Lexical JSON and parsing it back, so the copy keeps everything a Lexical JSON
+paste keeps, including [NodeState](./node-state.md). Like `$copyNode`, the
+copy is detached and you insert it yourself.
+
+Because the copy is made from JSON, only what the node's `exportJSON` writes
+is copied; anything it keeps only in memory is not.
+
+Unlike `$copyNode`, the copy is not reset: `resetOnCopyNodeFrom` is not
+called, and NodeState declared with `resetOnCopyNode` keeps its value. A copied
+list item stays checked and a copied block keeps its block id, just as it would
+when pasted; an extension that needs unique values (such as `BlockIdExtension`)
+fixes them when the copy is inserted.
+
+A descendant element whose `excludeFromCopy('clone')` returns `true` is left
+out of the copy and its children take its place, the same as when copying to
+the clipboard; that element's own NodeState and slots are not copied. The node
+you pass in, and the value of each slot, are always copied.
+
+The `RootNode` cannot be copied; to copy a whole document, copy each of the
+root's children.
+
+```typescript
+// ✅ Correct: Duplicating a block with its content
+const duplicate = $deepCopy(paragraph);
+paragraph.insertAfter(duplicate);
+```
+
+### `$copyNode` or `$deepCopy`?
+
+- Use `$copyNode` when you want the node alone, for example to wrap or
+  replace a node and then move its existing children into the new one.
+- Use `$deepCopy` when you want an independent duplicate of the whole
+  subtree, for example for a "Duplicate block" command.
+
 ## Using `getWritable`
 
 ### What is `getWritable`?
@@ -189,6 +233,11 @@ function $updateNodeDataWrong(node: MyCustomNode, newData: string): MyCustomNode
 // ✅ Correct: Copying a node
 function $duplicateNode(node: MyCustomNode): MyCustomNode {
   return $copyNode(node);
+}
+
+// ✅ Correct: Copying a node and its children
+function $duplicateBlock(node: ElementNode): ElementNode {
+  return $deepCopy(node);
 }
 
 // ❌ Incorrect: Don't use clone

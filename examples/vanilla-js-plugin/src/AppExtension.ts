@@ -40,7 +40,11 @@ export const AppExtension = defineExtension({
     const html = document.querySelector<HTMLTextAreaElement>('#html')!;
     return mergeRegister(
       editor.registerUpdateListener(({editorState}) => {
-        stateRef.value = JSON.stringify(editorState.toJSON(true), null, 2);
+        stateRef.value = JSON.stringify(
+          editorState.read(() => editorState.toJSON(true), {editor}),
+          null,
+          2,
+        );
       }),
       registerEventListener(
         document.getElementById('export-html')!,

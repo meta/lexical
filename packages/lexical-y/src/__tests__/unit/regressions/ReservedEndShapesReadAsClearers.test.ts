@@ -26,7 +26,7 @@ import {$createParagraphNode, $getRoot} from 'lexical';
 import {describe, expect, test} from 'vitest';
 
 import {isEndValue} from '../../../internal/Ident';
-import {writeLayout3Formats} from '../../../internal/Layout3';
+import {writeLayout4Formats} from '../../../migrate/3to4/frozen/layout4';
 import {RESERVED_END_SHAPES} from '../../catalog/coveredValues';
 import {expectConverged, freshReader, setup, shape} from '../../utils/harness';
 import {
@@ -102,7 +102,7 @@ for (const gc of [false, true]) {
         root.insert(0, 'ab');
         const value = make();
         doc.transact(tr =>
-          writeLayout3Formats(tr, root, [
+          writeLayout4Formats(tr, root, [
             new Map([['p:meta', value]]),
             new Map(),
           ]),

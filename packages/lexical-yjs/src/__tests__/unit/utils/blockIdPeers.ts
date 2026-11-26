@@ -38,7 +38,6 @@ import {
   $isElementNode,
   $isRangeSelection,
   $isRootNode,
-  $parseSerializedNode,
   COLLABORATION_TAG,
   configExtension,
   DELETE_CHARACTER_COMMAND,
@@ -48,8 +47,6 @@ import {
   type LexicalEditor,
   type LexicalNode,
   type SerializedEditorState,
-  type SerializedElementNode,
-  type SerializedLexicalNode,
   SKIP_COLLAB_TAG,
 } from 'lexical';
 import {
@@ -442,18 +439,6 @@ export function readIds(
   } finally {
     reader.dispose();
   }
-}
-
-/** A deep copy that keeps NodeState, as a Lexical-JSON paste does. */
-export function $deepCopy<T extends LexicalNode>(node: T): T {
-  const serialize = (n: LexicalNode): SerializedLexicalNode => {
-    const json = n.exportJSON();
-    if ($isElementNode(n)) {
-      (json as SerializedElementNode).children = n.getChildren().map(serialize);
-    }
-    return json;
-  };
-  return $parseSerializedNode(serialize(node)) as T;
 }
 
 export function $block(index: number): ElementNode {

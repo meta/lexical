@@ -2494,6 +2494,91 @@ describe('insertText formatDiffers on empty text node', () => {
   });
 });
 
+describe('insertText respects canInsertTextBefore/After of inline elements', () => {
+  // Keeps ElementNode's defaults, including canInsertTextBefore/After() and
+  // canBeEmpty() returning true, so text at its boundaries stays inside it.
+  class AllowTextInlineNode extends ElementNode {
+    $config() {
+      return this.config('test_allow_text_inline', {extends: ElementNode});
+    }
+    createDOM() {
+      return document.createElement('span');
+    }
+    updateDOM() {
+      return false;
+    }
+    isInline() {
+      return true;
+    }
+  }
+  const inlineTestExtension = defineExtension({
+    dependencies: [selectionTestExtension],
+    name: '@test/inline-insert-text',
+    nodes: [AllowTextInlineNode],
+  });
+  const cases: [string, number, number, string][] = [
+    ['collapsed at the end', 2, 2, 'abY'],
+    ['collapsed at the start', 0, 0, 'Yab'],
+    ['replacing the last character', 1, 2, 'aY'],
+    ['replacing the first character', 0, 1, 'Yb'],
+    ['replacing all of the text', 0, 2, 'Y'],
+  ];
+  for (const [name, anchorOffset, focusOffset, expected] of cases) {
+    test(`keeps text inside an inline element that allows it when ${name}`, () => {
+      using editor = buildEditorFromExtensions(inlineTestExtension);
+      editor.update(
+        () => {
+          const text = $createTextNode('ab');
+          const inline = new AllowTextInlineNode().append(text);
+          const paragraph = $createParagraphNode().append(inline);
+          $getRoot().clear().append(paragraph);
+          text.select(anchorOffset, focusOffset).insertText('Y');
+          expect(paragraph.getChildren()).toEqual([inline.getLatest()]);
+          expect(inline.getTextContent()).toBe(expected);
+        },
+        {discrete: true},
+      );
+    });
+  }
+
+  test('keeps differently formatted text inside an inline element that allows it', () => {
+    using editor = buildEditorFromExtensions(inlineTestExtension);
+    editor.update(
+      () => {
+        const text = $createTextNode('ab');
+        const inline = new AllowTextInlineNode().append(text);
+        const paragraph = $createParagraphNode().append(inline);
+        $getRoot().clear().append(paragraph);
+        const selection = text.select(2, 2);
+        selection.format = IS_BOLD;
+        selection.insertText('Y');
+        expect(paragraph.getChildren()).toEqual([inline.getLatest()]);
+        expect(inline.getTextContent()).toBe('abY');
+        const last = $assertNodeType(inline.getLastChild(), $isTextNode);
+        expect(last.getTextContent()).toBe('Y');
+        expect(last.hasFormat('bold')).toBe(true);
+      },
+      {discrete: true},
+    );
+  });
+
+  test('moves replacement text out of an inline element that refuses it', () => {
+    using editor = buildEditorFromExtensions(selectionTestExtension);
+    editor.update(
+      () => {
+        const text = $createTextNode('ab');
+        const link = $createLinkNode('https://').append(text);
+        const paragraph = $createParagraphNode().append(link);
+        $getRoot().clear().append(paragraph);
+        text.select(1, 2).insertText('Y');
+        expect(link.getTextContent()).toBe('a');
+        expect(paragraph.getTextContent()).toBe('aY');
+      },
+      {discrete: true},
+    );
+  });
+});
+
 describe('RangeSelection.isBackward() caching (#5825)', () => {
   test('caches the result and invalidates on Point mutations', () => {
     using editor = buildEditorFromExtensions(selectionTestExtension);

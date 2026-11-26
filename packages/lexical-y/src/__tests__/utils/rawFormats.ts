@@ -29,7 +29,7 @@ import {
   stepFormat,
   STORED_FOLD,
 } from '../../internal/Ident';
-import {readLayout3Formats} from '../../internal/Layout3';
+import {readLayout4Formats} from '../../migrate/3to4/frozen/layout4';
 import {flush, Peer} from './harness';
 
 /** A family of covered names, and how the editor shows one of its runs. */
@@ -210,7 +210,7 @@ export function coreRead(root: Y.Node): Record<string, unknown>[] {
 
 /** Layout3's pure read per countable unit of `root`. */
 export const pureRead = (root: Y.Node): Record<string, unknown>[] =>
-  readLayout3Formats(root).map(m => Object.fromEntries(m));
+  readLayout4Formats(root).map(m => Object.fromEntries(m));
 
 /** A fresh reader of `from`'s state sent as a binary (V2) update. */
 export async function freshReaderV2(from: Peer): Promise<Peer> {

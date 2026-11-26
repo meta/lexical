@@ -6,7 +6,6 @@
  *
  */
 
-import type {ClientIDRange} from '../../internal/ClientID';
 import type {YDoc} from '../../internal/YDoc';
 import type {Node as YNode} from '@y/y';
 import type {LexicalEditor} from 'lexical';
@@ -22,12 +21,12 @@ import {YBinding} from '../../internal/Binding';
 export function writeEditorToYDoc(
   editor: LexicalEditor,
   doc: YDoc,
-  options: {root?: YNode; clientIDRange?: ClientIDRange} = {},
+  options: {root?: YNode} = {},
 ): void {
   const binding = new YBinding(editor, doc, {
     captureTimeout: null,
-    clientIDRange: options.clientIDRange,
     convert: true,
+    onStatus: null,
     root: options.root,
     schemaVersion: 1,
   });

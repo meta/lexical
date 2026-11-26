@@ -15,6 +15,7 @@ import {
   focusEditor,
   initialize,
   insertYouTubeEmbed,
+  locate,
   mouseMoveToSelector,
   selectorBoundingBox,
   test,
@@ -171,6 +172,87 @@ test.describe('DraggableBlock', () => {
       </p>
     `,
       );
+    });
+
+    test('Dragging a paragraph above the first paragraph works when the window is scrolled', async ({
+      page,
+    }) => {
+      // Regression test for #9943: dragover/drop compared the pointer's page
+      // position (pageY) with the block's viewport position, so any window
+      // scroll made every drop land after the hovered block.
+      await focusEditor(page);
+      for (let i = 1; i <= 40; i++) {
+        await page.keyboard.type(`Paragraph ${i}`);
+        if (i < 40) {
+          await page.keyboard.press('Enter');
+        }
+      }
+      // Scroll the window, but only half as far as the sticky toolbar's
+      // position on the page: it then still scrolls with the editor and
+      // cannot cover the first paragraph.
+      // (Typing scrolled the window to the end, so measure from the top.)
+      const scrollY = await page.evaluate(() => {
+        window.scrollTo(0, 0);
+        const toolbarTop =
+          document.querySelector('.toolbar').getBoundingClientRect().top +
+          window.scrollY;
+        window.scrollTo(0, Math.floor(toolbarTop / 2));
+        return window.scrollY;
+      });
+      expect(scrollY).toBeGreaterThan(0);
+
+      const paragraphs = '.ContentEditable__root > p';
+      await mouseMoveToSelector(page, `${paragraphs} >> nth=5`);
+      const firstParagraph = await selectorBoundingBox(
+        page,
+        `${paragraphs} >> nth=0`,
+      );
+      // The drop point must be on the editor, not under the toolbar, or the
+      // drag below tests the layout instead of the plugin.
+      expect(
+        await page.evaluate(
+          ([x, y]) =>
+            document
+              .elementFromPoint(x, y)
+              ?.closest('.ContentEditable__root') != null,
+          [firstParagraph.x + 20, firstParagraph.y - 2],
+        ),
+      ).toBe(true);
+      // Hold the drag 2px above the top edge of the first paragraph.
+      await dragMouse(
+        page,
+        await selectorBoundingBox(page, '.draggable-block-menu'),
+        firstParagraph,
+        {mouseUp: false, offsetEnd: {x: 20, y: -2}, positionEnd: 'start'},
+      );
+      // The move above starts the drag; move again so dragover fires there.
+      await page.mouse.move(firstParagraph.x + 21, firstParagraph.y - 2);
+      // The drop indicator line (positioned on dragover) is shown just above
+      // the first paragraph, not below it. While hidden, the line is parked
+      // far off screen, so check that it is shown and next to the paragraph.
+      await expect
+        .poll(async () => {
+          const line = locate(page, '.draggable-block-target-line');
+          if ((await line.evaluate(el => el.style.opacity)) === '0') {
+            return 'hidden';
+          }
+          const box = await line.boundingBox();
+          const lineMiddle = box.y + box.height / 2;
+          const {y, height} = firstParagraph;
+          if (lineMiddle < y - height || lineMiddle > y + 2 * height) {
+            return 'elsewhere';
+          }
+          return lineMiddle < y + height / 2 ? 'above' : 'below';
+        })
+        .toBe('above');
+      await page.mouse.up();
+
+      await expect(
+        page.locator('.ContentEditable__root > p').first(),
+      ).toHaveText('Paragraph 6');
+      await expect(
+        page.locator('.ContentEditable__root > p').nth(1),
+      ).toHaveText('Paragraph 1');
     });
   });
 

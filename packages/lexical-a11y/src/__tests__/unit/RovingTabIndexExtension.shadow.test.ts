@@ -132,4 +132,55 @@ describe('RovingTabIndexExtension (shadow DOM)', () => {
 
     expect(getActiveElementDeep(document)).toBe(c);
   });
+
+  // The reverse shadow shape: the roving *item* is in the light DOM and the
+  // focus target it hosts is inside its own shadow root, which is what an item
+  // backed by a custom element looks like. getActiveElementDeep resolves to the
+  // inner button, so the item is only found through the composed tree.
+  function createShadowHostItems(): {
+    hosts: HTMLElement[];
+    inner: HTMLButtonElement[];
+    toolbar: HTMLDivElement;
+  } {
+    const toolbar = document.createElement('div');
+    document.body.appendChild(toolbar);
+    const hosts: HTMLElement[] = [];
+    const inner: HTMLButtonElement[] = [];
+    for (const label of ['a', 'b', 'c']) {
+      const host = document.createElement('div');
+      host.setAttribute('data-roving-item', '');
+      const root = host.attachShadow({mode: 'open'});
+      const button = document.createElement('button');
+      button.textContent = label;
+      root.appendChild(button);
+      toolbar.appendChild(host);
+      hosts.push(host);
+      inner.push(button);
+    }
+    return {hosts, inner, toolbar};
+  }
+
+  test('ArrowRight advances from a shadow-host item to the next one', () => {
+    using editor = buildRovingEditor();
+    const {hosts, inner, toolbar} = createShadowHostItems();
+    onTestFinished(
+      getRegistry(editor).register(toolbar, {
+        itemSelector: '[data-roving-item]',
+        orientation: 'horizontal',
+      }),
+    );
+
+    inner[1].focus();
+    expect(getActiveElementDeep(document)).toBe(inner[1]);
+    inner[1].dispatchEvent(
+      new KeyboardEvent('keydown', {
+        bubbles: true,
+        composed: true,
+        key: 'ArrowRight',
+      }),
+    );
+
+    expect(getActiveElementDeep(document)).toBe(hosts[2]);
+    expect(hosts.map(host => host.tabIndex)).toEqual([-1, -1, 0]);
+  });
 });
