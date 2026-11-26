@@ -302,10 +302,9 @@ export function getDeclaredNodeStructure(
  * `$config()` names the type `'overflow'` and extends `ElementNode`.
  *
  * The character limit wraps it around the overflowing part of a paragraph's
- * text. It is inline content although its `isInline()` is false (it keeps a
- * block's caret and deletion behaviour, see #6535), so it is allowed
- * wherever inline content or blocks are, and a paragraph keeps it rather than
- * being split around it.
+ * text. It is inline content, and is also allowed wherever blocks are, so the
+ * overflow of a block-level node such as a decorator stays legal directly
+ * under the root, and a paragraph keeps it rather than being split around it.
  */
 function isOverflowClass(klass: Klass<LexicalNode>): boolean {
   let result = overflowCache.get(klass);
@@ -354,8 +353,7 @@ function isInlineChild(node: LexicalNode): boolean {
  *
  * Whether the node structure normalization treats `node` as inline content
  * (what a holder of `'inline'` keeps in its line): text, line breaks, inline
- * elements and decorators, and the character limit's `OverflowNode`, which
- * is inline content although its `isInline()` is false.
+ * elements and decorators, including the character limit's `OverflowNode`.
  */
 export function INTERNAL_isInlineContent(node: LexicalNode): boolean {
   return isInlineChild(node);

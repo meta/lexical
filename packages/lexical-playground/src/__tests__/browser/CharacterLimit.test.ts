@@ -173,6 +173,14 @@ describe.each(['UTF-8', 'UTF-16'] as const)('character limit %s', charset => {
         expect(getText()).toBe(isRichText ? '123456\n\nx7' : '123456\nx7');
       });
 
+      test('Backspace at the start of the overflow deletes across the limit', async () => {
+        const getText = await setupMidOverflow();
+        await press('ArrowLeft');
+        await press('Backspace');
+        await typeText('x');
+        expect(getText()).toBe('1234x67');
+      });
+
       test('Backspace deletes the character before the caret', async () => {
         const getText = await setupMidOverflow();
         await press('Backspace');
