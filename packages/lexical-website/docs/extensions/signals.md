@@ -103,9 +103,9 @@ export const TabIndentationExtension = defineExtension({
     const {disabled, maxIndent, $canIndent} = state.getOutput();
     return effect(() => {
       if (!disabled.value) {
-        // This register function's implementation uses peek on the maxIndent
-        // signal to get its current value when needed, no need to re-register
-        // every time this value changes.
+        // registerTabIndentation subscribes to the maxIndent signal itself
+        // (to re-register its transforms), so this effect does not need to
+        // re-run when that value changes.
         return registerTabIndentation(editor, maxIndent, $canIndent);
       }
     });

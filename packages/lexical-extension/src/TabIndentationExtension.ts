@@ -108,8 +108,11 @@ function registerMaxIndentTransforms(
  * the indent depth (indents below `maxIndent`), and `$canIndent` to control
  * which elements may be indented. The `maxIndent` cap applies to local edits,
  * pastes, the initial state and parsed states passed to `setEditorState`;
- * remote collaboration updates are not clamped. Deeper indents already in the
- * document are clamped once on registration.
+ * remote collaboration updates are not clamped, though a remote block is
+ * clamped once a local update changes it (eg. its alignment), and that clamp
+ * syncs to the other peers. Deeper indents already in the document are clamped
+ * once on registration. A list item is clamped by outdenting it, so a nested
+ * list of another type past the limit joins its parent list, as Shift+Tab does.
  *
  * @returns A cleanup function that unregisters the handler.
  */
