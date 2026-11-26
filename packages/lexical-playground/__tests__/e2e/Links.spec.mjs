@@ -6,8 +6,6 @@
  *
  */
 
-import {expect} from '@playwright/test';
-
 import {
   deleteBackward,
   moveLeft,

@@ -10,6 +10,7 @@ import {buildEditorFromExtensions, defineExtension} from '@lexical/extension';
 import {
   $createAutoLinkNode,
   $createLinkNode,
+  $isAutoLinkNode,
   $isLinkNode,
   $toggleLink,
   formatUrl,
@@ -996,20 +997,21 @@ describe('LexicalLinkNode tests', () => {
       });
     });
 
-    test('$toggleLink does nothing for a collapsed selection inside an autolink', async () => {
+    test('$toggleLink replaces an autolink around a collapsed selection with a link to the new URL', async () => {
       const {editor} = testEnv;
       await editor.update(() => {
         const p = $createParagraphNode();
         const textNode = $createTextNode('https://lexical.dev');
-        const autoLinkNode = $createAutoLinkNode('https://lexical.dev');
-        p.append(autoLinkNode.append(textNode));
+        p.append($createAutoLinkNode('https://lexical.dev').append(textNode));
         $getRoot().clear().append(p);
         textNode.select(4, 4);
         $toggleLink('https://facebook.com/');
 
-        expect(p.getChildren()).toEqual([autoLinkNode]);
-        expect(autoLinkNode.getURL()).toBe('https://lexical.dev');
-        expect(autoLinkNode.getTextContent()).toBe('https://lexical.dev');
+        const [link] = p.getChildren();
+        assert($isLinkNode(link));
+        expect($isAutoLinkNode(link)).toBe(false);
+        expect(link.getURL()).toBe('https://facebook.com/');
+        expect(link.getTextContent()).toBe('https://lexical.dev');
       });
     });
 
