@@ -864,8 +864,8 @@ test.describe('HorizontalRule', () => {
         await page.keyboard.down('Shift');
         await page.mouse.click(x, y);
         await page.keyboard.up('Shift');
-        // The range now spans the rule instead of being replaced by a
-        // NodeSelection of it.
+        // The range is kept instead of being replaced by a NodeSelection of
+        // the rule (Firefox ends it before the rule, Chromium after it).
         await expect
           .poll(() =>
             getPageOrFrame(page).evaluate(() => {

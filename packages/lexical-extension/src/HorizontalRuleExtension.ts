@@ -167,6 +167,10 @@ function $getHorizontalRuleAtClick(
       continue;
     }
     const rect = dom.getBoundingClientRect();
+    if (rect.width === 0 && rect.height === 0) {
+      // Not laid out (display: none, or jsdom): nothing to click beside.
+      continue;
+    }
     const style = view.getComputedStyle(dom);
     if (
       clientX < rect.left - parseFloat(style.marginLeft) ||
