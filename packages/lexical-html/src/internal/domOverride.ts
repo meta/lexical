@@ -23,7 +23,6 @@ import type {LexicalNode} from 'lexical';
  * editor's render pipeline (reconciliation), `disabledForSession` gates
  * participation in a single export/generate session. See {@link DOMOverrideOptions}.
  *
- * @experimental
  * @__NO_SIDE_EFFECTS__
  */
 

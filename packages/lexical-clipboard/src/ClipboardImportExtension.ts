@@ -64,8 +64,6 @@ import {
  * the next MIME type). Return `$next()` to delegate. Return `false` if the
  * function decided not to handle the data after inspecting it (e.g. the
  * JSON namespace didn't match) so the next MIME type gets a chance.
- *
- * @experimental
  */
 export type ImportMimeTypeFunction = (
   data: string,
@@ -90,8 +88,6 @@ export type ImportMimeTypeFunction = (
  * To transform HTML before {@link ClipboardDOMImportExtension} handles it,
  * declare it as a dependency or optional peer dependency of the extension
  * providing the transform, so its configuration is merged first.
- *
- * @experimental
  */
 
 export type ImportMimeTypeConfig = {
@@ -115,8 +111,6 @@ export type ImportMimeTypeConfig = {
  * the dataTransfer (regardless of whether it has an explicit weight) is
  * tried; MIME types with no explicit weight sort to the end, behind all
  * weighted ones, in lexical order.
- *
- * @experimental
  */
 export type ImportMimeTypePriority = {
   readonly [key in keyof LexicalClipboardData | (string & {})]?:
@@ -126,8 +120,6 @@ export type ImportMimeTypePriority = {
 
 /**
  * Configuration for {@link ClipboardImportExtension}.
- *
- * @experimental
  */
 export interface ClipboardImportConfig {
   /**
@@ -160,8 +152,6 @@ export interface ClipboardImportConfig {
  * Gaps between weights let third-party MIME types slot in (e.g. weight
  * 5 to run between lexical and html). Apps can also override built-in
  * weights to demote them.
- *
- * @experimental
  */
 export const DEFAULT_IMPORT_MIME_TYPE_PRIORITY: ImportMimeTypePriority = {
   'application/x-lexical-editor': 0,
@@ -277,8 +267,6 @@ const $defaultPlainTextImporter: ImportMimeTypeFunction = (data, selection) => {
  * The default per-MIME-type handler stacks reproducing the legacy
  * {@link $insertDataTransferForRichText} behavior exactly. Stacked
  * extensions append on top of these.
- *
- * @experimental
  */
 export const DEFAULT_IMPORT_MIME_TYPE: ImportMimeTypeConfig = {
   'application/x-lexical-editor': [$defaultLexicalEditorImporter],
@@ -296,8 +284,6 @@ export const DEFAULT_IMPORT_MIME_TYPE: ImportMimeTypeConfig = {
  * the entire paste-side iteration over the priority list. Apps look this
  * up via peer-dependency and call it directly; {@link
  * $insertDataTransferForRichText} delegates to it.
- *
- * @experimental
  */
 export interface ClipboardImportOutput extends ClipboardImportConfig {
   /**
@@ -424,8 +410,6 @@ export function $getImportOutput(): ClipboardImportOutput {
 }
 
 /**
- * @experimental
- *
  * Mirror of {@link GetClipboardDataExtension} for the import direction.
  * Holds a per-MIME-type stack of {@link ImportMimeTypeFunction}s.
  *
@@ -509,8 +493,6 @@ export const ClipboardImportExtension = defineExtension({
 });
 
 /**
- * @experimental
- *
  * Drop-in extension that routes `text/html` clipboard pastes and drops
  * through the {@link DOMImportExtension} pipeline (rules, schemas,
  * preprocessors, overlays) instead of the legacy

@@ -58,8 +58,6 @@ let compactExport = false;
  *   $generateJSONFromSelectedNodes(editor, $getSelection()),
  * );
  * ```
- *
- * @experimental
  */
 export function $withCompactExport<T>(
   compact: boolean,
@@ -128,8 +126,6 @@ export function $withCompactExport<T>(
  *
  * Anything with a call site of its own should take the form as an argument
  * rather than read it here.
- *
- * @experimental
  */
 export function $isCompactExport(): boolean {
   return compactExport;
@@ -157,8 +153,6 @@ function isThenable(value: unknown): boolean {
  * {@link SerializedPartial} — the one both forms satisfy. A caller that knows
  * it is not under {@link $withCompactExport} and wants the full type should
  * call `node.exportJSON()` directly.
- *
- * @experimental
  */
 export function $exportNodeJSON(
   node: LexicalNode,

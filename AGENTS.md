@@ -410,8 +410,8 @@ When creating custom nodes:
    extension that provides the node: list `CoreImportExtension` and
    `configExtension(DOMImportExtension, {rules: [...]})` in its
    `dependencies` (see `ListExtension`, and `ListImportRules` for the rules,
-   in `@lexical/list`). Both APIs are `@experimental`, and the rules only
-   apply where the editor routes HTML through the pipeline; see
+   in `@lexical/list`). The rules only apply where the editor routes HTML
+   through the pipeline; see
    `packages/lexical-website/docs/serialization/dom-import.md`.
    `importDOM()`, which that page calls legacy, is not deprecated yet, but
    its deprecation is planned.

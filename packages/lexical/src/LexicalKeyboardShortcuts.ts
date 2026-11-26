@@ -20,8 +20,6 @@ import {IS_APPLE} from './environment';
 import {CONTROL_OR_OTHER_KEY} from './LexicalConstants';
 
 /**
- * @experimental
- *
  * The data that describes which keyboard events a shortcut matches: an
  * `event.key` value (case-insensitive) plus a
  * {@link KeyboardEventModifierMask}. The matching semantics are identical to
@@ -48,8 +46,6 @@ export interface KeyboardShortcutMatch {
 }
 
 /**
- * @experimental
- *
  * A keyboard shortcut is pure data: the key and modifiers to match, and the
  * command to dispatch (with the matched KeyboardEvent as its payload) when
  * it does. Keeping the action to a command keeps the mapping declarative —
@@ -204,7 +200,7 @@ function pushEntry<S>(map: Map<string, S[]>, mapKey: string, shortcut: S) {
 }
 
 /**
- * @experimental @internal
+ * @internal
  *
  * A shortcut table compiled for O(1) dispatch. Look-up is by a composite of
  * the event's modifier bitmask and its `key` (with a second look-up by
@@ -282,7 +278,7 @@ export class CompiledKeyboardShortcuts<
 }
 
 /**
- * @experimental @internal
+ * @internal
  *
  * Compile a table of keyboard shortcuts down to a form that dispatches
  * based on the pressed key and modifiers in O(1), instead of testing each

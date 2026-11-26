@@ -413,8 +413,6 @@ export type HTMLConfig = {
 export type LexicalNodeConfig = Klass<LexicalNode> | LexicalNodeReplacement;
 
 /**
- * @experimental
- *
  * The slot type produced by `$getDOMSlot` for a given node, narrowed via
  * the node's static class: `ElementNode` resolves to {@link ElementDOMSlot}
  * (with children-management methods), other nodes to the base
@@ -425,15 +423,15 @@ export type DOMSlotForNode<N extends LexicalNode> = N extends ElementNode
   ? ElementDOMSlot<HTMLElement>
   : DOMSlot<HTMLElement>;
 
-/** @internal @experimental */
+/** @internal */
 export interface EditorDOMRenderConfig {
-  /** @internal @experimental */
+  /** @internal */
   $createDOM: <T extends LexicalNode>(
     node: T,
     editor: LexicalEditor,
   ) => HTMLElement;
   /**
-   * @internal @experimental
+   * @internal
    *
    * The default impl dispatches to `node.getDOMSlot(dom)`. The return type is
    * narrowed via {@link DOMSlotForNode}: callers passing an `ElementNode` get
@@ -445,12 +443,12 @@ export interface EditorDOMRenderConfig {
     dom: HTMLElement,
     editor: LexicalEditor,
   ) => DOMSlotForNode<N>;
-  /** @internal @experimental */
+  /** @internal */
   $exportDOM: <T extends LexicalNode>(
     node: T,
     editor: LexicalEditor,
   ) => DOMExportOutput;
-  /** @internal @experimental */
+  /** @internal */
   $extractWithChild: <T extends LexicalNode>(
     node: T,
     childNode: LexicalNode,
@@ -458,7 +456,7 @@ export interface EditorDOMRenderConfig {
     destination: 'clone' | 'html',
     editor: LexicalEditor,
   ) => boolean;
-  /** @internal @experimental */
+  /** @internal */
   $decorateDOM: <T extends LexicalNode>(
     node: T,
     prevNode: null | T,
@@ -466,7 +464,7 @@ export interface EditorDOMRenderConfig {
     editor: LexicalEditor,
   ) => void;
   /**
-   * @internal @experimental named-slots
+   * @internal
    *
    * Where a named slot's container should attach, for hosts rendered
    * entirely in-lexical (no chrome framework). The reconciler consults
@@ -488,20 +486,20 @@ export interface EditorDOMRenderConfig {
     hostDom: HTMLElement,
     editor: LexicalEditor,
   ) => HTMLElement | null;
-  /** @internal @experimental */
+  /** @internal */
   $updateDOM: <T extends LexicalNode>(
     nextNode: T,
     prevNode: T,
     dom: HTMLElement,
     editor: LexicalEditor,
   ) => boolean;
-  /** @internal @experimental */
+  /** @internal */
   $shouldInclude: <T extends LexicalNode>(
     node: T,
     selection: null | BaseSelection,
     editor: LexicalEditor,
   ) => boolean;
-  /** @internal @experimental */
+  /** @internal */
   $shouldExclude: <T extends LexicalNode>(
     node: T,
     selection: null | BaseSelection,
@@ -965,7 +963,7 @@ export function getTransformSetFromKlass(
   return transforms;
 }
 
-/** @internal @experimental */
+/** @internal */
 export const DEFAULT_EDITOR_DOM_CONFIG: EditorDOMRenderConfig = {
   $createDOM: (node, editor) => node.createDOM(editor._config, editor),
   $decorateDOM: (_node, _prevNode, _dom, _editor) => {},
@@ -1266,7 +1264,7 @@ export class LexicalEditor {
   /** @internal */
   _blockCursorElement: null | HTMLDivElement;
   /**
-   * @internal @experimental
+   * @internal
    *
    * Latches to `true` the first time {@link $setSlot} runs in this
    * editor. Gates the commit-time slot-containment clamp so editors that never
