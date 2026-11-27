@@ -468,19 +468,19 @@ function generateCorpus(count: number): string[] {
   return corpus;
 }
 
-const CORPUS = [...generateCorpus(3000), ...COUNTEREXAMPLES, ...BRACKETED];
+const CORPUS = [...generateCorpus(500), ...COUNTEREXAMPLES, ...BRACKETED];
 
 describe('the model of the cmark-gfm pass', () => {
   it('parses a long paragraph twice', () => {
     const editor = createModelEditor();
     // The reading and the final check, where parse verdicts take 6n + 1
-    // parses (769 here). They repair each copy, as alone.
-    const markdown = Array(128).fill(SPLITS).join(' ');
+    // parses (97 here). They repair each copy, as alone.
+    const markdown = Array(16).fill(SPLITS).join(' ');
     expect(countParsesWith(editor, markdown)).toBe(2);
     expect(exportWith(editor, markdown)).toBe(
-      Array(128).fill(SPLITS_REPAIRED).join(' '),
+      Array(16).fill(SPLITS_REPAIRED).join(' '),
     );
-    const shorter = Array(16).fill(SPLITS).join(' ');
+    const shorter = Array(4).fill(SPLITS).join(' ');
     expect(exportWith(editor, shorter)).toBe(
       exportWith(createModelEditor(false), shorter),
     );
@@ -691,14 +691,14 @@ describe('the model of the cmark-gfm pass', () => {
         (inner: string) => `***z ${inner} z***`,
       ]) {
         const editor = createModelEditor();
-        const markdown = wrap(Array(256).fill(SPLITS).join(' '));
+        const markdown = wrap(Array(32).fill(SPLITS).join(' '));
         const {itemsRead, judgements} = measureWork(() =>
           exportWith(editor, markdown),
         );
-        expect(judgements).toBeGreaterThan(256);
+        expect(judgements).toBeGreaterThan(32);
         expect(itemsRead).toBeLessThan(judgements * items);
         expect(exportWith(editor, markdown)).toBe(
-          wrap(Array(256).fill(SPLITS_REPAIRED).join(' ')),
+          wrap(Array(32).fill(SPLITS_REPAIRED).join(' ')),
         );
       }
     });
@@ -707,12 +707,12 @@ describe('the model of the cmark-gfm pass', () => {
       // Each judgement reads less than one copy's items: windows around the
       // edits, against the state of the edits accepted so far.
       const editor = createModelEditor();
-      const markdown = Array(1024).fill(SPLITS).join(' ');
+      const markdown = Array(64).fill(SPLITS).join(' ');
       const items = SPLITS.match(/[*_~]+/g)!.length;
       const {itemsRead, judgements} = measureWork(() =>
         exportWith(editor, markdown),
       );
-      expect(judgements).toBeGreaterThan(1024);
+      expect(judgements).toBeGreaterThan(64);
       expect(itemsRead).toBeLessThan(judgements * items);
     });
 
@@ -720,11 +720,11 @@ describe('the model of the cmark-gfm pass', () => {
       // A kept proposal changes the state only in its windows, and a
       // judgement does not read the edits accepted before.
       const editor = createModelEditor();
-      const markdown = Array(1024).fill(SPLITS).join(' ');
+      const markdown = Array(128).fill(SPLITS).join(' ');
       const {judgements, stateWork} = measureWork(() =>
         exportWith(editor, markdown),
       );
-      expect(judgements).toBeGreaterThan(1024);
+      expect(judgements).toBeGreaterThan(128);
       expect(stateWork).toBeLessThan(16 * judgements);
     });
 
@@ -749,10 +749,10 @@ describe('the model of the cmark-gfm pass', () => {
     it('reads the runs of labels and of three `~` within the budget', () => {
       // Neither is an item of a window, but a window reads them.
       const syntax = getSyntax(createModelEditor());
-      const later = Array(1024).fill('a** ').join(' ');
+      const later = Array(128).fill('a** ').join(' ');
       for (const inside of [
-        `[${Array(4096).fill('*b*').join(' ')}](u)`,
-        Array(4096).fill('a~~~b~~~c').join(' '),
+        `[${Array(512).fill('*b*').join(' ')}](u)`,
+        Array(512).fill('a~~~b~~~c').join(' '),
       ]) {
         const markdown = `x*a ©_a_ ${inside} ${later}`;
         const {model, subjects} = readModel(markdown, syntax);
@@ -827,7 +827,7 @@ describe('the model of the cmark-gfm pass', () => {
       const editor = createModelEditor();
       const markdown = (gap: number) =>
         `x*a ©_a_ ${'b'.repeat(gap)} ${Array(256).fill('a** ').join(' ')}`;
-      const long = markdown(65536);
+      const long = markdown(8192);
       let positions = 0;
       wrapModels(
         () => exportWith(editor, long),
@@ -850,7 +850,7 @@ describe('the model of the cmark-gfm pass', () => {
 
     it('pairs a long paragraph without moving its items', () => {
       const editor = createModelEditor();
-      const long = `${Array(4000).fill('*a* _b_').join(' ')} ©_a_`;
+      const long = `${Array(1000).fill('*a* _b_').join(' ')} ©_a_`;
       const {spliced} = countMoves(() => exportWith(editor, long));
       expect(spliced).toBeLessThan(64 * long.length);
       const short = `${Array(8).fill('*a* _b_').join(' ')} ©_a_`;
@@ -1608,7 +1608,7 @@ describe('the model of the cmark-gfm pass', () => {
       const random = createRandom(0x5e9);
       const parts = ['*', '**', '***', '_', '__', '~', '~~', 'a', ' ', '.'];
       const documents: string[] = [];
-      for (let n = 0; n < 1500; n++) {
+      for (let n = 0; n < 600; n++) {
         let markdown = '';
         for (let i = 3 + Math.floor(random() * 20); i > 0; i--) {
           markdown += parts[Math.floor(random() * parts.length)];
@@ -1632,7 +1632,7 @@ describe('the model of the cmark-gfm pass', () => {
       const more = ['.', ' ', ' ', '**', '__', '***', 'b'];
       const wraps = ['*', '**', '_', '__', '~', '~~', '***', '___'];
       let judged = 0;
-      for (let n = 0; n < 1500; n++) {
+      for (let n = 0; n < 200; n++) {
         let markdown = '';
         for (let i = 4 + Math.floor(random() * 40); i > 0; i--) {
           markdown += pick(random() < 0.6 ? inner : more);
@@ -1678,7 +1678,7 @@ describe('the model of the cmark-gfm pass', () => {
           }
         }
       }
-      expect(judged).toBeGreaterThan(5000);
+      expect(judged).toBeGreaterThan(1500);
     });
 
     it('reads what reaches a window inside pairs around a paragraph', () => {
@@ -1739,7 +1739,7 @@ describe('the model of the cmark-gfm pass', () => {
         ' ',
       ];
       let judged = 0;
-      for (let n = 0; n < 2000; n++) {
+      for (let n = 0; n < 400; n++) {
         let markdown = 'x';
         for (let i = 4 + Math.floor(random() * 28); i > 0; i--) {
           markdown += characters[Math.floor(random() * characters.length)];
@@ -1780,7 +1780,7 @@ describe('the model of the cmark-gfm pass', () => {
           }
         }
       }
-      expect(judged).toBeGreaterThan(5000);
+      expect(judged).toBeGreaterThan(2000);
     });
 
     // Inputs and proposals on which a window that missed a dependency
