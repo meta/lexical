@@ -149,8 +149,22 @@ export interface MdastConfig {
    * `markdown-it-cjk-friendly` reads as that whitespace, leaving those
    * markers literal, and a vertical tab beside a marker (`p\v**.**\vq`),
    * which cmark and cmark-gfm don't read as whitespace and no reference can
-   * stand for. `'cjk-friendly'` writes such CJK text as typed
-   * (`**你好。**世界`, `**你好。**abc`), for readers that follow the
+   * stand for. It also writes a reference where cmark-gfm (GitHub's
+   * renderer) reads a run otherwise: it skips a `~` run beside a `*` or `_`
+   * run and reads the character beyond it, and it reads a symbol of the
+   * Basic Multilingual Plane as a letter (``~~&#x61;~~*`b`*``, `&#xA9;_a_`).
+   * It leaves the text as it is beside punctuation newer than cmark-gfm's
+   * Unicode table (`⹏_a_`), for a character with no lossless reference, in
+   * image and reference labels, in a table cell with brackets other than
+   * those of an inline link (`[text](url)`), in a word that markdown-it may
+   * read as a link (`see readme.md→_x_`), in a bare URL that cmark-gfm
+   * reads across a space other than an ASCII space, tab or line ending
+   * (`http://a.co/\u3000©_a_`), in a paragraph with a backtick, `~`, `*`
+   * or `_` beside it that micromark does not read as syntax
+   * (``a`b ©_a_``), where cmark-gfm pairs markers that micromark leaves
+   * literal (`**a©**x`, which only an export rule writes), and where its
+   * bounded search finds no repair. `'cjk-friendly'` writes CJK text as
+   * typed (`**你好。**世界`, `**你好。**abc`), for readers that follow the
    * CJK-friendly amendment, such as a CJK-friendly import.
    */
   readonly exportPunctuation?: MdastPunctuationMode;
