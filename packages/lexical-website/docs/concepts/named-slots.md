@@ -1,14 +1,5 @@
 # Named Slots
 
-:::warning
-
-Named slots are experimental. The APIs described here are tagged
-`@experimental`, may change without a major version bump, and the
-serialization and collab formats should be treated as unstable until the
-feature is stabilized.
-
-:::
-
 Named slots let a single host node (an ElementNode or a DecoratorNode) own
 several isolated editable regions addressed by name — a Card's `title`, a
 PullQuote's `quote` and `attribution` — inside the host's own EditorState.
@@ -333,7 +324,9 @@ re-applying it from `updateDOM` so an editable toggle reaches the island.
   anchor's slot frame at every entry point (DOM resolution,
   [`$setSelection`](/docs/api/modules/lexical#setselection),
   and point mutation), so a mouse drag and a `shift+arrow` across the
-  boundary land on the same clamped result.
+  boundary land on the same clamped result. A focus in a slot of a host is
+  moved past the whole host, or to the edge of the host's own children when
+  the selection starts inside the host.
 - **Deletion stops at the boundary.** Backspace at the start of a slot and
   forward-Delete at its end are no-ops instead of merging across the virtual
   shadow root.
@@ -425,6 +418,10 @@ eagerly, so two clients
 concurrently setting *different* slot names for the first time merge
 per-entry instead of racing. Malformed or hostile remote entries are
 validated and skipped.
+
+The Yjs 14 binding, `@lexical/y`, stores each slot on its host's node under
+its own name, so slots of different names merge as well (see
+[How content is stored](../collaboration/y.md#how-content-is-stored)).
 
 :::caution
 

@@ -11,7 +11,7 @@ import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
 
 // Next.js prerenders client components with `cacheComponents` and fails the
 // build when one reads `Math.random()` outside a Suspense boundary
-// (facebook/lexical#9318). Rendering a composer on the server must therefore
+// (meta/lexical#9318). Rendering a composer on the server must therefore
 // not read it from Lexical code, at import or during render.
 describe('server render without Math.random', () => {
   let lexicalCalls: string[];

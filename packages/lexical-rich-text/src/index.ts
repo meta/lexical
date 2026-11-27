@@ -33,6 +33,7 @@ import {
   $applyNodeReplacement,
   $caretFromPoint,
   $comparePointCaretNext,
+  $create,
   $createNodeSelection,
   $createParagraphNode,
   $createRangeSelection,
@@ -57,11 +58,11 @@ import {
   $insertNodes,
   $isDecoratorNode,
   $isElementNode,
+  $isEventFromEmbeddedInput,
   $isNodeSelection,
   $isRangeSelection,
   $isRootNode,
   $isRootOrShadowRoot,
-  $isSelectionCapturedInDecoratorInput,
   $isShadowRootNode,
   $isSiblingCaret,
   $isTextNode,
@@ -77,11 +78,13 @@ import {
   $setState,
   $setTextFormat,
   addClassNamesToElement,
+  BEFORE_INPUT_COMMAND,
   booleanValue,
   CAN_USE_BEFORE_INPUT,
   type CaretDirection,
   CLICK_COMMAND,
   COMMAND_PRIORITY_EDITOR,
+  COMMAND_PRIORITY_LOW,
   type CommandPayloadType,
   CONTROLLED_TEXT_INSERTION_COMMAND,
   COPY_COMMAND,
@@ -102,16 +105,17 @@ import {
   enumValue,
   FORMAT_ELEMENT_COMMAND,
   FORMAT_TEXT_COMMAND,
+  getComposedEventTarget,
   getDOMSelection,
   INDENT_CONTENT_COMMAND,
   INSERT_LINE_BREAK_COMMAND,
   INSERT_PARAGRAPH_COMMAND,
   INSERT_TAB_COMMAND,
   INTERNAL_$expandSelectionToWholeDocument,
+  IS_APPLE,
   IS_APPLE_WEBKIT,
   IS_IOS,
   IS_SAFARI,
-  isDOMNode,
   isHTMLElement,
   KEY_ARROW_DOWN_COMMAND,
   KEY_ARROW_LEFT_COMMAND,
@@ -119,6 +123,7 @@ import {
   KEY_ARROW_UP_COMMAND,
   KEY_BACKSPACE_COMMAND,
   KEY_DELETE_COMMAND,
+  KEY_DOWN_COMMAND,
   KEY_ENTER_COMMAND,
   KEY_ESCAPE_COMMAND,
   KEY_SPACE_COMMAND,
@@ -206,6 +211,8 @@ export interface QuoteNode {
 export class QuoteNode extends ElementNode {
   $config() {
     return this.config('quote', {
+      // A shadow root quote (opt-in state) holds blocks instead.
+      children: 'inline',
       extends: ElementNode,
       generated: GENERATED_QUOTE,
       importDOM: {
@@ -337,6 +344,139 @@ export function $isQuoteNode(
   return node instanceof QuoteNode;
 }
 
+/**
+ * The serialized form of a {@link QuoteContainerNode}: an element of type
+ * `'quote-container'` whose `children` are blocks.
+ *
+ * @experimental
+ */
+export type SerializedQuoteContainerNode = SerializedElementNode;
+
+/**
+ * Keeps a {@link QuoteContainerNode} well formed. An empty container gets an
+ * empty paragraph, so there is usually a line to put the caret in (a legacy
+ * `quote` with no children, loaded through a node replacement, becomes
+ * editable this way). A transform runs on local edits only: collaborators
+ * who each remove a different one of its last blocks at once can leave it
+ * empty in a shared document, where it stays editable. The `shadowRoot` state it inherits from
+ * {@link QuoteNode} is cleared: the container always holds blocks, so the flag
+ * says nothing, and JSON written by a shadow root `quote` would otherwise
+ * carry it into every later export.
+ *
+ * Children that are not blocks are wrapped in paragraphs by the transform
+ * every shadow root inherits from `ElementNode` (or by
+ * `NodeStructureExtension`, where it is enabled).
+ */
+function $normalizeQuoteContainer(node: QuoteContainerNode): void {
+  if ($getState(node, quoteShadowRootState)) {
+    $setState(node, quoteShadowRootState, false);
+  }
+  if (node.isEmpty()) {
+    node.append($createParagraphNode());
+  }
+}
+
+// eslint-disable-next-line @typescript-eslint/no-unsafe-declaration-merging
+export interface QuoteContainerNode {
+  exportJSON(compact?: false): SerializedQuoteContainerNode;
+  exportJSON(compact: boolean): SerializedPartial<SerializedQuoteContainerNode>;
+}
+
+/**
+ * A quote that holds blocks (paragraphs, headings, lists, code, other
+ * quotes), rendered as a `<blockquote>`. Its JSON type is
+ * `'quote-container'`.
+ *
+ * Unlike {@link QuoteNode}, whose content is one run of inline nodes, the
+ * class itself declares that it holds blocks (`children: 'block'`) and is
+ * always a shadow root, as a table cell is. Code that reads the declaration
+ * (`BlockIdExtension`, `NodeStructureExtension`, `@lexical/y`'s storage)
+ * therefore needs no special case for it, which a `QuoteNode` with the
+ * opt-in `shadowRoot` state does.
+ *
+ * Editing follows from being a shadow root: Enter splits the block the caret
+ * is in, Backspace at the start of the first block dissolves the container
+ * and leaves its blocks in its place ({@link QuoteNode.collapseAtStart}), and
+ * the arrow keys step through a block cursor beside the container where
+ * there is no line to land on.
+ *
+ * It extends `QuoteNode`, so `$isQuoteNode` is true for it and an editor can
+ * use it for every quote with a node replacement:
+ *
+ * ```ts
+ * nodes: [
+ *   QuoteContainerNode,
+ *   {
+ *     replace: QuoteNode,
+ *     with: () => $createQuoteContainerNode(),
+ *     withKlass: QuoteContainerNode,
+ *   },
+ * ]
+ * ```
+ *
+ * {@link QuoteContainerExtension} registers the class, and
+ * {@link QuoteContainerReplacementExtension} that replacement.
+ *
+ * @experimental
+ * @noInheritDoc
+ */
+// eslint-disable-next-line @typescript-eslint/no-unsafe-declaration-merging
+export class QuoteContainerNode extends QuoteNode {
+  $config() {
+    return this.config('quote-container', {
+      $transform: $normalizeQuoteContainer,
+      children: 'block',
+      extends: QuoteNode,
+    });
+  }
+
+  /** Always `true`: a quote container holds blocks. */
+  isShadowRoot(): true {
+    return true;
+  }
+
+  /**
+   * Does nothing: a quote container is always a shadow root. Kept so that
+   * code written for {@link QuoteNode} can call it.
+   */
+  setIsShadowRoot(_isShadowRoot: boolean): this {
+    return this;
+  }
+
+  /**
+   * As {@link QuoteNode}'s, then drops the `shadowRoot` state: JSON of a
+   * shadow root `quote`, loaded through a node replacement, sets it, and on a
+   * container it says nothing. Dropped on load, so an export that follows
+   * without an edit does not carry it either (the transform drops it where
+   * code sets it later).
+   */
+  updateFromJSON(
+    serializedNode: LexicalParseJSON<SerializedQuoteContainerNode>,
+  ): this {
+    const node = super.updateFromJSON(serializedNode);
+    return $getState(node, quoteShadowRootState)
+      ? $setState(node, quoteShadowRootState, false)
+      : node;
+  }
+}
+
+/**
+ * Creates an empty {@link QuoteContainerNode}. Append blocks to it; once it
+ * is in the document, an empty one is given an empty paragraph.
+ *
+ * @experimental
+ */
+export function $createQuoteContainerNode(): QuoteContainerNode {
+  return $create(QuoteContainerNode);
+}
+
+/** @experimental */
+export function $isQuoteContainerNode(
+  node: LexicalNode | null | undefined,
+): node is QuoteContainerNode {
+  return node instanceof QuoteContainerNode;
+}
+
 export type HeadingTagType = 'h1' | 'h2' | 'h3' | 'h4' | 'h5' | 'h6';
 
 // Single source of truth for parsing the node-specific properties of a
@@ -364,6 +504,7 @@ export class HeadingNode extends ElementNode {
 
   $config() {
     return this.config('heading', {
+      children: 'inline',
       extends: ElementNode,
       generated: GENERATED_HEADING,
       importDOM: {
@@ -618,8 +759,39 @@ async function onCutForRichText(
 export {eventFiles} from '@lexical/utils';
 
 function $isTargetWithinDecorator(target: HTMLElement): boolean {
-  const node = $getNearestNodeFromDOMNode(target);
-  return $isDecoratorNode(node);
+  // A decorator's slot is an editing host of its own, so a key event that
+  // targets the slot itself is editing editor content, while any other
+  // target in the decorator (a native control, even inside the slot) is UI.
+  return (
+    $isDecoratorNode($getNearestNodeFromDOMNode(target)) &&
+    !(isHTMLElement(target) && target.hasAttribute('data-lexical-slot'))
+  );
+}
+
+// Keep typed text separate from following content, reusing an empty block.
+function $selectAfterBlockDecorator(selection: NodeSelection): boolean {
+  const nodes = selection.getNodes();
+  if (
+    nodes.length !== 1 ||
+    !$isDecoratorNode(nodes[0]) ||
+    nodes[0].isInline()
+  ) {
+    return false;
+  }
+  const next = nodes[0].getNextSibling();
+  if (
+    $isElementNode(next) &&
+    !next.isInline() &&
+    next.isEmpty() &&
+    next.canBeEmpty()
+  ) {
+    next.select();
+  } else {
+    const paragraph = $createParagraphNode();
+    nodes[0].insertAfter(paragraph);
+    paragraph.select();
+  }
+  return true;
 }
 
 function $isSelectionAtEndOfRoot(selection: RangeSelection) {
@@ -1285,6 +1457,26 @@ export function registerRichText(
     defaultShouldHandlePasteAsFiles,
   ),
 ): () => void {
+  const $insertTextAfterBlockDecorator = (event: KeyboardEvent): boolean => {
+    const selection = $getSelection();
+    // Firefox and WebKit need a DOM caret before they emit beforeinput.
+    if (
+      $isNodeSelection(selection) &&
+      !event.defaultPrevented &&
+      event.key.length === 1 &&
+      !event.metaKey &&
+      ((!event.ctrlKey && (!event.altKey || IS_APPLE)) ||
+        event.getModifierState('AltGraph')) &&
+      !$isEventFromEmbeddedInput(event) &&
+      !$isTargetWithinDecorator(getComposedEventTarget(event) as HTMLElement) &&
+      $selectAfterBlockDecorator(selection)
+    ) {
+      event.preventDefault();
+      editor.dispatchCommand(CONTROLLED_TEXT_INSERTION_COMMAND, event.key);
+      return true;
+    }
+    return false;
+  };
   const removeListener = mergeRegister(
     editor.registerCommand(
       CLICK_COMMAND,
@@ -1295,7 +1487,7 @@ export function registerRichText(
           // node (its own click handler may select it, open an editor, …),
           // not a deselect gesture. Keep the selection when the click target
           // is inside the selected node's DOM; clicking anywhere else still
-          // deselects (facebook/lexical#8907).
+          // deselects (meta/lexical#8907).
           const eventTarget = event.target;
           if (isHTMLElement(eventTarget)) {
             for (const node of selection.getNodes()) {
@@ -1445,6 +1637,27 @@ export function registerRichText(
         return true;
       },
       COMMAND_PRIORITY_EDITOR,
+    ),
+    editor.registerCommand(
+      BEFORE_INPUT_COMMAND,
+      (event, fromEditor) => {
+        // Preparing a parent caret would redirect a nested editor's insertion.
+        if (fromEditor !== editor) {
+          return false;
+        }
+        const selection = $getSelection();
+        if ($isNodeSelection(selection) && event.inputType === 'insertText') {
+          $selectAfterBlockDecorator(selection);
+        }
+        return false;
+      },
+      COMMAND_PRIORITY_LOW,
+    ),
+    editor.registerCommand(
+      KEY_DOWN_COMMAND,
+      // Space goes through KEY_SPACE_COMMAND so its listeners run first.
+      event => event.key !== ' ' && $insertTextAfterBlockDecorator(event),
+      COMMAND_PRIORITY_LOW,
     ),
     editor.registerCommand(
       INSERT_LINE_BREAK_COMMAND,
@@ -1750,7 +1963,7 @@ export function registerRichText(
           // after Backspace. Returning false here skips event.preventDefault()
           // on keydown; the beforeinput deleteContentBackward handler still runs
           // and performs the deletion, so editing behavior is unchanged.
-          // See https://github.com/facebook/lexical/issues/5841
+          // See https://github.com/meta/lexical/issues/5841
           if (IS_IOS && CAN_USE_BEFORE_INPUT) {
             return false;
           }
@@ -1980,6 +2193,12 @@ export function registerRichText(
     editor.registerCommand(
       COPY_COMMAND,
       event => {
+        // A copy in an input embedded in a node's DOM, such as a decorator's,
+        // is the input's, as are a cut and a paste below: the editor's
+        // selection is still the one it had before the input took the focus.
+        if ($isEventFromEmbeddedInput(event)) {
+          return false;
+        }
         copyToClipboard(
           editor,
           objectKlassEquals(event, ClipboardEvent) ? event : null,
@@ -1991,6 +2210,9 @@ export function registerRichText(
     editor.registerCommand(
       CUT_COMMAND,
       event => {
+        if ($isEventFromEmbeddedInput(event)) {
+          return false;
+        }
         onCutForRichText(event, editor);
         return true;
       },
@@ -2008,10 +2230,7 @@ export function registerRichText(
         }
 
         // if inputs then paste within the input ignore creating a new node on paste event
-        if (
-          isDOMNode(event.target) &&
-          $isSelectionCapturedInDecoratorInput(event.target)
-        ) {
+        if ($isEventFromEmbeddedInput(event)) {
           return false;
         }
 
@@ -2027,7 +2246,7 @@ export function registerRichText(
     ),
     editor.registerCommand(
       KEY_SPACE_COMMAND,
-      () => {
+      event => {
         const selection = $getSelection();
 
         if ($isRangeSelection(selection)) {
@@ -2039,7 +2258,7 @@ export function registerRichText(
           );
         }
 
-        return false;
+        return $insertTextAfterBlockDecorator(event);
       },
       COMMAND_PRIORITY_EDITOR,
     ),
@@ -2166,10 +2385,13 @@ export {
   type HeadingAnnounceExtensionConfig,
 } from './HeadingAnnounceExtension';
 export {
+  QuoteContainerExtension,
+  QuoteContainerReplacementExtension,
   type RichTextConfig,
   RichTextExtension,
 } from './LexicalRichTextExtension';
 export {
+  QuoteContainerRule,
   RichTextImportRules,
   ShadowRootQuoteRule,
 } from './RichTextImportExtension';

@@ -7,7 +7,7 @@ This file provides detailed guidance for AI agents and automated tools working w
 ### Building
 - `pnpm run build` - Build all packages in development mode
 - `pnpm run build-prod` - Clean and build all packages in production mode
-- `pnpm run build-release` - Build production release with error codes
+- `pnpm run build-release` - Build production release (minifies errors that have a code in `scripts/error-codes/codes.json`; add `LEXICAL_EXTRACT_CODES=true` to also assign new codes)
 - `pnpm run build-types` - Build TypeScript type definitions and validate them
 
 ### Testing
@@ -29,7 +29,10 @@ For E2E testing workflow:
 - `pnpm run start` - Start playground dev server + collab server (http://localhost:3000)
 - `pnpm run dev` - Start only the playground dev server (no collab)
 - `pnpm run start:website` - Start Docusaurus website (http://localhost:3001)
-- `pnpm run collab` - Start collab server on localhost:1234
+- `pnpm run collab` - Start collab server on localhost:1234 (collab v1/v2, `@lexical/yjs`)
+- `pnpm run collab:y` - Start the Yjs 14 collab server on localhost:1235 (collab Y, the experimental `@lexical/y`; open the playground with `?isCollab=true&useCollabY=true`)
+- `pnpm run start:y` - Start playground dev server + the Yjs 14 collab server
+- `pnpm run test-e2e-collab-y-chromium` - Run the collab Y E2E specs (`Collaboration.spec.mjs`, `CollabY*.spec.mjs`; needs `pnpm run start:y`)
 
 ### Code Quality
 - `pnpm run lint` - Run ESLint on all files
@@ -268,8 +271,16 @@ This codebase uses **both TypeScript and Flow**:
 - Run `pnpm run flow` to check Flow types
 - Run `pnpm run tsc` to check TypeScript types
 - Both are checked in CI via `pnpm run ci-check`
+- Keep a statement under a `$FlowExpectedError` or `$FlowFixMe` suppression on
+  one line of at most 80 characters. Prettier ignores `.js.flow` here, but the
+  www sync (`scripts/www/transformFlowFileContents.mjs`) runs Prettier over
+  these files, and a statement it wraps moves the error off the line the
+  suppression covers — so the www copy fails Flow on an error that passes in
+  this repo.
 
 When adding/modifying APIs, types must be maintained for both systems.
+
+Put types in TypeScript, not in JSDoc. Write `@param name - description` and `@returns description`, without a `{type}` or `[optional]` bracket: TypeScript already states the type and whether the parameter is optional, and a second copy in the comment drifts out of date.
 
 ## Backwards Compatibility
 
@@ -279,6 +290,7 @@ When adding/modifying APIs, types must be maintained for both systems.
 - Do NOT change the signature, return type, or behavior of existing public APIs in ways that could break callers. Prefer additive, optional parameters.
 - Preserve the serialization format of `EditorState` and node JSON. Serialized content produced by older versions must continue to deserialize correctly.
 - If an API genuinely must change, deprecate the old one first (keep it working, document the replacement) rather than removing it outright.
+- A breaking change that cannot be avoided ships in a minor release with a `[breaking]` changeset whose `Migration:` paragraph tells callers what to change.
 - When in doubt, assume external code depends on the current behavior and keep it intact.
 
 ## Dependencies: Lexical is a singleton within one app
@@ -352,6 +364,15 @@ Always access node properties/methods within read/update context. Nodes automati
     tests (jsdom/Node), but browser tests should clean up with
     `onTestFinished(() => editor.dispose())` instead — `editor.dispose()` is a plain method
     available on the result of `buildEditorFromExtensions`.
+- **Size tests** - Vitest, located in `packages/**/__tests__/size/**/*.test.ts`
+  (the `unit-size` project, part of `pnpm run test-unit` but not of the watch
+  script). They run in the `forks` pool, so each file runs on a child
+  process's main thread, whose argument limit (roughly 100,000 to 125,000 on
+  Node, depending on stack depth) is the one
+  production code runs under; a worker thread takes 4x that. Put a test here
+  when it needs a document past that limit (a list of content spread into a
+  call's arguments throws only there). Keep each file to one case so the
+  project runs them in parallel.
 - **E2E tests** - Playwright, located in `packages/lexical-playground/__tests__/e2e/**/*.spec.{ts,mjs}`
 - E2E tests require the playground dev server running
 - Use `pnpm run debug-test-e2e-chromium` to debug E2E tests with browser UI
@@ -389,8 +410,8 @@ When creating custom nodes:
    extension that provides the node: list `CoreImportExtension` and
    `configExtension(DOMImportExtension, {rules: [...]})` in its
    `dependencies` (see `ListExtension`, and `ListImportRules` for the rules,
-   in `@lexical/list`). Both APIs are `@experimental`, and the rules only
-   apply where the editor routes HTML through the pipeline; see
+   in `@lexical/list`). The rules only apply where the editor routes HTML
+   through the pipeline; see
    `packages/lexical-website/docs/serialization/dom-import.md`.
    `importDOM()`, which that page calls legacy, is not deprecated yet, but
    its deprecation is planned.
@@ -457,6 +478,30 @@ from memory, and fill in its sections:
 Drop any template section that does not apply to the diff instead of carrying
 an empty heading, and treat the template's HTML comments as instructions to
 follow, not text to copy into the message.
+
+- **Changesets**: a changeset is required for user-facing changes (a
+  published package's behavior, API, types or shipped Flow types). Add it
+  in `.changeset/` with `pnpm run changeset:new` or by hand (format in
+  `.changeset/README.md`): frontmatter listing each affected npm package
+  with `patch` (or `minor` for `[breaking]`, never `major`), then
+  `[category] one-line summary` with category `breaking`, `deprecation`,
+  `feature`, `fix`, `perf`, `docs` or `chore`, and no PR number. A
+  `[breaking]` entry needs `Migration:` and `Detect:` (usually just the
+  affected symbol, import or CSS class; add `Codemod:` when useful). A
+  type signature change that can make existing call sites stop compiling
+  (overloads, generics, branded or narrowed types, including calls that
+  relied on an inferred type argument) is `[breaking]` even when it only
+  deprecates something; its `Detect:` names those call shapes and its
+  `Migration:` the replacement (see "Type signature changes" in
+  `.changeset/README.md`). A `[deprecation]` entry needs `Replacement:` and `Removal:` (`v0.NN`,
+  `no earlier than v0.NN`, or `not scheduled`). A non-breaking change that
+  alters observable output or behavior gets a `Verify:` paragraph saying what
+  to test (it renders under "Behavior changes"); add one when reviewing a fix
+  that changes output. No Markdown headings in the body. Add a
+  `PR: #123` line only when the changeset lands in a different PR than the
+  change. Validate with `pnpm run check-changesets`. Tests,
+  website, playground, examples and tooling need none. The changeset file is
+  the record, so the commit message's `## Changeset` section is optional.
 
 ### Commit and PR Hygiene for Agents
 This is an open source project: never include agent-session URLs or other

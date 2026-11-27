@@ -46,7 +46,8 @@ export function useLexicalIsTextContentEmpty(
     resetIsEmpty();
     return editor.registerUpdateListener(({editorState}) => {
       const isComposing = editor.isComposing();
-      const currentIsEmpty = editorState.read(
+      const currentIsEmpty = editor.read(
+        editorState,
         $isRootTextContentEmptyCurry(isComposing, trim),
       );
       setIsEmpty(currentIsEmpty);

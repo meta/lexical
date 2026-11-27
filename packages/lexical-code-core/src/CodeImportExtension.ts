@@ -302,8 +302,6 @@ const VscodeCodePasteOverlay = defineOverlayRules([
  * {@link VscodeCodePasteOverlay} onto {@link ImportOverlays} so the
  * VS Code-specific rules participate in the walk. Pastes from other
  * sources pay only the detection cost.
- *
- * @experimental
  */
 export const $installVscodeCodePasteOverlay: DOMPreprocessFn = (
   dom,
@@ -387,8 +385,6 @@ const GitHubCodeCellByClassRule = defineImportRule({
  * preprocess), so any editor that uses the code extension can import
  * these shapes through the `DOMImportExtension` pipeline without further
  * configuration.
- *
- * @experimental
  */
 export const CodeImportRules = [
   // Higher-priority (more-specific) rules first:

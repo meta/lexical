@@ -24,10 +24,11 @@
     "@lexical/react": "workspace:*",
     "@lexical/rich-text": "workspace:*",
     "@lexical/selection": "workspace:*",
+    "@lexical/table": "workspace:*",
     "@lexical/utils": "workspace:*",
     "lexical": "workspace:*",
     "mdast-util-gfm-footnote": "^2.1.0",
-    "mdast-util-to-markdown": "^2.1.2",
+    "mdast-util-to-markdown": "^2.2.0",
     "micromark-extension-gfm-footnote": "^2.1.0",
     "react": "^19.1.0",
     "react-dom": "^19.1.0"
@@ -39,7 +40,7 @@
     "@vitejs/plugin-react": "^6.1.1",
     "tailwindcss": "^4.3.3",
     "typescript": "^6.0.3",
-    "vite": "^8.3.1"
+    "vite": "^8.3.3"
   },
   "optionalDependencies": {
     "@rollup/rollup-linux-x64-gnu": "4.63.5",

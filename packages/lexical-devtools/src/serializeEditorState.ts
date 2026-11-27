@@ -20,10 +20,10 @@ export interface SerializeEditorStateOptions {
   /**
    * Replace the text carried by each node with a same-length mask.
    *
-   * Serialized editor state is relayed through the extension store and
-   * mirrored into every surface of the extension. Keeping text out of that
-   * relay unless somebody is actually looking at it keeps the relayed data
-   * to what the UI needs.
+   * Serialized editor state leaves the page it belongs to only while a
+   * DevTools panel is open for that page. Masking the text keeps what does
+   * leave to the shape of the tree, for the cases where that is all the UI
+   * needs.
    *
    * Note that this affects the *serialized copy* only. `setEditorState` round
    * trips through `deserealizationMap`, which holds the untouched original, so

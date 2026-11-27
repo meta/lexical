@@ -312,8 +312,10 @@ function transformRawHtml(parent: Parent): void {
  * Markdown text inside the raw HTML                                          *
  * -------------------------------------------------------------------------- */
 
-// GitHub's `<details>` idiom embeds Markdown *text* directly between the raw
-// tags — most visibly the `<summary>` line — and expects it to render:
+// GitHub's `<details>` idiom puts Markdown *text* directly between the raw
+// tags — most visibly the `<summary>` line — and authors expect it to
+// render, although GFM leaves text in an HTML block raw until a blank line
+// ends the block:
 //
 //   <details><summary>
 //   This is the *summary* that shows when collapsed
@@ -992,7 +994,8 @@ const htmlBlockToMarkdown: ToMarkdownExtension = {
  *   Markdown work, and unclosed tags stay literal text,
  * - the import rules parse the HTML with `DOMParser` and hand it to
  *   `$generateNodesFromDOM`, substituting the pre-imported Markdown —
- *   including the Markdown text embedded between block tags, GitHub-style —
+ *   including the Markdown text embedded between block tags, which GFM
+ *   itself leaves raw —
  *   back in via placeholder elements that inherit the surrounding
  *   formatting context (`<strong>`, `style="color: …"`).
  *

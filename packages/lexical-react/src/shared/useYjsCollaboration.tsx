@@ -416,7 +416,7 @@ function useProvider(
           // It's possible that there is a similar issue with
           // TOGGLE_CONNECT_COMMAND below when the provider connect returns a
           // promise.
-          // https://github.com/facebook/lexical/issues/6640
+          // https://github.com/meta/lexical/issues/6640
           disconnect();
         }
       }
@@ -460,7 +460,7 @@ function useProvider(
 
   // Clear awareness state immediately when tab is refreshed or closed
   // This prevents ghost cursors from appearing for several seconds after disconnect
-  // See: https://github.com/facebook/lexical/issues/8061
+  // See: https://github.com/meta/lexical/issues/8061
   useEffect(() => {
     const clearAwarenessState = () => {
       // Immediately clear local awareness state to signal disconnection

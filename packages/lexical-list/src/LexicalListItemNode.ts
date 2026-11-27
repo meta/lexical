@@ -12,8 +12,10 @@ import {
   $copyNode,
   $createParagraphNode,
   $getDocument,
+  $getEditor,
   $getSelection,
   $getSiblingCaret,
+  $getState,
   $insertNodeToNearestRootAtCaret,
   $isElementNode,
   $isParagraphNode,
@@ -22,16 +24,19 @@ import {
   $rewindSiblingCaret,
   $setDirectionFromDOM,
   $setFormatFromDOM,
+  $setState,
   addClassNamesToElement,
   type BaseSelection,
   booleanValue,
   buildImportMap,
+  createState,
   type DOMConversionOutput,
   type DOMExportOutput,
   type EditorConfig,
   type EditorThemeClasses,
   ElementNode,
   getStyleObjectFromCSS,
+  INTERNAL_isNodeStructureEnforced,
   isHTMLElement,
   type LexicalEditor,
   type LexicalNode,
@@ -52,10 +57,60 @@ import {
   withField,
 } from 'lexical';
 
-import {$createListNode, $isListNode, type ListNode, type ListType} from './';
+import {$createListNode, $isListNode, type ListType} from './';
 import {$handleIndent, $handleOutdent, mergeLists} from './formatList';
 import {GENERATED_LISTITEM} from './LexicalListGeneratedJSON';
+import {ListNode} from './LexicalListNode';
 import {$getNewListStart, $isNestedListNode} from './utils';
+
+/**
+ * Marks a task item of a bullet or number list, and whether it is checked.
+ * GFM decides per item whether it is a task (`- [x] done` next to `- plain`),
+ * and a task list can be ordered. A ListItemNode's `checked` only means
+ * something in a check list, where every item is a task, so a task item of
+ * any other list keeps its checkbox here instead. See
+ * {@link $getTaskListItemChecked} and {@link $setTaskListItemChecked}.
+ */
+const taskListItemState = createState('listTaskItem', {
+  parse: (v): '' | 'checked' | 'unchecked' =>
+    v === 'checked' || v === 'unchecked' ? v : '',
+});
+
+/**
+ * For the selection's element points in `parent`, which holds the consecutive
+ * `items`: returns what puts each of them back once the items are moved into
+ * `list`, inserted in their place (a point before or after them stays so in
+ * `parent`; one between two of them goes to the end of the first).
+ */
+function $pointsAround(
+  parent: ElementNode,
+  items: readonly LexicalNode[],
+): null | ((list: ListNode) => void) {
+  const selection = $getSelection();
+  if (!$isRangeSelection(selection)) {
+    return null;
+  }
+  const parentKey = parent.getKey();
+  const first = items[0].getIndexWithinParent();
+  const saved = [selection.anchor, selection.focus]
+    .filter(point => point.type === 'element' && point.key === parentKey)
+    .map(point => ({offset: point.offset, point}));
+  if (saved.length === 0) {
+    return null;
+  }
+  return list => {
+    for (const {point, offset} of saved) {
+      if (offset <= first) {
+        point.set(parentKey, offset, 'element');
+      } else if (offset < first + items.length) {
+        const item = items[offset - first - 1] as ElementNode;
+        point.set(item.getKey(), item.getChildrenSize(), 'element');
+      } else {
+        point.set(parentKey, offset - items.length + 1, 'element');
+      }
+    }
+  };
+}
 
 export type SerializedListItemNode = Spread<
   {
@@ -84,13 +139,19 @@ const listItemNodeSchema = nodeSchema<ListItemNode>()({
   // `clamp`, because the plain bounds fall back to the *default* for a value
   // outside them, which would read an over-deep item as indent 0 instead of as
   // deeply nested.
-  indent: numberValue(0, {
-    clamp: true,
-    integer: true,
-    max: MAX_LIST_ITEM_INDENT,
-    min: 0,
-  }),
+  // Derived: getIndent() computes it from the nesting (setIndent restructures).
+  indent: withAccessors(
+    numberValue(0, {
+      clamp: true,
+      integer: true,
+      max: MAX_LIST_ITEM_INDENT,
+      min: 0,
+    }),
+    {derived: true},
+  ),
+  // Derived: the list renumbers its items.
   value: withField(numberValue(1), {
+    derived: true,
     field: '__value',
   }),
 });
@@ -144,8 +205,17 @@ export class ListItemNode extends ElementNode {
       $transform: (node: ListItemNode): void => {
         const parent = node.getParent();
         if ($isListNode(parent)) {
-          if (parent.getListType() !== 'check' && node.getChecked() != null) {
+          // The field, not getChecked(), which is undefined outside a check
+          // list: a value an update without transforms left there would
+          // otherwise show again once the list becomes a check list.
+          if (
+            parent.getListType() !== 'check' &&
+            node.getLatest().__checked != null
+          ) {
             node.setChecked(undefined);
+          }
+          if (parent.getListType() === 'check') {
+            $adoptTaskListItem(node);
           }
         } else if (parent) {
           const newParent = node.createParentElementNode();
@@ -168,9 +238,32 @@ export class ListItemNode extends ElementNode {
               children.push(origin);
             }
           }
+          // Where NodeStructureExtension enforces declared structure, it
+          // lifts the new list out of whatever may not hold it, the same way
+          // whichever node is dirty, and puts the selection back where it was
+          // in the content: an element point in the parent is moved with the
+          // items here (inserting the list shifts it, and moving the items
+          // out does not), so that it is still next to the same content.
+          const enforced = INTERNAL_isNodeStructureEnforced($getEditor());
+          const points = enforced ? $pointsAround(parent, children) : null;
           node.insertBefore(newParent);
           newParent.splice(0, 0, children);
-          if (!$isRootOrShadowRoot(parent)) {
+          if (points !== null) {
+            points(newParent);
+          }
+          if (enforced) {
+            // The ancestors' own transforms run on the result (a list that
+            // holds the parent renumbers its items, as the parent may now
+            // only wrap the new list), as after a repair of the normalization.
+            for (
+              let n: LexicalNode | null = parent;
+              n !== null && !$isRootOrShadowRoot(n);
+              n = n.getParent()
+            ) {
+              n.markDirty();
+            }
+          }
+          if (!$isRootOrShadowRoot(parent) && !enforced) {
             $insertNodeToNearestRootAtCaret(
               newParent,
               $rewindSiblingCaret($getSiblingCaret(newParent, 'next')),
@@ -182,6 +275,7 @@ export class ListItemNode extends ElementNode {
           }
         }
       },
+      children: ['inline', ListNode],
       extends: ElementNode,
       generated: GENERATED_LISTITEM,
       importDOM: buildImportMap({
@@ -216,9 +310,9 @@ export class ListItemNode extends ElementNode {
     dom: HTMLLIElement,
     config: EditorConfig,
   ) {
-    updateListItemChecked(dom, this, prevNode);
+    $updateListItemChecked(dom, this, prevNode);
 
-    dom.value = this.__value;
+    $updateListItemValueDOM(dom, this);
     $setListItemThemeClassNames(dom, config.theme, this);
     const prevStyle = prevNode ? prevNode.__style : '';
     const nextStyle = this.__style;
@@ -237,11 +331,27 @@ export class ListItemNode extends ElementNode {
     // @ts-expect-error - this is always HTMLListItemElement
     const element: HTMLLIElement = dom;
     this.updateListItemDOM(prevNode, element, config);
+    if (prevNode.__value !== this.__value) {
+      // The next item's `value` is decided from this item's number, and the
+      // next item is not always reconciled when only this one is renumbered
+      // (an item that wraps a nested list keeps the number of the item after
+      // it, so inserting above it renumbers the wrapper but not that item).
+      $updateNextListItemValueDOM(this);
+    }
     return false;
   }
 
   exportDOM(editor: LexicalEditor): DOMExportOutput {
-    const element = this.createDOM(editor._config);
+    // Exported HTML keeps every item's value, so pasted lists number as before,
+    // written where `createDOM` always wrote it.
+    const wasExporting = exportingListItemValues;
+    exportingListItemValues = true;
+    let element: HTMLElement;
+    try {
+      element = this.createDOM(editor._config);
+    } finally {
+      exportingListItemValues = wasExporting;
+    }
 
     const formatType = this.getFormatType();
     if (formatType) {
@@ -426,6 +536,11 @@ export class ListItemNode extends ElementNode {
     if (original.getChecked()) {
       this.setChecked(false);
     }
+    // The same for a task item of a bullet or number list: a copy of it (the
+    // next item, after Enter) is an unchecked task.
+    if ($getState(original, taskListItemState) === 'checked') {
+      $setState(this, taskListItemState, 'unchecked');
+    }
   }
 
   insertNewAfter(
@@ -561,6 +676,44 @@ export class ListItemNode extends ElementNode {
     return $isListItemNode(node) || $isParagraphNode(node);
   }
 
+  /**
+   * @internal Not public API: asked by the node structure normalization
+   * (`NodeStructureExtension`), which `lexical` implements and so cannot
+   * import list code, about each child it allows here. A nested list may only
+   * be all a list item holds: that is the shape indent, outdent and the HTML
+   * import build, and the one the list code reads (indent, outdent and the
+   * numbering treat an item whose first child is a list as a wrapper with no
+   * marker or number of its own). Next to other content (left by a paste
+   * into a nested list item) it is lifted out, the item split around it,
+   * and the list wraps it in an item of its own, so the content before it,
+   * it, and the content after it read in the same order, as consecutive
+   * items. In an update's normalization, only an item the update creates or
+   * changes itself (its children, its fields) is lifted: an item that
+   * already held this list next to other content (a document stored that
+   * way, by code that applied updates without the normalization) keeps it
+   * through an edit elsewhere, even one inside it (typing in its text), so
+   * that such an edit restructures only what it changes. The normalization
+   * of what code changed without transforms (`explicit`) lifts every such
+   * item it visits.
+   */
+  INTERNAL_$liftsFromStructure(
+    child: LexicalNode,
+    explicit: boolean = false,
+  ): boolean {
+    if (!$isListNode(child) || this.getChildrenSize() <= 1) {
+      return false;
+    }
+    if (explicit) {
+      return true;
+    }
+    const editor = $getEditor();
+    const key = this.getKey();
+    return (
+      !editor.getEditorState()._nodeMap.has(key) ||
+      editor._cloneNotNeeded.has(key)
+    );
+  }
+
   extractWithChild(child: LexicalNode, selection: BaseSelection): boolean {
     if (!$isRangeSelection(selection)) {
       return false;
@@ -601,10 +754,9 @@ function $setListItemThemeClassNames(
 
   const listItemClassName = listTheme.listitem;
   const nestedListItemClassName = listTheme.nested && listTheme.nested.listitem;
-  const parentNode = node.getParent();
-  const isCheckList =
-    $isListNode(parentNode) && parentNode.getListType() === 'check';
-  const checked = node.getChecked();
+  // Defined for every item of a check list, and for a task item of a bullet or
+  // number list.
+  const checked = $getTaskListItemChecked(node);
   const isNested = node.getChildren().some(child => $isListNode(child));
 
   // Always remove the variable theme classes first so that the className
@@ -629,7 +781,7 @@ function $setListItemThemeClassNames(
   if (listItemClassName !== undefined) {
     classesToAdd.push(...normalizeClassNames(listItemClassName));
   }
-  if (isCheckList) {
+  if (checked !== undefined) {
     const checkClassName = checked
       ? listTheme.listitemChecked
       : listTheme.listitemUnchecked;
@@ -645,15 +797,15 @@ function $setListItemThemeClassNames(
   }
 }
 
-function updateListItemChecked(
+function $updateListItemChecked(
   dom: HTMLElement,
   listItemNode: ListItemNode,
   prevListItemNode: ListItemNode | null,
 ): void {
-  const parent = listItemNode.getParent();
+  const checked = $getTaskListItemChecked(listItemNode);
   const isCheckbox =
-    $isListNode(parent) &&
-    parent.getListType() === 'check' &&
+    // Every item of a check list, or a task item of a bullet or number list
+    checked !== undefined &&
     // Only add attributes for leaf list items
     !$isListNode(listItemNode.getFirstChild());
   if (!isCheckbox) {
@@ -663,10 +815,7 @@ function updateListItemChecked(
   } else {
     dom.setAttribute('role', 'checkbox');
     dom.setAttribute('tabIndex', '-1');
-    dom.setAttribute(
-      'aria-checked',
-      listItemNode.getChecked() ? 'true' : 'false',
-    );
+    dom.setAttribute('aria-checked', checked ? 'true' : 'false');
   }
 }
 
@@ -748,6 +897,78 @@ export function $createListItemNode(checked?: boolean): ListItemNode {
 }
 
 /**
+ * Whether a list item is a task, and whether it is checked: `undefined` for a
+ * plain item. Every item of a check list is a task, so there this is
+ * {@link ListItemNode.getChecked}. In a bullet or number list only an item
+ * made a task with {@link $setTaskListItemChecked} is one.
+ * @param listItem - The list item.
+ * @returns true or false for a task item, undefined for a plain item.
+ */
+export function $getTaskListItemChecked(
+  listItem: ListItemNode,
+): boolean | undefined {
+  const checked = listItem.getChecked();
+  if (checked !== undefined || !$isListNode(listItem.getParent())) {
+    return checked;
+  }
+  const task = $getState(listItem, taskListItemState);
+  return task === '' ? undefined : task === 'checked';
+}
+
+/**
+ * Makes a task item of a bullet or number list that is now in a check list
+ * (a paste, or a list made a check list with `setListType`) one of its items.
+ * Those keep their checked state themselves, so the item keeps its tick there.
+ * A checked state set in the check list before this runs wins, as when the
+ * `[x] ` shortcut of `@lexical/mdast` makes the list a check list and checks
+ * the item in one update. {@link $setTaskListItemChecked} clears the checked
+ * state, so one left from before the item was a task does not win.
+ * Called for each item by the list's transform, which runs whenever the list
+ * changes, and by the item's own transform.
+ * @param listItem - An item of a check list.
+ */
+export function $adoptTaskListItem(listItem: ListItemNode): void {
+  const task = $getState(listItem, taskListItemState);
+  if (task !== '') {
+    if (listItem.getLatest().__checked == null) {
+      listItem.setChecked(task === 'checked');
+    }
+    $setState(listItem, taskListItemState, '');
+  }
+}
+
+/**
+ * Makes a list item a task, checked or not, or a plain item with `undefined`.
+ * In a check list this is {@link ListItemNode.setChecked}, as every item there
+ * is a task. In a bullet or number list the item gets a checkbox of its own,
+ * like `- [x] done` next to `- plain` in GFM. A list command (such as
+ * INSERT_UNORDERED_LIST_COMMAND) makes the whole list one kind again.
+ * @param listItem - The list item.
+ * @param checked - true or false for a task item, undefined for a plain item.
+ * @returns The list item.
+ */
+export function $setTaskListItemChecked(
+  listItem: ListItemNode,
+  checked: boolean | undefined,
+): ListItemNode {
+  const parent = listItem.getParent();
+  if ($isListNode(parent) && parent.getListType() === 'check') {
+    return listItem.setChecked(checked);
+  }
+  // The item can still hold a checked state here: from a check list it was in
+  // earlier in this update, or from setChecked(), which only hides it outside
+  // a check list. It must not win over the task state in $adoptTaskListItem.
+  if (listItem.getLatest().__checked != null) {
+    listItem.setChecked(undefined);
+  }
+  return $setState(
+    listItem,
+    taskListItemState,
+    checked === undefined ? '' : checked ? 'checked' : 'unchecked',
+  );
+}
+
+/**
  * Checks to see if the node is a ListItemNode.
  * @param node - The node to be checked.
  * @returns true if the node is a ListItemNode, false otherwise.
@@ -756,4 +977,58 @@ export function $isListItemNode(
   node: LexicalNode | null | undefined,
 ): node is ListItemNode {
   return node instanceof ListItemNode;
+}
+
+/**
+ * Writes `li.value` only where the item's number differs from the one the
+ * browser draws from the list's own count: the `<ol start>` for the first
+ * item, otherwise the previous item's number plus one. Every item still shows
+ * its `__value`; bullet and check items never carry a `value`.
+ *
+ * Setting `HTMLLIElement.value` invalidates the whole list's ordinal cache in
+ * Blink, and inserting an item renumbers (and reconciles) every item after it,
+ * so writing it on every item made an insert near the top of an n-item list
+ * O(n^2).
+ */
+function $updateListItemValueDOM(dom: HTMLLIElement, node: ListItemNode): void {
+  if (exportingListItemValues) {
+    dom.value = node.__value;
+    return;
+  }
+  const parent = node.getParent();
+  if ($isListNode(parent) && parent.getListType() === 'number') {
+    const prev = node.getPreviousSibling();
+    const shown = $isListItemNode(prev)
+      ? prev.getValue() + 1
+      : parent.getStart();
+    if (node.__value !== shown) {
+      dom.value = node.__value;
+      return;
+    }
+  }
+  if (dom.hasAttribute('value')) {
+    dom.removeAttribute('value');
+  }
+}
+
+/**
+ * Set while `exportDOM` builds an item, so the exported `<li>` carries its
+ * `value` as it always did.
+ */
+let exportingListItemValues = false;
+
+/**
+ * Re-decides the next item's `value` after this item's number changed. Only
+ * the attribute is written: the next item's node and the rest of its DOM are
+ * left alone, and an item the reconciler will update itself is decided again
+ * there.
+ */
+function $updateNextListItemValueDOM(node: ListItemNode): void {
+  const next = node.getNextSibling();
+  if ($isListItemNode(next)) {
+    const dom = $getEditor().getElementByKey(next.getKey());
+    if (dom !== null) {
+      $updateListItemValueDOM(dom as HTMLLIElement, next);
+    }
+  }
 }

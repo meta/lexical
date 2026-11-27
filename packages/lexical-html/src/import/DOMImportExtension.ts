@@ -5,7 +5,7 @@
  * LICENSE file in the root directory of this source tree.
  *
  */
-import type {ContextRecord} from '../types';
+import type {ContextRecord} from '../internal/types';
 import type {
   DOMImportExtensionOutput,
   DOMPreprocessContext,
@@ -17,12 +17,15 @@ import type {
 import {$getExtensionOutput} from '@lexical/extension';
 import {defineExtension, type LexicalNode, shallowMergeConfig} from 'lexical';
 
-import {DOMImportContextSymbol, DOMImportExtensionName} from '../constants';
+import {
+  DOMImportContextSymbol,
+  DOMImportExtensionName,
+} from '../internal/constants';
 import {
   $withFullContext,
   contextFromPairs,
   getContextRecord,
-} from '../ContextRecord';
+} from '../internal/ContextRecord';
 import {type CompiledDispatch, compileImportRules} from './compileImportRules';
 import {defineImportRule} from './defineImportRule';
 import {
@@ -36,8 +39,6 @@ import {selBase} from './sel';
 
 /**
  * Configuration for {@link DOMImportExtension}.
- *
- * @experimental
  */
 export interface DOMImportConfig {
   /**
@@ -142,8 +143,6 @@ function $runPreprocessStack(
  * behavior, but now expressed as a regular rule that apps can override
  * (e.g. with a `sel.any()` rule that captures and discards unknown
  * elements).
- *
- * @experimental
  */
 export const DefaultHoistRule = defineImportRule({
   $import: (ctx, el) => ctx.$importChildren(el),
@@ -152,8 +151,6 @@ export const DefaultHoistRule = defineImportRule({
 });
 
 /**
- * @experimental
- *
  * Extension-based replacement for the legacy `importDOM` / `DOMConversion`
  * machinery. Rules are contributed via configuration (see
  * {@link DOMImportConfig.rules}), compiled into a tag-bucketed dispatcher at
@@ -267,8 +264,6 @@ export const DOMImportExtension = defineExtension<
  *
  * Throws if the editor was not built with {@link DOMImportExtension} as a
  * dependency.
- *
- * @experimental
  */
 export function $generateNodesFromDOMViaExtension(
   dom: Document | ParentNode,

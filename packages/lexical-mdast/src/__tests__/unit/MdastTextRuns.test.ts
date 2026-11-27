@@ -130,7 +130,9 @@ function randomRuns(
   return runs;
 }
 
-describe('phrasingFromTextRuns', () => {
+// Each test round-trips 2,000 random sequences: 1 to 3 s alone, over
+// vitest's default 5 s limit when the whole suite runs.
+describe('phrasingFromTextRuns', {timeout: 30_000}, () => {
   it('round-trips arbitrary bold/italic overlap exactly', () => {
     const roundTrips = createRoundTripChecker();
     const rand = mulberry32(99);

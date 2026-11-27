@@ -142,6 +142,7 @@ export class TableCellNode extends ElementNode {
 
   $config() {
     return this.config('tablecell', {
+      children: 'block',
       extends: ElementNode,
       generated: GENERATED_TABLECELL,
       importDOM: {
@@ -453,16 +454,22 @@ export function $convertTableCellNodeElement(
           $isLineBreakNode(child)
         ) {
           if ($isTextNode(child)) {
-            if (hasBoldFontWeight) {
+            // The cell's style adds these formats to its text. Text that
+            // already has one (from <b>, <em>, a styled <span>, ...) keeps
+            // it instead of having it toggled back off.
+            if (hasBoldFontWeight && !child.hasFormat('bold')) {
               child.toggleFormat('bold');
             }
-            if (hasLinethroughTextDecoration) {
+            if (
+              hasLinethroughTextDecoration &&
+              !child.hasFormat('strikethrough')
+            ) {
               child.toggleFormat('strikethrough');
             }
-            if (hasItalicFontStyle) {
+            if (hasItalicFontStyle && !child.hasFormat('italic')) {
               child.toggleFormat('italic');
             }
-            if (hasUnderlineTextDecoration) {
+            if (hasUnderlineTextDecoration && !child.hasFormat('underline')) {
               child.toggleFormat('underline');
             }
             if (color) {

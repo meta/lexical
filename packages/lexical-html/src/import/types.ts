@@ -5,12 +5,12 @@
  * LICENSE file in the root directory of this source tree.
  *
  */
-import type {DOMImportContextSymbol} from '../constants';
+import type {DOMImportContextSymbol} from '../internal/constants';
 import type {
   AnyContextConfigPairOrUpdater,
   ContextConfig,
   ContextRecord,
-} from '../types';
+} from '../internal/types';
 import type {CompiledOverlayRules} from './defineOverlayRules';
 import type {LexicalNode} from 'lexical';
 
@@ -19,11 +19,8 @@ import type {LexicalNode} from 'lexical';
  * {@link CompiledSelector} directly; the only way to obtain one is via the
  * {@link sel} builder or {@link parseSelector}. The actual runtime shape is
  * an internal implementation detail (see `./sel`).
- *
- * @experimental
  */
 export declare const NodeBrand: unique symbol;
-/** @experimental */
 export declare const CaptureBrand: unique symbol;
 
 /**
@@ -32,8 +29,6 @@ export declare const CaptureBrand: unique symbol;
  * Node subtype (`N`) and a record of named regex captures (`C`) so the
  * importer body gets correctly-typed `ctx` and `node` arguments without
  * casts.
- *
- * @experimental
  */
 export interface CompiledSelector<
   N extends Node = Node,
@@ -46,8 +41,6 @@ export interface CompiledSelector<
 /**
  * The Node subtype matched by a selector (e.g. `HTMLAnchorElement` for
  * `sel.tag('a')`, `Text` for `sel.text()`).
- *
- * @experimental
  */
 export type NodeOfSelector<S> =
   S extends CompiledSelector<infer N, Record<string, RegExpMatchArray>>
@@ -56,8 +49,6 @@ export type NodeOfSelector<S> =
 
 /**
  * The named-capture map for a selector.
- *
- * @experimental
  */
 export type CapturesOfSelector<S> =
   S extends CompiledSelector<Node, infer C> ? C : Record<string, never>;
@@ -66,8 +57,6 @@ export type CapturesOfSelector<S> =
  * Options bag for {@link ElementSelectorBuilder.attr} when the value is a
  * regex. Future options will be added here without breaking existing
  * call-sites.
- *
- * @experimental
  */
 export interface AttrMatchOptions<K extends string = string> {
   /**
@@ -81,8 +70,6 @@ export interface AttrMatchOptions<K extends string = string> {
 /**
  * Options bag for {@link ElementSelectorBuilder.styleAny} when the value is a
  * regex. See {@link AttrMatchOptions} for capture semantics.
- *
- * @experimental
  */
 export interface StyleMatchOptions<K extends string = string> {
   readonly capture?: K;
@@ -94,8 +81,6 @@ export interface StyleMatchOptions<K extends string = string> {
  *
  * The builder itself implements {@link CompiledSelector} so it can be used
  * directly as the `match` field of a rule — no `.build()` call needed.
- *
- * @experimental
  */
 export interface ElementSelectorBuilder<
   E extends HTMLElement,
@@ -138,8 +123,6 @@ export interface ElementSelectorBuilder<
 /**
  * Argument to {@link DOMImportContext.branch} / `$importChildren({context})`
  * — see {@link ContextConfigPair} / {@link ContextConfigUpdater}.
- *
- * @experimental
  */
 export type ImportContextPairOrUpdater = AnyContextConfigPairOrUpdater<
   typeof DOMImportContextSymbol
@@ -148,8 +131,6 @@ export type ImportContextPairOrUpdater = AnyContextConfigPairOrUpdater<
 /**
  * A typed context-state key for the import pipeline. Create with
  * {@link createImportState}.
- *
- * @experimental
  */
 export type ImportStateConfig<V> = ContextConfig<
   typeof DOMImportContextSymbol,
@@ -167,8 +148,6 @@ export type ImportStateConfig<V> = ContextConfig<
  * every unshadowed `ctx.get(cfg)` read in any branch picks it up. A
  * `$importChildren({context: [...]})` branch that explicitly writes the
  * same slot shadows the session value for the duration of that branch.
- *
- * @experimental
  */
 export interface ImportSession {
   /** Read the current value, returning the config's default if unset. */
@@ -184,8 +163,6 @@ export interface ImportSession {
 /**
  * Context exposed to a rule's `$import` function. Mirrors the existing render
  * context (see {@link RenderContext}) but is import-scoped.
- *
- * @experimental
  */
 export interface DOMImportContext<
   C extends Record<string, RegExpMatchArray> = Record<string, never>,
@@ -224,8 +201,6 @@ export interface DOMImportContext<
  * of `schema`, `$onChild`, and `$after` is sufficient to express every
  * child-handling pattern in the legacy `forChild` / `after` / wrap-continuous
  * machinery.
- *
- * @experimental
  */
 export interface ImportChildrenOpts {
   /**
@@ -271,7 +246,6 @@ export interface ImportChildrenOpts {
   readonly rules?: CompiledOverlayRules;
 }
 
-/** @experimental */
 export interface ImportNodeOpts {
   readonly context?: readonly ImportContextPairOrUpdater[];
 }
@@ -279,7 +253,7 @@ export interface ImportNodeOpts {
 /**
  * A {@link ChildSchema} encodes which lexical nodes a parent accepts as
  * children and how to package or reject the rest. The legacy
- * `wrapContinuousInlines` / `ArtificialNode__DO_NOT_USE` logic is the
+ * `$wrapContinuousInlines` / `ArtificialNode__DO_NOT_USE` logic is the
  * `BlockSchema` and `NestedBlockSchema` cases of this primitive.
  *
  * A schema only controls how the *children* are assembled before being
@@ -290,8 +264,6 @@ export interface ImportNodeOpts {
  * the link's place and the link is redistributed onto the heading's
  * inline contents — belong in the rule body, not the schema. See the
  * "Lifting blocks out of an inline parent" section of the docs.
- *
- * @experimental
  */
 export interface ChildSchema {
   /** Optional name for debug output. */
@@ -354,8 +326,6 @@ export interface ChildSchema {
  * contributions, `$next()` from a rule typically lands on the equivalent
  * rule from a lower-level package, and finally on
  * `DefaultHoistRule`. See {@link DOMImportConfig.rules}.
- *
- * @experimental
  */
 export type DOMImportFn<
   E extends Node,
@@ -369,8 +339,6 @@ export type DOMImportFn<
 /**
  * An importer for a DOM node, dispatched by `match` and implemented by
  * `$import`.
- *
- * @experimental
  */
 export interface DOMImportRule<S extends CompiledSelector = CompiledSelector> {
   /**
@@ -385,7 +353,6 @@ export interface DOMImportRule<S extends CompiledSelector = CompiledSelector> {
   readonly $import: DOMImportFn<NodeOfSelector<S>, CapturesOfSelector<S>>;
 }
 
-/** @experimental */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type AnyDOMImportRule = DOMImportRule<any>;
 
@@ -396,8 +363,6 @@ export type AnyDOMImportRule = DOMImportRule<any>;
  *   `ctx.session` rules see during the walk). Writes mutate the
  *   root-layer context record, so they are visible to every scoped
  *   `ctx.get(cfg)` read that hasn't been shadowed by a branch.
- *
- * @experimental
  */
 export interface DOMPreprocessContext {
   /**
@@ -433,8 +398,6 @@ export interface DOMPreprocessContext {
  * extension's preprocessors wrap those of its dependencies, and the
  * built-in `$inlineStylesFromStyleSheets` runs last. Same convention as
  * {@link ExportMimeTypeFunction} on the export side.
- *
- * @experimental
  */
 export type DOMPreprocessFn = (
   dom: Document | ParentNode,
@@ -444,8 +407,6 @@ export type DOMPreprocessFn = (
 
 /**
  * Per-call options to the extension's `$generateNodesFromDOM`.
- *
- * @experimental
  */
 export interface GenerateNodesFromDOMOptions {
   /**
@@ -465,8 +426,6 @@ export interface GenerateNodesFromDOMOptions {
 
 /**
  * Output of {@link DOMImportExtension}.
- *
- * @experimental
  */
 export interface DOMImportExtensionOutput {
   /**

@@ -15,6 +15,7 @@ import {
   moveToEditorBeginning,
   moveToEditorEnd,
   moveToLineBeginning,
+  moveToLineEnd,
   moveToParagraphEnd,
   pressBackspace,
   redo,
@@ -228,6 +229,38 @@ test.describe('Checklist space key', () => {
 
     await expect(item).toHaveAttribute('aria-checked', 'false');
     await expect(item).toHaveText('Task');
+  });
+
+  test('space after a checkbox click types at a caret in another block', async ({
+    isCollab,
+    page,
+  }) => {
+    await initialize({isCollab, page});
+    await focusEditor(page);
+
+    await page.keyboard.type('Owners sign off by Friday.');
+    await page.keyboard.press('Enter');
+    await toggleCheckList(page);
+    await page.keyboard.type('Task');
+
+    // Back to the end of the paragraph above the list
+    await moveToEditorBeginning(page);
+    await moveToLineEnd(page);
+
+    // The click checks the item and focuses it, but the caret stays in the
+    // paragraph, so what is typed next belongs there.
+    const item = page.locator('li[role="checkbox"]').first();
+    const box = await item.boundingBox();
+    await page.mouse.click(box.x + 5, box.y + box.height / 2);
+    await expect(item).toHaveAttribute('aria-checked', 'true');
+
+    await page.keyboard.type(' Ping me');
+
+    await expect(item).toHaveAttribute('aria-checked', 'true');
+    await expect(item).toHaveText('Task');
+    await expect(
+      page.locator('[data-lexical-editor="true"] > p').first(),
+    ).toHaveText('Owners sign off by Friday. Ping me');
   });
 
   test('clicking the label after the checkbox gives focus back', async ({
@@ -495,7 +528,7 @@ test.describe('Nested List', () => {
       page,
       html`
         <ul class="PlaygroundEditorTheme__ul" dir="auto">
-          <li class="PlaygroundEditorTheme__listItem" value="1">
+          <li class="PlaygroundEditorTheme__listItem">
             <span data-lexical-text="true">
               Lorem ipsum dolor sit amet, consectetur adipiscing elit. Nam
               venenatis risus ac cursus efficitur. Cras efficitur magna odio,
@@ -535,10 +568,9 @@ test.describe('Nested List', () => {
       html`
         <ul class="PlaygroundEditorTheme__ul" dir="auto">
           <li
-            class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__nestedListItem"
-            value="1">
+            class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__nestedListItem">
             <ul class="PlaygroundEditorTheme__ul">
-              <li class="PlaygroundEditorTheme__listItem" value="1">
+              <li class="PlaygroundEditorTheme__listItem">
                 ${getExpectedDateTimeHtml()}
                 <span data-lexical-text="true">x</span>
               </li>
@@ -555,10 +587,9 @@ test.describe('Nested List', () => {
       html`
         <ul class="PlaygroundEditorTheme__ul" dir="auto">
           <li
-            class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__nestedListItem"
-            value="1">
+            class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__nestedListItem">
             <ul class="PlaygroundEditorTheme__ul">
-              <li class="PlaygroundEditorTheme__listItem" value="1">
+              <li class="PlaygroundEditorTheme__listItem">
                 <span data-lexical-text="true">x</span>
               </li>
             </ul>
@@ -597,8 +628,7 @@ test.describe('Nested List', () => {
         <ul class="PlaygroundEditorTheme__ul" dir="auto">
           <li
             class="PlaygroundEditorTheme__listItem"
-            style="${expectedMarkerStyle}"
-            value="1">
+            style="${expectedMarkerStyle}">
             <strong
               class="PlaygroundEditorTheme__textBold"
               style="${expectedTextStyle}"
@@ -608,13 +638,11 @@ test.describe('Nested List', () => {
           </li>
           <li
             class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__nestedListItem"
-            style="${expectedMarkerStyle}"
-            value="2">
+            style="${expectedMarkerStyle}">
             <ul class="PlaygroundEditorTheme__ul">
               <li
                 class="PlaygroundEditorTheme__listItem"
-                style="${expectedMarkerStyle}"
-                value="1">
+                style="${expectedMarkerStyle}">
                 <strong
                   class="PlaygroundEditorTheme__textBold"
                   style="${expectedTextStyle}"
@@ -626,8 +654,7 @@ test.describe('Nested List', () => {
           </li>
           <li
             class="PlaygroundEditorTheme__listItem"
-            style="${expectedMarkerStyle}"
-            value="2">
+            style="${expectedMarkerStyle}">
             <strong
               class="PlaygroundEditorTheme__textBold"
               style="${expectedTextStyle}"
@@ -659,7 +686,7 @@ test.describe('Nested List', () => {
       page,
       html`
         <ul class="PlaygroundEditorTheme__ul" dir="auto">
-          <li class="PlaygroundEditorTheme__listItem" value="1">
+          <li class="PlaygroundEditorTheme__listItem">
             <br data-lexical-managed-linebreak="true" />
           </li>
         </ul>
@@ -678,14 +705,13 @@ test.describe('Nested List', () => {
       page,
       html`
         <ul class="PlaygroundEditorTheme__ul" dir="auto">
-          <li class="PlaygroundEditorTheme__listItem" value="1">
+          <li class="PlaygroundEditorTheme__listItem">
             <span data-lexical-text="true">Hello</span>
           </li>
           <li
-            class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__nestedListItem"
-            value="2">
+            class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__nestedListItem">
             <ul class="PlaygroundEditorTheme__ul">
-              <li class="PlaygroundEditorTheme__listItem" value="1">
+              <li class="PlaygroundEditorTheme__listItem">
                 <span data-lexical-text="true">from</span>
               </li>
             </ul>
@@ -703,25 +729,21 @@ test.describe('Nested List', () => {
       html`
         <ul class="PlaygroundEditorTheme__ul" dir="auto">
           <li
-            class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__nestedListItem"
-            value="1">
+            class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__nestedListItem">
             <ul class="PlaygroundEditorTheme__ul">
               <li
-                class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__nestedListItem"
-                value="1">
+                class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__nestedListItem">
                 <ul class="PlaygroundEditorTheme__ul">
                   <li
-                    class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__nestedListItem"
-                    value="1">
+                    class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__nestedListItem">
                     <ul class="PlaygroundEditorTheme__ul">
-                      <li class="PlaygroundEditorTheme__listItem" value="1">
+                      <li class="PlaygroundEditorTheme__listItem">
                         <span data-lexical-text="true">Hello</span>
                       </li>
                       <li
-                        class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__nestedListItem"
-                        value="2">
+                        class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__nestedListItem">
                         <ul class="PlaygroundEditorTheme__ul">
-                          <li class="PlaygroundEditorTheme__listItem" value="1">
+                          <li class="PlaygroundEditorTheme__listItem">
                             <span data-lexical-text="true">from</span>
                           </li>
                         </ul>
@@ -742,14 +764,13 @@ test.describe('Nested List', () => {
       page,
       html`
         <ul class="PlaygroundEditorTheme__ul" dir="auto">
-          <li class="PlaygroundEditorTheme__listItem" value="1">
+          <li class="PlaygroundEditorTheme__listItem">
             <span data-lexical-text="true">Hello</span>
           </li>
           <li
-            class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__nestedListItem"
-            value="2">
+            class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__nestedListItem">
             <ul class="PlaygroundEditorTheme__ul">
-              <li class="PlaygroundEditorTheme__listItem" value="1">
+              <li class="PlaygroundEditorTheme__listItem">
                 <span data-lexical-text="true">from</span>
               </li>
             </ul>
@@ -778,25 +799,24 @@ test.describe('Nested List', () => {
       page,
       html`
         <ul class="PlaygroundEditorTheme__ul" dir="auto">
-          <li class="PlaygroundEditorTheme__listItem" value="1">
+          <li class="PlaygroundEditorTheme__listItem">
             <span data-lexical-text="true">Hello</span>
           </li>
           <li
-            class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__nestedListItem"
-            value="2">
+            class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__nestedListItem">
             <ul class="PlaygroundEditorTheme__ul">
-              <li class="PlaygroundEditorTheme__listItem" value="1">
+              <li class="PlaygroundEditorTheme__listItem">
                 <span data-lexical-text="true">from</span>
               </li>
-              <li class="PlaygroundEditorTheme__listItem" value="2">
+              <li class="PlaygroundEditorTheme__listItem">
                 <span data-lexical-text="true">the</span>
               </li>
-              <li class="PlaygroundEditorTheme__listItem" value="3">
+              <li class="PlaygroundEditorTheme__listItem">
                 <span data-lexical-text="true">other</span>
               </li>
             </ul>
           </li>
-          <li class="PlaygroundEditorTheme__listItem" value="2">
+          <li class="PlaygroundEditorTheme__listItem">
             <span data-lexical-text="true">side</span>
           </li>
         </ul>
@@ -812,28 +832,26 @@ test.describe('Nested List', () => {
       html`
         <ul class="PlaygroundEditorTheme__ul" dir="auto">
           <li
-            class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__nestedListItem"
-            value="1">
+            class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__nestedListItem">
             <ul class="PlaygroundEditorTheme__ul">
-              <li class="PlaygroundEditorTheme__listItem" value="1">
+              <li class="PlaygroundEditorTheme__listItem">
                 <span data-lexical-text="true">Hello</span>
               </li>
               <li
-                class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__nestedListItem"
-                value="2">
+                class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__nestedListItem">
                 <ul class="PlaygroundEditorTheme__ul">
-                  <li class="PlaygroundEditorTheme__listItem" value="1">
+                  <li class="PlaygroundEditorTheme__listItem">
                     <span data-lexical-text="true">from</span>
                   </li>
-                  <li class="PlaygroundEditorTheme__listItem" value="2">
+                  <li class="PlaygroundEditorTheme__listItem">
                     <span data-lexical-text="true">the</span>
                   </li>
-                  <li class="PlaygroundEditorTheme__listItem" value="3">
+                  <li class="PlaygroundEditorTheme__listItem">
                     <span data-lexical-text="true">other</span>
                   </li>
                 </ul>
               </li>
-              <li class="PlaygroundEditorTheme__listItem" value="2">
+              <li class="PlaygroundEditorTheme__listItem">
                 <span data-lexical-text="true">side</span>
               </li>
             </ul>
@@ -848,25 +866,24 @@ test.describe('Nested List', () => {
       page,
       html`
         <ul class="PlaygroundEditorTheme__ul" dir="auto">
-          <li class="PlaygroundEditorTheme__listItem" value="1">
+          <li class="PlaygroundEditorTheme__listItem">
             <span data-lexical-text="true">Hello</span>
           </li>
           <li
-            class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__nestedListItem"
-            value="2">
+            class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__nestedListItem">
             <ul class="PlaygroundEditorTheme__ul">
-              <li class="PlaygroundEditorTheme__listItem" value="1">
+              <li class="PlaygroundEditorTheme__listItem">
                 <span data-lexical-text="true">from</span>
               </li>
-              <li class="PlaygroundEditorTheme__listItem" value="2">
+              <li class="PlaygroundEditorTheme__listItem">
                 <span data-lexical-text="true">the</span>
               </li>
-              <li class="PlaygroundEditorTheme__listItem" value="3">
+              <li class="PlaygroundEditorTheme__listItem">
                 <span data-lexical-text="true">other</span>
               </li>
             </ul>
           </li>
-          <li class="PlaygroundEditorTheme__listItem" value="2">
+          <li class="PlaygroundEditorTheme__listItem">
             <span data-lexical-text="true">side</span>
           </li>
         </ul>
@@ -894,21 +911,21 @@ test.describe('Nested List', () => {
       page,
       html`
         <ul dir="auto">
-          <li value="1">
+          <li>
             <ul>
-              <li value="1">
+              <li>
                 <ul>
-                  <li value="1">
+                  <li>
                     <span data-lexical-text="true">foo</span>
                   </li>
                 </ul>
               </li>
-              <li value="1">
+              <li>
                 <span data-lexical-text="true">bar</span>
               </li>
-              <li value="2">
+              <li>
                 <ul>
-                  <li value="1">
+                  <li>
                     <span data-lexical-text="true">baz</span>
                   </li>
                 </ul>
@@ -944,7 +961,7 @@ test.describe('Nested List', () => {
       page,
       html`
         <ul class="PlaygroundEditorTheme__ul" dir="auto">
-          <li class="PlaygroundEditorTheme__listItem" value="1">
+          <li class="PlaygroundEditorTheme__listItem">
             <span data-lexical-text="true">Hello</span>
           </li>
         </ul>
@@ -1000,19 +1017,19 @@ test.describe('Nested List', () => {
       page,
       html`
         <ul class="PlaygroundEditorTheme__ul" dir="auto">
-          <li class="PlaygroundEditorTheme__listItem" value="1">
+          <li class="PlaygroundEditorTheme__listItem">
             <span data-lexical-text="true">Hello</span>
           </li>
-          <li class="PlaygroundEditorTheme__listItem" value="2">
+          <li class="PlaygroundEditorTheme__listItem">
             <span data-lexical-text="true">from</span>
           </li>
-          <li class="PlaygroundEditorTheme__listItem" value="3">
+          <li class="PlaygroundEditorTheme__listItem">
             <span data-lexical-text="true">the</span>
           </li>
-          <li class="PlaygroundEditorTheme__listItem" value="4">
+          <li class="PlaygroundEditorTheme__listItem">
             <span data-lexical-text="true">other</span>
           </li>
-          <li class="PlaygroundEditorTheme__listItem" value="5">
+          <li class="PlaygroundEditorTheme__listItem">
             <span data-lexical-text="true">side</span>
           </li>
         </ul>
@@ -1053,30 +1070,27 @@ test.describe('Nested List', () => {
       html`
         <ul class="PlaygroundEditorTheme__ul" dir="auto">
           <li
-            class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__nestedListItem"
-            value="1">
+            class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__nestedListItem">
             <ul class="PlaygroundEditorTheme__ul">
               <li
-                class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__nestedListItem"
-                value="1">
+                class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__nestedListItem">
                 <ul class="PlaygroundEditorTheme__ul">
                   <li
-                    class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__nestedListItem"
-                    value="1">
+                    class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__nestedListItem">
                     <ul class="PlaygroundEditorTheme__ul">
-                      <li class="PlaygroundEditorTheme__listItem" value="1">
+                      <li class="PlaygroundEditorTheme__listItem">
                         <span data-lexical-text="true">Hello</span>
                       </li>
-                      <li class="PlaygroundEditorTheme__listItem" value="2">
+                      <li class="PlaygroundEditorTheme__listItem">
                         <span data-lexical-text="true">from</span>
                       </li>
-                      <li class="PlaygroundEditorTheme__listItem" value="3">
+                      <li class="PlaygroundEditorTheme__listItem">
                         <span data-lexical-text="true">the</span>
                       </li>
-                      <li class="PlaygroundEditorTheme__listItem" value="4">
+                      <li class="PlaygroundEditorTheme__listItem">
                         <span data-lexical-text="true">other</span>
                       </li>
-                      <li class="PlaygroundEditorTheme__listItem" value="5">
+                      <li class="PlaygroundEditorTheme__listItem">
                         <span data-lexical-text="true">side</span>
                       </li>
                     </ul>
@@ -1164,31 +1178,29 @@ test.describe('Nested List', () => {
       page,
       html`
         <ul class="PlaygroundEditorTheme__ul" dir="auto">
-          <li class="PlaygroundEditorTheme__listItem" value="1">
+          <li class="PlaygroundEditorTheme__listItem">
             <span data-lexical-text="true">Hello</span>
           </li>
           <li
-            class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__nestedListItem"
-            value="2">
+            class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__nestedListItem">
             <ul class="PlaygroundEditorTheme__ul">
-              <li class="PlaygroundEditorTheme__listItem" value="1">
+              <li class="PlaygroundEditorTheme__listItem">
                 <span data-lexical-text="true">from</span>
               </li>
               <li
-                class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__nestedListItem"
-                value="2">
+                class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__nestedListItem">
                 <ul class="PlaygroundEditorTheme__ul">
-                  <li class="PlaygroundEditorTheme__listItem" value="1">
+                  <li class="PlaygroundEditorTheme__listItem">
                     <span data-lexical-text="true">the</span>
                   </li>
                 </ul>
               </li>
-              <li class="PlaygroundEditorTheme__listItem" value="2">
+              <li class="PlaygroundEditorTheme__listItem">
                 <span data-lexical-text="true">other</span>
               </li>
             </ul>
           </li>
-          <li class="PlaygroundEditorTheme__listItem" value="2">
+          <li class="PlaygroundEditorTheme__listItem">
             <span data-lexical-text="true">side</span>
           </li>
         </ul>
@@ -1205,31 +1217,29 @@ test.describe('Nested List', () => {
       page,
       html`
         <ul class="PlaygroundEditorTheme__ul" dir="auto">
-          <li class="PlaygroundEditorTheme__listItem" value="1">
+          <li class="PlaygroundEditorTheme__listItem">
             <span data-lexical-text="true">Hello</span>
           </li>
           <li
-            class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__nestedListItem"
-            value="2">
+            class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__nestedListItem">
             <ul class="PlaygroundEditorTheme__ul">
-              <li class="PlaygroundEditorTheme__listItem" value="1">
+              <li class="PlaygroundEditorTheme__listItem">
                 <span data-lexical-text="true">from</span>
               </li>
               <li
-                class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__nestedListItem"
-                value="2">
+                class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__nestedListItem">
                 <ul class="PlaygroundEditorTheme__ul">
-                  <li class="PlaygroundEditorTheme__listItem" value="1">
+                  <li class="PlaygroundEditorTheme__listItem">
                     <span data-lexical-text="true">the</span>
                   </li>
                 </ul>
               </li>
-              <li class="PlaygroundEditorTheme__listItem" value="2">
+              <li class="PlaygroundEditorTheme__listItem">
                 <span data-lexical-text="true">other</span>
               </li>
             </ul>
           </li>
-          <li class="PlaygroundEditorTheme__listItem" value="2">
+          <li class="PlaygroundEditorTheme__listItem">
             <span data-lexical-text="true">side</span>
           </li>
         </ul>
@@ -1243,21 +1253,19 @@ test.describe('Nested List', () => {
       page,
       html`
         <ol class="PlaygroundEditorTheme__ol1" dir="auto">
-          <li class="PlaygroundEditorTheme__listItem" value="1">
+          <li class="PlaygroundEditorTheme__listItem">
             <span data-lexical-text="true">Hello</span>
           </li>
           <li
-            class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__nestedListItem"
-            value="2">
+            class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__nestedListItem">
             <ol class="PlaygroundEditorTheme__ol2">
-              <li class="PlaygroundEditorTheme__listItem" value="1">
+              <li class="PlaygroundEditorTheme__listItem">
                 <span data-lexical-text="true">from</span>
               </li>
               <li
-                class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__nestedListItem"
-                value="2">
+                class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__nestedListItem">
                 <ol class="PlaygroundEditorTheme__ol3">
-                  <li class="PlaygroundEditorTheme__listItem" value="1">
+                  <li class="PlaygroundEditorTheme__listItem">
                     <span data-lexical-text="true">the</span>
                   </li>
                 </ol>
@@ -1282,21 +1290,19 @@ test.describe('Nested List', () => {
       page,
       html`
         <ol class="PlaygroundEditorTheme__ol1" dir="auto">
-          <li class="PlaygroundEditorTheme__listItem" value="1">
+          <li class="PlaygroundEditorTheme__listItem">
             <span data-lexical-text="true">Hello</span>
           </li>
           <li
-            class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__nestedListItem"
-            value="2">
+            class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__nestedListItem">
             <ol class="PlaygroundEditorTheme__ol2">
-              <li class="PlaygroundEditorTheme__listItem" value="1">
+              <li class="PlaygroundEditorTheme__listItem">
                 <span data-lexical-text="true">from</span>
               </li>
               <li
-                class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__nestedListItem"
-                value="2">
+                class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__nestedListItem">
                 <ol class="PlaygroundEditorTheme__ol3">
-                  <li class="PlaygroundEditorTheme__listItem" value="1">
+                  <li class="PlaygroundEditorTheme__listItem">
                     <span data-lexical-text="true">the</span>
                   </li>
                 </ol>
@@ -1326,33 +1332,28 @@ test.describe('Nested List', () => {
             class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__listItemUnchecked"
             role="checkbox"
             tabindex="-1"
-            value="1"
             aria-checked="false">
             <span data-lexical-text="true">Hello</span>
           </li>
           <li
-            class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__listItemUnchecked PlaygroundEditorTheme__nestedListItem"
-            value="2">
+            class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__listItemUnchecked PlaygroundEditorTheme__nestedListItem">
             <ul
               class="PlaygroundEditorTheme__ul PlaygroundEditorTheme__checklist">
               <li
                 class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__listItemUnchecked"
                 role="checkbox"
                 tabindex="-1"
-                value="1"
                 aria-checked="false">
                 <span data-lexical-text="true">from</span>
               </li>
               <li
-                class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__listItemUnchecked PlaygroundEditorTheme__nestedListItem"
-                value="2">
+                class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__listItemUnchecked PlaygroundEditorTheme__nestedListItem">
                 <ul
                   class="PlaygroundEditorTheme__ul PlaygroundEditorTheme__checklist">
                   <li
                     class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__listItemUnchecked"
                     role="checkbox"
                     tabindex="-1"
-                    value="1"
                     aria-checked="false">
                     <span data-lexical-text="true">the</span>
                   </li>
@@ -1362,7 +1363,6 @@ test.describe('Nested List', () => {
                 class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__listItemUnchecked"
                 role="checkbox"
                 tabindex="-1"
-                value="2"
                 aria-checked="false">
                 <span data-lexical-text="true">other</span>
               </li>
@@ -1372,7 +1372,6 @@ test.describe('Nested List', () => {
             class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__listItemUnchecked"
             role="checkbox"
             tabindex="-1"
-            value="2"
             aria-checked="false">
             <span data-lexical-text="true">side</span>
           </li>
@@ -1394,33 +1393,28 @@ test.describe('Nested List', () => {
             class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__listItemUnchecked"
             role="checkbox"
             tabindex="-1"
-            value="1"
             aria-checked="false">
             <span data-lexical-text="true">Hello</span>
           </li>
           <li
-            class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__listItemUnchecked PlaygroundEditorTheme__nestedListItem"
-            value="2">
+            class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__listItemUnchecked PlaygroundEditorTheme__nestedListItem">
             <ul
               class="PlaygroundEditorTheme__ul PlaygroundEditorTheme__checklist">
               <li
                 class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__listItemUnchecked"
                 role="checkbox"
                 tabindex="-1"
-                value="1"
                 aria-checked="false">
                 <span data-lexical-text="true">from</span>
               </li>
               <li
-                class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__listItemUnchecked PlaygroundEditorTheme__nestedListItem"
-                value="2">
+                class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__listItemUnchecked PlaygroundEditorTheme__nestedListItem">
                 <ul
                   class="PlaygroundEditorTheme__ul PlaygroundEditorTheme__checklist">
                   <li
                     class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__listItemUnchecked"
                     role="checkbox"
                     tabindex="-1"
-                    value="1"
                     aria-checked="false">
                     <span data-lexical-text="true">the</span>
                   </li>
@@ -1430,7 +1424,6 @@ test.describe('Nested List', () => {
                 class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__listItemUnchecked"
                 role="checkbox"
                 tabindex="-1"
-                value="2"
                 aria-checked="false">
                 <span data-lexical-text="true">other</span>
               </li>
@@ -1440,7 +1433,6 @@ test.describe('Nested List', () => {
             class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__listItemUnchecked"
             role="checkbox"
             tabindex="-1"
-            value="2"
             aria-checked="false">
             <span data-lexical-text="true">side</span>
           </li>
@@ -1505,7 +1497,7 @@ test.describe('Nested List', () => {
       page,
       html`
         <ul class="PlaygroundEditorTheme__ul" dir="auto">
-          <li class="PlaygroundEditorTheme__listItem" value="1">
+          <li class="PlaygroundEditorTheme__listItem">
             <span data-lexical-text="true">One</span>
             <a
               class="PlaygroundEditorTheme__link"
@@ -1579,10 +1571,10 @@ test.describe('Nested List', () => {
       page,
       html`
         <ul class="PlaygroundEditorTheme__ul" dir="auto">
-          <li class="PlaygroundEditorTheme__listItem" value="1">
+          <li class="PlaygroundEditorTheme__listItem">
             <span data-lexical-text="true">Hello</span>
           </li>
-          <li class="PlaygroundEditorTheme__listItem" value="2">
+          <li class="PlaygroundEditorTheme__listItem">
             <span data-lexical-text="true">from</span>
           </li>
         </ul>
@@ -1596,10 +1588,10 @@ test.describe('Nested List', () => {
           <br data-lexical-managed-linebreak="true" />
         </p>
         <ul class="PlaygroundEditorTheme__ul" dir="auto">
-          <li class="PlaygroundEditorTheme__listItem" value="1">
+          <li class="PlaygroundEditorTheme__listItem">
             <span data-lexical-text="true">other</span>
           </li>
-          <li class="PlaygroundEditorTheme__listItem" value="2">
+          <li class="PlaygroundEditorTheme__listItem">
             <span data-lexical-text="true">side</span>
           </li>
         </ul>
@@ -1643,25 +1635,25 @@ test.describe('Nested List', () => {
       page,
       html`
         <ul class="PlaygroundEditorTheme__ul" dir="auto">
-          <li class="PlaygroundEditorTheme__listItem" value="1">
+          <li class="PlaygroundEditorTheme__listItem">
             <span data-lexical-text="true">Hello</span>
           </li>
-          <li class="PlaygroundEditorTheme__listItem" value="2">
+          <li class="PlaygroundEditorTheme__listItem">
             <span data-lexical-text="true">from</span>
           </li>
-          <li class="PlaygroundEditorTheme__listItem" value="3">
+          <li class="PlaygroundEditorTheme__listItem">
             <br data-lexical-managed-linebreak="true" />
           </li>
-          <li class="PlaygroundEditorTheme__listItem" value="4">
+          <li class="PlaygroundEditorTheme__listItem">
             <span data-lexical-text="true">the</span>
           </li>
-          <li class="PlaygroundEditorTheme__listItem" value="5">
+          <li class="PlaygroundEditorTheme__listItem">
             <br data-lexical-managed-linebreak="true" />
           </li>
-          <li class="PlaygroundEditorTheme__listItem" value="6">
+          <li class="PlaygroundEditorTheme__listItem">
             <span data-lexical-text="true">other</span>
           </li>
-          <li class="PlaygroundEditorTheme__listItem" value="7">
+          <li class="PlaygroundEditorTheme__listItem">
             <span data-lexical-text="true">side</span>
           </li>
         </ul>
@@ -1682,7 +1674,7 @@ test.describe('Nested List', () => {
       page,
       html`
         <ul class="PlaygroundEditorTheme__ul" dir="auto">
-          <li class="PlaygroundEditorTheme__listItem" value="1">
+          <li class="PlaygroundEditorTheme__listItem">
             <br data-lexical-managed-linebreak="true" />
           </li>
         </ul>
@@ -1695,7 +1687,7 @@ test.describe('Nested List', () => {
       page,
       html`
         <ol class="PlaygroundEditorTheme__ol1" dir="auto">
-          <li class="PlaygroundEditorTheme__listItem" value="1">
+          <li class="PlaygroundEditorTheme__listItem">
             <br data-lexical-managed-linebreak="true" />
           </li>
         </ol>
@@ -1708,7 +1700,7 @@ test.describe('Nested List', () => {
       page,
       html`
         <ul class="PlaygroundEditorTheme__ul" dir="auto">
-          <li class="PlaygroundEditorTheme__listItem" value="1">
+          <li class="PlaygroundEditorTheme__listItem">
             <br data-lexical-managed-linebreak="true" />
           </li>
         </ul>
@@ -1731,7 +1723,7 @@ test.describe('Nested List', () => {
       page,
       html`
         <ol class="PlaygroundEditorTheme__ol1" dir="auto">
-          <li class="PlaygroundEditorTheme__listItem" value="1">
+          <li class="PlaygroundEditorTheme__listItem">
             <span data-lexical-text="true">Hello</span>
           </li>
         </ol>
@@ -1744,7 +1736,7 @@ test.describe('Nested List', () => {
       page,
       html`
         <ul class="PlaygroundEditorTheme__ul" dir="auto">
-          <li class="PlaygroundEditorTheme__listItem" value="1">
+          <li class="PlaygroundEditorTheme__listItem">
             <span data-lexical-text="true">Hello</span>
           </li>
         </ul>
@@ -1773,19 +1765,19 @@ test.describe('Nested List', () => {
       page,
       html`
         <ul class="PlaygroundEditorTheme__ul" dir="auto">
-          <li class="PlaygroundEditorTheme__listItem" value="1">
+          <li class="PlaygroundEditorTheme__listItem">
             <span data-lexical-text="true">Hello</span>
           </li>
-          <li class="PlaygroundEditorTheme__listItem" value="2">
+          <li class="PlaygroundEditorTheme__listItem">
             <span data-lexical-text="true">from</span>
           </li>
-          <li class="PlaygroundEditorTheme__listItem" value="3">
+          <li class="PlaygroundEditorTheme__listItem">
             <span data-lexical-text="true">the</span>
           </li>
-          <li class="PlaygroundEditorTheme__listItem" value="4">
+          <li class="PlaygroundEditorTheme__listItem">
             <span data-lexical-text="true">other</span>
           </li>
-          <li class="PlaygroundEditorTheme__listItem" value="5">
+          <li class="PlaygroundEditorTheme__listItem">
             <span data-lexical-text="true">side</span>
           </li>
         </ul>
@@ -1798,19 +1790,19 @@ test.describe('Nested List', () => {
       page,
       html`
         <ol class="PlaygroundEditorTheme__ol1" dir="auto">
-          <li class="PlaygroundEditorTheme__listItem" value="1">
+          <li class="PlaygroundEditorTheme__listItem">
             <span data-lexical-text="true">Hello</span>
           </li>
-          <li class="PlaygroundEditorTheme__listItem" value="2">
+          <li class="PlaygroundEditorTheme__listItem">
             <span data-lexical-text="true">from</span>
           </li>
-          <li class="PlaygroundEditorTheme__listItem" value="3">
+          <li class="PlaygroundEditorTheme__listItem">
             <span data-lexical-text="true">the</span>
           </li>
-          <li class="PlaygroundEditorTheme__listItem" value="4">
+          <li class="PlaygroundEditorTheme__listItem">
             <span data-lexical-text="true">other</span>
           </li>
-          <li class="PlaygroundEditorTheme__listItem" value="5">
+          <li class="PlaygroundEditorTheme__listItem">
             <span data-lexical-text="true">side</span>
           </li>
         </ol>
@@ -1823,19 +1815,19 @@ test.describe('Nested List', () => {
       page,
       html`
         <ul class="PlaygroundEditorTheme__ul" dir="auto">
-          <li class="PlaygroundEditorTheme__listItem" value="1">
+          <li class="PlaygroundEditorTheme__listItem">
             <span data-lexical-text="true">Hello</span>
           </li>
-          <li class="PlaygroundEditorTheme__listItem" value="2">
+          <li class="PlaygroundEditorTheme__listItem">
             <span data-lexical-text="true">from</span>
           </li>
-          <li class="PlaygroundEditorTheme__listItem" value="3">
+          <li class="PlaygroundEditorTheme__listItem">
             <span data-lexical-text="true">the</span>
           </li>
-          <li class="PlaygroundEditorTheme__listItem" value="4">
+          <li class="PlaygroundEditorTheme__listItem">
             <span data-lexical-text="true">other</span>
           </li>
-          <li class="PlaygroundEditorTheme__listItem" value="5">
+          <li class="PlaygroundEditorTheme__listItem">
             <span data-lexical-text="true">side</span>
           </li>
         </ul>
@@ -1863,19 +1855,19 @@ test.describe('Nested List', () => {
       page,
       html`
         <ul class="PlaygroundEditorTheme__ul" dir="auto">
-          <li class="PlaygroundEditorTheme__listItem" value="1">
+          <li class="PlaygroundEditorTheme__listItem">
             <span data-lexical-text="true">Hello</span>
           </li>
-          <li class="PlaygroundEditorTheme__listItem" value="2">
+          <li class="PlaygroundEditorTheme__listItem">
             <span data-lexical-text="true">from</span>
           </li>
-          <li class="PlaygroundEditorTheme__listItem" value="3">
+          <li class="PlaygroundEditorTheme__listItem">
             <span data-lexical-text="true">the</span>
           </li>
-          <li class="PlaygroundEditorTheme__listItem" value="4">
+          <li class="PlaygroundEditorTheme__listItem">
             <span data-lexical-text="true">other</span>
           </li>
-          <li class="PlaygroundEditorTheme__listItem" value="5">
+          <li class="PlaygroundEditorTheme__listItem">
             <br data-lexical-managed-linebreak="true" />
           </li>
         </ul>
@@ -1888,19 +1880,19 @@ test.describe('Nested List', () => {
       page,
       html`
         <ol class="PlaygroundEditorTheme__ol1" dir="auto">
-          <li class="PlaygroundEditorTheme__listItem" value="1">
+          <li class="PlaygroundEditorTheme__listItem">
             <span data-lexical-text="true">Hello</span>
           </li>
-          <li class="PlaygroundEditorTheme__listItem" value="2">
+          <li class="PlaygroundEditorTheme__listItem">
             <span data-lexical-text="true">from</span>
           </li>
-          <li class="PlaygroundEditorTheme__listItem" value="3">
+          <li class="PlaygroundEditorTheme__listItem">
             <span data-lexical-text="true">the</span>
           </li>
-          <li class="PlaygroundEditorTheme__listItem" value="4">
+          <li class="PlaygroundEditorTheme__listItem">
             <span data-lexical-text="true">other</span>
           </li>
-          <li class="PlaygroundEditorTheme__listItem" value="5">
+          <li class="PlaygroundEditorTheme__listItem">
             <br data-lexical-managed-linebreak="true" />
           </li>
         </ol>
@@ -1913,19 +1905,19 @@ test.describe('Nested List', () => {
       page,
       html`
         <ul class="PlaygroundEditorTheme__ul" dir="auto">
-          <li class="PlaygroundEditorTheme__listItem" value="1">
+          <li class="PlaygroundEditorTheme__listItem">
             <span data-lexical-text="true">Hello</span>
           </li>
-          <li class="PlaygroundEditorTheme__listItem" value="2">
+          <li class="PlaygroundEditorTheme__listItem">
             <span data-lexical-text="true">from</span>
           </li>
-          <li class="PlaygroundEditorTheme__listItem" value="3">
+          <li class="PlaygroundEditorTheme__listItem">
             <span data-lexical-text="true">the</span>
           </li>
-          <li class="PlaygroundEditorTheme__listItem" value="4">
+          <li class="PlaygroundEditorTheme__listItem">
             <span data-lexical-text="true">other</span>
           </li>
-          <li class="PlaygroundEditorTheme__listItem" value="5">
+          <li class="PlaygroundEditorTheme__listItem">
             <br data-lexical-managed-linebreak="true" />
           </li>
         </ul>
@@ -1958,31 +1950,29 @@ test.describe('Nested List', () => {
       page,
       html`
         <ul class="PlaygroundEditorTheme__ul" dir="auto">
-          <li class="PlaygroundEditorTheme__listItem" value="1">
+          <li class="PlaygroundEditorTheme__listItem">
             <span data-lexical-text="true">Hello</span>
           </li>
           <li
-            class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__nestedListItem"
-            value="2">
+            class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__nestedListItem">
             <ul class="PlaygroundEditorTheme__ul">
-              <li class="PlaygroundEditorTheme__listItem" value="1">
+              <li class="PlaygroundEditorTheme__listItem">
                 <span data-lexical-text="true">from</span>
               </li>
               <li
-                class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__nestedListItem"
-                value="2">
+                class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__nestedListItem">
                 <ul class="PlaygroundEditorTheme__ul">
-                  <li class="PlaygroundEditorTheme__listItem" value="1">
+                  <li class="PlaygroundEditorTheme__listItem">
                     <span data-lexical-text="true">the</span>
                   </li>
                 </ul>
               </li>
-              <li class="PlaygroundEditorTheme__listItem" value="2">
+              <li class="PlaygroundEditorTheme__listItem">
                 <span data-lexical-text="true">other</span>
               </li>
             </ul>
           </li>
-          <li class="PlaygroundEditorTheme__listItem" value="2">
+          <li class="PlaygroundEditorTheme__listItem">
             <span data-lexical-text="true">side</span>
           </li>
         </ul>
@@ -1997,21 +1987,19 @@ test.describe('Nested List', () => {
       page,
       html`
         <ol class="PlaygroundEditorTheme__ol1" dir="auto">
-          <li class="PlaygroundEditorTheme__listItem" value="1">
+          <li class="PlaygroundEditorTheme__listItem">
             <span data-lexical-text="true">Hello</span>
           </li>
           <li
-            class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__nestedListItem"
-            value="2">
+            class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__nestedListItem">
             <ol class="PlaygroundEditorTheme__ol2">
-              <li class="PlaygroundEditorTheme__listItem" value="1">
+              <li class="PlaygroundEditorTheme__listItem">
                 <span data-lexical-text="true">from</span>
               </li>
               <li
-                class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__nestedListItem"
-                value="2">
+                class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__nestedListItem">
                 <ol class="PlaygroundEditorTheme__ol3">
-                  <li class="PlaygroundEditorTheme__listItem" value="1">
+                  <li class="PlaygroundEditorTheme__listItem">
                     <span data-lexical-text="true">the</span>
                   </li>
                 </ol>
@@ -2034,31 +2022,29 @@ test.describe('Nested List', () => {
       page,
       html`
         <ul class="PlaygroundEditorTheme__ul" dir="auto">
-          <li class="PlaygroundEditorTheme__listItem" value="1">
+          <li class="PlaygroundEditorTheme__listItem">
             <span data-lexical-text="true">Hello</span>
           </li>
           <li
-            class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__nestedListItem"
-            value="2">
+            class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__nestedListItem">
             <ul class="PlaygroundEditorTheme__ul">
-              <li class="PlaygroundEditorTheme__listItem" value="1">
+              <li class="PlaygroundEditorTheme__listItem">
                 <span data-lexical-text="true">from</span>
               </li>
               <li
-                class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__nestedListItem"
-                value="2">
+                class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__nestedListItem">
                 <ul class="PlaygroundEditorTheme__ul">
-                  <li class="PlaygroundEditorTheme__listItem" value="1">
+                  <li class="PlaygroundEditorTheme__listItem">
                     <span data-lexical-text="true">the</span>
                   </li>
                 </ul>
               </li>
-              <li class="PlaygroundEditorTheme__listItem" value="2">
+              <li class="PlaygroundEditorTheme__listItem">
                 <span data-lexical-text="true">other</span>
               </li>
             </ul>
           </li>
-          <li class="PlaygroundEditorTheme__listItem" value="2">
+          <li class="PlaygroundEditorTheme__listItem">
             <span data-lexical-text="true">side</span>
           </li>
         </ul>
@@ -2092,31 +2078,29 @@ test.describe('Nested List', () => {
       page,
       html`
         <ul class="PlaygroundEditorTheme__ul" dir="auto">
-          <li class="PlaygroundEditorTheme__listItem" value="1">
+          <li class="PlaygroundEditorTheme__listItem">
             <span data-lexical-text="true">Hello</span>
           </li>
           <li
-            class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__nestedListItem"
-            value="2">
+            class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__nestedListItem">
             <ul class="PlaygroundEditorTheme__ul">
-              <li class="PlaygroundEditorTheme__listItem" value="1">
+              <li class="PlaygroundEditorTheme__listItem">
                 <span data-lexical-text="true">from</span>
               </li>
               <li
-                class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__nestedListItem"
-                value="2">
+                class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__nestedListItem">
                 <ul class="PlaygroundEditorTheme__ul">
-                  <li class="PlaygroundEditorTheme__listItem" value="1">
+                  <li class="PlaygroundEditorTheme__listItem">
                     <span data-lexical-text="true">the</span>
                   </li>
                 </ul>
               </li>
-              <li class="PlaygroundEditorTheme__listItem" value="2">
+              <li class="PlaygroundEditorTheme__listItem">
                 <span data-lexical-text="true">other</span>
               </li>
             </ul>
           </li>
-          <li class="PlaygroundEditorTheme__listItem" value="2">
+          <li class="PlaygroundEditorTheme__listItem">
             <span data-lexical-text="true">side</span>
           </li>
         </ul>
@@ -2129,26 +2113,24 @@ test.describe('Nested List', () => {
       page,
       html`
         <ol class="PlaygroundEditorTheme__ol1" dir="auto">
-          <li class="PlaygroundEditorTheme__listItem" value="1">
+          <li class="PlaygroundEditorTheme__listItem">
             <span data-lexical-text="true">Hello</span>
           </li>
           <li
-            class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__nestedListItem"
-            value="2">
+            class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__nestedListItem">
             <ul class="PlaygroundEditorTheme__ul">
-              <li class="PlaygroundEditorTheme__listItem" value="1">
+              <li class="PlaygroundEditorTheme__listItem">
                 <span data-lexical-text="true">from</span>
               </li>
               <li
-                class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__nestedListItem"
-                value="2">
+                class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__nestedListItem">
                 <ul class="PlaygroundEditorTheme__ul">
-                  <li class="PlaygroundEditorTheme__listItem" value="1">
+                  <li class="PlaygroundEditorTheme__listItem">
                     <span data-lexical-text="true">the</span>
                   </li>
                 </ul>
               </li>
-              <li class="PlaygroundEditorTheme__listItem" value="2">
+              <li class="PlaygroundEditorTheme__listItem">
                 <span data-lexical-text="true">other</span>
               </li>
             </ul>
@@ -2166,31 +2148,29 @@ test.describe('Nested List', () => {
       page,
       html`
         <ul class="PlaygroundEditorTheme__ul" dir="auto">
-          <li class="PlaygroundEditorTheme__listItem" value="1">
+          <li class="PlaygroundEditorTheme__listItem">
             <span data-lexical-text="true">Hello</span>
           </li>
           <li
-            class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__nestedListItem"
-            value="2">
+            class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__nestedListItem">
             <ul class="PlaygroundEditorTheme__ul">
-              <li class="PlaygroundEditorTheme__listItem" value="1">
+              <li class="PlaygroundEditorTheme__listItem">
                 <span data-lexical-text="true">from</span>
               </li>
               <li
-                class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__nestedListItem"
-                value="2">
+                class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__nestedListItem">
                 <ul class="PlaygroundEditorTheme__ul">
-                  <li class="PlaygroundEditorTheme__listItem" value="1">
+                  <li class="PlaygroundEditorTheme__listItem">
                     <span data-lexical-text="true">the</span>
                   </li>
                 </ul>
               </li>
-              <li class="PlaygroundEditorTheme__listItem" value="2">
+              <li class="PlaygroundEditorTheme__listItem">
                 <span data-lexical-text="true">other</span>
               </li>
             </ul>
           </li>
-          <li class="PlaygroundEditorTheme__listItem" value="2">
+          <li class="PlaygroundEditorTheme__listItem">
             <span data-lexical-text="true">side</span>
           </li>
         </ul>
@@ -2206,21 +2186,19 @@ test.describe('Nested List', () => {
       page,
       html`
         <ul class="PlaygroundEditorTheme__ul" dir="auto">
-          <li class="PlaygroundEditorTheme__listItem" value="1">
+          <li class="PlaygroundEditorTheme__listItem">
             <span data-lexical-text="true">Hello</span>
           </li>
           <li
-            class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__nestedListItem"
-            value="2">
+            class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__nestedListItem">
             <ol class="PlaygroundEditorTheme__ol2">
-              <li class="PlaygroundEditorTheme__listItem" value="1">
+              <li class="PlaygroundEditorTheme__listItem">
                 <span data-lexical-text="true">from</span>
               </li>
               <li
-                class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__nestedListItem"
-                value="2">
+                class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__nestedListItem">
                 <ul class="PlaygroundEditorTheme__ul">
-                  <li class="PlaygroundEditorTheme__listItem" value="1">
+                  <li class="PlaygroundEditorTheme__listItem">
                     <span data-lexical-text="true">the</span>
                   </li>
                 </ul>
@@ -2230,7 +2208,7 @@ test.describe('Nested List', () => {
               </li>
             </ol>
           </li>
-          <li class="PlaygroundEditorTheme__listItem" value="2">
+          <li class="PlaygroundEditorTheme__listItem">
             <span data-lexical-text="true">side</span>
           </li>
         </ul>
@@ -2243,31 +2221,29 @@ test.describe('Nested List', () => {
       page,
       html`
         <ul class="PlaygroundEditorTheme__ul" dir="auto">
-          <li class="PlaygroundEditorTheme__listItem" value="1">
+          <li class="PlaygroundEditorTheme__listItem">
             <span data-lexical-text="true">Hello</span>
           </li>
           <li
-            class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__nestedListItem"
-            value="2">
+            class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__nestedListItem">
             <ul class="PlaygroundEditorTheme__ul">
-              <li class="PlaygroundEditorTheme__listItem" value="1">
+              <li class="PlaygroundEditorTheme__listItem">
                 <span data-lexical-text="true">from</span>
               </li>
               <li
-                class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__nestedListItem"
-                value="2">
+                class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__nestedListItem">
                 <ul class="PlaygroundEditorTheme__ul">
-                  <li class="PlaygroundEditorTheme__listItem" value="1">
+                  <li class="PlaygroundEditorTheme__listItem">
                     <span data-lexical-text="true">the</span>
                   </li>
                 </ul>
               </li>
-              <li class="PlaygroundEditorTheme__listItem" value="2">
+              <li class="PlaygroundEditorTheme__listItem">
                 <span data-lexical-text="true">other</span>
               </li>
             </ul>
           </li>
-          <li class="PlaygroundEditorTheme__listItem" value="2">
+          <li class="PlaygroundEditorTheme__listItem">
             <span data-lexical-text="true">side</span>
           </li>
         </ul>
@@ -2283,31 +2259,29 @@ test.describe('Nested List', () => {
       page,
       html`
         <ul class="PlaygroundEditorTheme__ul" dir="auto">
-          <li class="PlaygroundEditorTheme__listItem" value="1">
+          <li class="PlaygroundEditorTheme__listItem">
             <span data-lexical-text="true">Hello</span>
           </li>
           <li
-            class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__nestedListItem"
-            value="2">
+            class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__nestedListItem">
             <ul class="PlaygroundEditorTheme__ul">
-              <li class="PlaygroundEditorTheme__listItem" value="1">
+              <li class="PlaygroundEditorTheme__listItem">
                 <span data-lexical-text="true">from</span>
               </li>
               <li
-                class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__nestedListItem"
-                value="2">
+                class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__nestedListItem">
                 <ol class="PlaygroundEditorTheme__ol3">
-                  <li class="PlaygroundEditorTheme__listItem" value="1">
+                  <li class="PlaygroundEditorTheme__listItem">
                     <span data-lexical-text="true">the</span>
                   </li>
                 </ol>
               </li>
-              <li class="PlaygroundEditorTheme__listItem" value="2">
+              <li class="PlaygroundEditorTheme__listItem">
                 <span data-lexical-text="true">other</span>
               </li>
             </ul>
           </li>
-          <li class="PlaygroundEditorTheme__listItem" value="2">
+          <li class="PlaygroundEditorTheme__listItem">
             <span data-lexical-text="true">side</span>
           </li>
         </ul>
@@ -2320,31 +2294,29 @@ test.describe('Nested List', () => {
       page,
       html`
         <ul class="PlaygroundEditorTheme__ul" dir="auto">
-          <li class="PlaygroundEditorTheme__listItem" value="1">
+          <li class="PlaygroundEditorTheme__listItem">
             <span data-lexical-text="true">Hello</span>
           </li>
           <li
-            class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__nestedListItem"
-            value="2">
+            class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__nestedListItem">
             <ul class="PlaygroundEditorTheme__ul">
-              <li class="PlaygroundEditorTheme__listItem" value="1">
+              <li class="PlaygroundEditorTheme__listItem">
                 <span data-lexical-text="true">from</span>
               </li>
               <li
-                class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__nestedListItem"
-                value="2">
+                class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__nestedListItem">
                 <ul class="PlaygroundEditorTheme__ul">
-                  <li class="PlaygroundEditorTheme__listItem" value="1">
+                  <li class="PlaygroundEditorTheme__listItem">
                     <span data-lexical-text="true">the</span>
                   </li>
                 </ul>
               </li>
-              <li class="PlaygroundEditorTheme__listItem" value="2">
+              <li class="PlaygroundEditorTheme__listItem">
                 <span data-lexical-text="true">other</span>
               </li>
             </ul>
           </li>
-          <li class="PlaygroundEditorTheme__listItem" value="2">
+          <li class="PlaygroundEditorTheme__listItem">
             <span data-lexical-text="true">side</span>
           </li>
         </ul>
@@ -2383,7 +2355,7 @@ test.describe('Nested List', () => {
           <span data-lexical-text="true">Hello</span>
         </p>
         <ul class="PlaygroundEditorTheme__ul" dir="auto">
-          <li class="PlaygroundEditorTheme__listItem" value="1">
+          <li class="PlaygroundEditorTheme__listItem">
             <span data-lexical-text="true">from</span>
           </li>
         </ul>
@@ -2391,7 +2363,7 @@ test.describe('Nested List', () => {
           <span data-lexical-text="true">the</span>
         </p>
         <ul class="PlaygroundEditorTheme__ul" dir="auto">
-          <li class="PlaygroundEditorTheme__listItem" value="1">
+          <li class="PlaygroundEditorTheme__listItem">
             <span data-lexical-text="true">other</span>
           </li>
         </ul>
@@ -2409,19 +2381,19 @@ test.describe('Nested List', () => {
       page,
       html`
         <ul class="PlaygroundEditorTheme__ul" dir="auto">
-          <li class="PlaygroundEditorTheme__listItem" value="1">
+          <li class="PlaygroundEditorTheme__listItem">
             <span data-lexical-text="true">Hello</span>
           </li>
-          <li class="PlaygroundEditorTheme__listItem" value="2">
+          <li class="PlaygroundEditorTheme__listItem">
             <span data-lexical-text="true">from</span>
           </li>
-          <li class="PlaygroundEditorTheme__listItem" value="3">
+          <li class="PlaygroundEditorTheme__listItem">
             <span data-lexical-text="true">the</span>
           </li>
-          <li class="PlaygroundEditorTheme__listItem" value="4">
+          <li class="PlaygroundEditorTheme__listItem">
             <span data-lexical-text="true">other</span>
           </li>
-          <li class="PlaygroundEditorTheme__listItem" value="5">
+          <li class="PlaygroundEditorTheme__listItem">
             <span data-lexical-text="true">side</span>
           </li>
         </ul>
@@ -2453,15 +2425,15 @@ test.describe('Nested List', () => {
       page,
       html`
         <ul class="PlaygroundEditorTheme__ul" dir="auto">
-          <li class="PlaygroundEditorTheme__listItem" value="1">
+          <li class="PlaygroundEditorTheme__listItem">
             <span data-lexical-text="true">Hello</span>
           </li>
-          <li class="PlaygroundEditorTheme__listItem" value="2">
+          <li class="PlaygroundEditorTheme__listItem">
             <span data-lexical-text="true">from</span>
           </li>
         </ul>
         <ol class="PlaygroundEditorTheme__ol1" dir="auto">
-          <li class="PlaygroundEditorTheme__listItem" value="1">
+          <li class="PlaygroundEditorTheme__listItem">
             <span data-lexical-text="true">the</span>
           </li>
         </ol>
@@ -2490,13 +2462,13 @@ test.describe('Nested List', () => {
       page,
       html`
         <ol class="PlaygroundEditorTheme__ol1" dir="auto">
-          <li class="PlaygroundEditorTheme__listItem" value="1">
+          <li class="PlaygroundEditorTheme__listItem">
             <span data-lexical-text="true">Hello</span>
           </li>
-          <li class="PlaygroundEditorTheme__listItem" value="2">
+          <li class="PlaygroundEditorTheme__listItem">
             <span data-lexical-text="true">from</span>
           </li>
-          <li class="PlaygroundEditorTheme__listItem" value="3">
+          <li class="PlaygroundEditorTheme__listItem">
             <span data-lexical-text="true">the</span>
           </li>
         </ol>
@@ -2516,7 +2488,7 @@ test.describe('Nested List', () => {
     // undo case is when the user presses undo.
 
     const forwardHTML =
-      '<ol start="321" class="PlaygroundEditorTheme__ol1" dir="auto"><li value="321" class="PlaygroundEditorTheme__listItem"><br data-lexical-managed-linebreak="true"></li></ol>';
+      '<ol start="321" class="PlaygroundEditorTheme__ol1" dir="auto"><li class="PlaygroundEditorTheme__listItem"><br data-lexical-managed-linebreak="true"></li></ol>';
 
     const undoHTML = html`
       <p class="PlaygroundEditorTheme__paragraph" dir="auto">
@@ -2545,7 +2517,7 @@ test.describe('Nested List', () => {
       page,
       html`
         <ul dir="auto">
-          <li value="1">
+          <li>
             <span data-lexical-text="true">a</span>
           </li>
         </ul>
@@ -2576,10 +2548,10 @@ test.describe('Nested List', () => {
       page,
       html`
         <ul dir="auto">
-          <li value="1">
+          <li>
             <span data-lexical-text="true">a</span>
           </li>
-          <li value="2">
+          <li>
             <span data-lexical-text="true">b</span>
           </li>
         </ul>
@@ -2592,7 +2564,7 @@ test.describe('Nested List', () => {
       page,
       html`
         <ul dir="auto">
-          <li value="1">
+          <li>
             <span data-lexical-text="true">a</span>
           </li>
         </ul>
@@ -2618,13 +2590,13 @@ test.describe('Nested List', () => {
       page,
       html`
         <ul dir="auto">
-          <li value="1">
+          <li>
             <span data-lexical-text="true">a</span>
           </li>
-          <li value="2">
+          <li>
             <span data-lexical-text="true">b</span>
           </li>
-          <li value="3">
+          <li>
             <span data-lexical-text="true">c</span>
           </li>
         </ul>
@@ -2637,13 +2609,13 @@ test.describe('Nested List', () => {
       page,
       html`
         <ul dir="auto">
-          <li value="1">
+          <li>
             <span data-lexical-text="true">a</span>
           </li>
         </ul>
         <p dir="auto"><span data-lexical-text="true">b</span></p>
         <ul dir="auto">
-          <li value="1">
+          <li>
             <span data-lexical-text="true">c</span>
           </li>
         </ul>
@@ -2678,7 +2650,6 @@ test.describe('Nested List', () => {
             class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__listItemChecked"
             role="checkbox"
             tabindex="-1"
-            value="1"
             aria-checked="true">
             <span data-lexical-text="true">a</span>
           </li>
@@ -2686,20 +2657,17 @@ test.describe('Nested List', () => {
             class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__listItemUnchecked"
             role="checkbox"
             tabindex="-1"
-            value="2"
             aria-checked="false">
             <span data-lexical-text="true">b</span>
           </li>
           <li
-            class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__listItemUnchecked PlaygroundEditorTheme__nestedListItem"
-            value="3">
+            class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__listItemUnchecked PlaygroundEditorTheme__nestedListItem">
             <ul
               class="PlaygroundEditorTheme__ul PlaygroundEditorTheme__checklist">
               <li
                 class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__listItemUnchecked"
                 role="checkbox"
                 tabindex="-1"
-                value="1"
                 aria-checked="false">
                 <span data-lexical-text="true">c</span>
               </li>
@@ -2714,22 +2682,20 @@ test.describe('Nested List', () => {
       page,
       html`
         <ul class="PlaygroundEditorTheme__ul" dir="auto">
-          <li class="PlaygroundEditorTheme__listItem" value="1">
+          <li class="PlaygroundEditorTheme__listItem">
             <span data-lexical-text="true">a</span>
           </li>
-          <li class="PlaygroundEditorTheme__listItem" value="2">
+          <li class="PlaygroundEditorTheme__listItem">
             <span data-lexical-text="true">b</span>
           </li>
           <li
-            class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__nestedListItem"
-            value="3">
+            class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__nestedListItem">
             <ul
               class="PlaygroundEditorTheme__ul PlaygroundEditorTheme__checklist">
               <li
                 class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__listItemUnchecked"
                 role="checkbox"
                 tabindex="-1"
-                value="1"
                 aria-checked="false">
                 <span data-lexical-text="true">c</span>
               </li>
@@ -2749,7 +2715,6 @@ test.describe('Nested List', () => {
             class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__listItemUnchecked"
             role="checkbox"
             tabindex="-1"
-            value="1"
             aria-checked="false">
             <span data-lexical-text="true">a</span>
           </li>
@@ -2757,20 +2722,17 @@ test.describe('Nested List', () => {
             class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__listItemUnchecked"
             role="checkbox"
             tabindex="-1"
-            value="2"
             aria-checked="false">
             <span data-lexical-text="true">b</span>
           </li>
           <li
-            class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__listItemUnchecked PlaygroundEditorTheme__nestedListItem"
-            value="3">
+            class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__listItemUnchecked PlaygroundEditorTheme__nestedListItem">
             <ul
               class="PlaygroundEditorTheme__ul PlaygroundEditorTheme__checklist">
               <li
                 class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__listItemUnchecked"
                 role="checkbox"
                 tabindex="-1"
-                value="1"
                 aria-checked="false">
                 <span data-lexical-text="true">c</span>
               </li>
@@ -2857,10 +2819,10 @@ test.describe('Nested List', () => {
       page,
       html`
         <ul class="PlaygroundEditorTheme__ul" dir="auto">
-          <li class="PlaygroundEditorTheme__listItem" value="1">
+          <li class="PlaygroundEditorTheme__listItem">
             <span data-lexical-text="true">Hello from</span>
           </li>
-          <li class="PlaygroundEditorTheme__listItem" value="2">
+          <li class="PlaygroundEditorTheme__listItem">
             <span data-lexical-text="true">the other side</span>
           </li>
         </ul>
@@ -2922,7 +2884,7 @@ test.describe('Nested List', () => {
           <span data-lexical-text="true">Hello World</span>
         </p>
         <ul class="PlaygroundEditorTheme__ul" dir="auto">
-          <li class="PlaygroundEditorTheme__listItem" value="1">
+          <li class="PlaygroundEditorTheme__listItem">
             <span data-lexical-text="true">a</span>
           </li>
         </ul>
@@ -2933,7 +2895,7 @@ test.describe('Nested List', () => {
           <br data-lexical-managed-linebreak="true" />
         </p>
         <ul class="PlaygroundEditorTheme__ul" dir="auto">
-          <li class="PlaygroundEditorTheme__listItem" value="1">
+          <li class="PlaygroundEditorTheme__listItem">
             <span data-lexical-text="true">b</span>
           </li>
         </ul>
@@ -2960,7 +2922,7 @@ test.describe('Nested List', () => {
       page,
       html`
         <ul class="PlaygroundEditorTheme__ul" dir="auto">
-          <li class="PlaygroundEditorTheme__listItem" value="1">
+          <li class="PlaygroundEditorTheme__listItem">
             <strong
               class="PlaygroundEditorTheme__textBold"
               data-lexical-text="true">
@@ -2968,10 +2930,9 @@ test.describe('Nested List', () => {
             </strong>
           </li>
           <li
-            class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__nestedListItem"
-            value="2">
+            class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__nestedListItem">
             <ul class="PlaygroundEditorTheme__ul">
-              <li class="PlaygroundEditorTheme__listItem" value="1">
+              <li class="PlaygroundEditorTheme__listItem">
                 <strong
                   class="PlaygroundEditorTheme__textBold"
                   data-lexical-text="true">
@@ -2991,7 +2952,7 @@ test.describe('Nested List', () => {
       page,
       html`
         <ul class="PlaygroundEditorTheme__ul" dir="auto">
-          <li class="PlaygroundEditorTheme__listItem" value="1">
+          <li class="PlaygroundEditorTheme__listItem">
             <br data-lexical-managed-linebreak="true" />
           </li>
         </ul>
@@ -3016,7 +2977,7 @@ test.describe('Nested List', () => {
       page,
       html`
         <ul class="PlaygroundEditorTheme__ul" dir="auto">
-          <li class="PlaygroundEditorTheme__listItem" value="1">
+          <li class="PlaygroundEditorTheme__listItem">
             <span data-lexical-text="true">Hello World</span>
           </li>
         </ul>
@@ -3043,7 +3004,7 @@ test.describe('Nested List', () => {
       page,
       html`
         <ul class="PlaygroundEditorTheme__ul" dir="auto">
-          <li class="PlaygroundEditorTheme__listItem" value="1">
+          <li class="PlaygroundEditorTheme__listItem">
             <a
               class="PlaygroundEditorTheme__link"
               href="https://www.example.com">

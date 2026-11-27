@@ -91,6 +91,7 @@ export async function docShareUrl(editor: LexicalEditor): Promise<string> {
   const url = new URL(window.location.toString());
   url.hash = await docToHash(
     serializedDocumentFromEditorState(editor.getEditorState(), {
+      editor,
       source: 'MdastEditor',
     }),
   );

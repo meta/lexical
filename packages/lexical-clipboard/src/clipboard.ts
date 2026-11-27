@@ -53,6 +53,7 @@ import {
   getDOMSelection,
   getDOMSelectionPoints,
   getEditorPropertyFromDOMNode,
+  INTERNAL_$withExportMemo,
   isHTMLElement,
   isLexicalEditor,
   isSelectionWithinEditor,
@@ -544,7 +545,6 @@ export interface BaseSerializedNode {
   /**
    * Named slot subtrees keyed by slot name; present on serialized hosts.
    * Mirrors {@link SerializedLexicalNode.$slots}.
-   * @experimental named-slots
    */
   $slots?: Record<string, BaseSerializedNode>;
   type: string;
@@ -703,10 +703,12 @@ export function $generateJSONFromSelectedNodes<
   const topLevelChildren = (
     $isElementNode(slotFrame) ? slotFrame : root
   ).getChildren();
-  for (let i = 0; i < topLevelChildren.length; i++) {
-    const topLevelNode = topLevelChildren[i];
-    $appendNodesToJSON(editor, selection, topLevelNode, nodes);
-  }
+  INTERNAL_$withExportMemo(() => {
+    for (let i = 0; i < topLevelChildren.length; i++) {
+      const topLevelNode = topLevelChildren[i];
+      $appendNodesToJSON(editor, selection, topLevelNode, nodes);
+    }
+  });
   return {
     namespace: editor._config.namespace,
     nodes,

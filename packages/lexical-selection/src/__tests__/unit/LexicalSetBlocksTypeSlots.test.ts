@@ -43,7 +43,7 @@ function runInEditor(fn: () => void): void {
 // A bare (non-shadow-root) block used as a named-slot value has no __parent —
 // its up-link is __slotHost — so it is not eligible for generic block
 // conversion: the slot assignment is managed by the node or extension that
-// owns the slot. See the review discussion on facebook/lexical#8901.
+// owns the slot. See the review discussion on meta/lexical#8901.
 describe('$setBlocksType and named slots', () => {
   test('no-ops on a bare-block slot value', () => {
     runInEditor(() => {

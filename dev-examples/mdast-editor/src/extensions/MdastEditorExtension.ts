@@ -36,6 +36,7 @@ import {
   RichTextExtension,
 } from '@lexical/rich-text';
 import {$setBlocksType} from '@lexical/selection';
+import {TableExtension} from '@lexical/table';
 import {mergeRegister} from '@lexical/utils';
 import {
   $caretFromPoint,
@@ -99,10 +100,10 @@ export interface MdastEditorOutput {
  * `@lexical/mdast` ships extension-ready, there is no transformer list
  * to curate, no `registerMarkdownShortcuts` call, no checklist
  * text-match workaround (typing `[ ] ` / `[x] ` in a list item is
- * built in), and no newline-normalization configuration —
- * {@link MdastShortcutsExtension} pulls in the CommonMark + GFM
- * grammar, its node dependencies, and the streaming shortcuts on its
- * own. What's left here is example-specific plumbing: the editing
+ * built in), and no newline-normalization configuration — the
+ * CommonMark and GFM bundles bring their grammar and nodes, and
+ * {@link MdastShortcutsExtension} drives the typing shortcuts from that
+ * grammar. What's left here is example-specific plumbing: the editing
  * behavior extensions, the `markdown` preview signal, and the block
  * format commands the toolbar dispatches.
  */
@@ -118,8 +119,8 @@ export const MdastEditorExtension = defineExtension({
   },
   dependencies: [
     // The grammar is granular: CommonMark and GFM are separate bundles,
-    // export is split from import (the live preview serializes, so opt
-    // in), and the typing shortcuts follow whatever grammar is present.
+    // MdastExtension holds import and export, and the typing shortcuts
+    // follow whatever grammar is present.
     MdastCommonMarkExtension,
     MdastGfmExtension,
     MdastExtension,
@@ -144,6 +145,9 @@ export const MdastEditorExtension = defineExtension({
     // CodeExtension / CodeIndentExtension dependencies).
     CodeShikiExtension,
     RichTextExtension,
+    // Table editing. What a GFM table can't hold (blocks in a cell, merged
+    // cells) is written as near as GFM allows.
+    TableExtension,
     ListExtension,
     CheckListExtension,
     HistoryExtension,

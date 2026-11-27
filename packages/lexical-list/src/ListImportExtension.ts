@@ -17,10 +17,12 @@ import {
 } from '@lexical/html';
 import {
   $createLineBreakNode,
+  $getEditor,
   $isElementNode,
   $isParagraphNode,
   $setDirectionFromDOM,
   $setFormatFromDOM,
+  INTERNAL_isNodeStructureEnforced,
   type LexicalNode,
 } from 'lexical';
 
@@ -87,7 +89,7 @@ const ListRule = defineImportRule({
     }
     $setDirectionFromDOM(node, el);
     // Propagate the list's `text-align` onto each `ListItemNode` child
-    // (legacy `wrapContinuousInlines` did the same), so pasting
+    // (legacy `$wrapContinuousInlines` did the same), so pasting
     // `<ul style="text-align: left"><li>…</li></ul>` ends up with the
     // alignment on the list items where the reconciler renders it as
     // `style="text-align: left"`.
@@ -136,7 +138,7 @@ function $liftFormatFromSingleParagraph(
  * `ListItemNode` is an inline-level container, so any block child marks a
  * boundary. Contiguous inline siblings are kept together as a single run and
  * one {@link $createLineBreakNode} is inserted between runs — reproducing the
- * legacy `wrapContinuousInlines` + `$unwrapArtificialNodes` shape
+ * legacy `$wrapContinuousInlines` + `$unwrapArtificialNodes` shape
  * (`<li>1<div>2</div>3</li>` → `1<br>2<br>3`) without the
  * `ArtificialNode__DO_NOT_USE` marker.
  *
@@ -148,6 +150,12 @@ function $liftFormatFromSingleParagraph(
  * as-is. A nested `ListNode` is the one deliberate exception — it is a valid
  * list-item child that {@link $normalizeListChildren} lifts into a sibling,
  * so it is preserved here rather than unwrapped.
+ *
+ * When the editor enforces declared node structure
+ * (`NodeStructureExtension`), a childless block decorator (`<hr>`) cannot
+ * stay in the item: the normalization splits the list around it. No line
+ * break is then put next to it (`<li>a<hr>b</li>` → `a`, the decorator,
+ * `b`), since one would be left at the edge of each half as an empty line.
  */
 function $flattenListItemBlocks(children: LexicalNode[]): LexicalNode[] {
   const $isBoundary = (node: LexicalNode): boolean =>
@@ -157,31 +165,36 @@ function $flattenListItemBlocks(children: LexicalNode[]): LexicalNode[] {
   }
   // Partition into segments — each maximal run of inline siblings, and each
   // boundary's own content — then join the segments with a single line break.
-  const segments: LexicalNode[][] = [];
+  const segments: {nodes: LexicalNode[]; lifted: boolean}[] = [];
   let inlineRun: LexicalNode[] = [];
   const flushInlineRun = () => {
     if (inlineRun.length > 0) {
-      segments.push(inlineRun);
+      segments.push({lifted: false, nodes: inlineRun});
       inlineRun = [];
     }
   };
+  const lifts = INTERNAL_isNodeStructureEnforced($getEditor());
   for (const child of children) {
     if ($isBoundary(child)) {
       flushInlineRun();
       // Unwrap a block ElementNode to its inline content; a childless block
       // DecoratorNode stands on its own line.
-      segments.push($isElementNode(child) ? child.getChildren() : [child]);
+      segments.push(
+        $isElementNode(child)
+          ? {lifted: false, nodes: child.getChildren()}
+          : {lifted: lifts, nodes: [child]},
+      );
     } else {
       inlineRun.push(child);
     }
   }
   flushInlineRun();
   const out: LexicalNode[] = [];
-  for (const segment of segments) {
-    if (out.length > 0) {
+  for (let i = 0; i < segments.length; i++) {
+    if (out.length > 0 && !segments[i - 1].lifted && !segments[i].lifted) {
       out.push($createLineBreakNode());
     }
-    out.push(...segment);
+    out.push(...segments[i].nodes);
   }
   return out;
 }
@@ -274,8 +287,6 @@ const JoplinChecklistItemRule = defineImportRule({
  * `ListItemNode` and (immediately-nested) `ListNode` children are
  * accepted; runs of other children get wrapped in a fresh
  * `ListItemNode`.
- *
- * @experimental
  */
 export const ListSchema: ChildSchema = {
   $accepts: child => $isListItemNode(child) || $isListNode(child),
@@ -296,8 +307,6 @@ export const ListSchema: ChildSchema = {
  * `CoreImportExtension`), so any editor that uses the list extension can
  * import these tags through the `DOMImportExtension` pipeline without
  * further configuration.
- *
- * @experimental
  */
 export const ListImportRules = [
   // More specific rules (class-restricted) must precede the generic `li`

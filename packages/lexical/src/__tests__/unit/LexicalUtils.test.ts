@@ -183,23 +183,41 @@ describe('LexicalUtils tests', () => {
       expect(getTextDirection('\u00F6')).toBe('ltr');
       expect(getTextDirection('\u00F8')).toBe('ltr');
       expect(getTextDirection('\u02B8')).toBe('ltr');
-      expect(getTextDirection('\u0300')).toBe('ltr');
-      expect(getTextDirection('\u0590')).toBe('ltr');
-      expect(getTextDirection('\u0800')).toBe('ltr');
-      expect(getTextDirection('\u1FFF')).toBe('ltr');
+      expect(getTextDirection('\u0300')).toBe(null);
+      expect(getTextDirection('\u0590')).toBe(null);
+      expect(getTextDirection('\u0800')).toBe('rtl');
+      expect(getTextDirection('\u1FFF')).toBe(null);
       expect(getTextDirection('\u200E')).toBe('ltr');
       expect(getTextDirection('\u2C00')).toBe('ltr');
-      expect(getTextDirection('\uFB1C')).toBe('ltr');
-      expect(getTextDirection('\uFE00')).toBe('ltr');
-      expect(getTextDirection('\uFE6F')).toBe('ltr');
-      expect(getTextDirection('\uFEFD')).toBe('ltr');
-      expect(getTextDirection('\uFFFF')).toBe('ltr');
-      expect(getTextDirection(`\u0591`)).toBe('rtl');
-      expect(getTextDirection(`\u07FF`)).toBe('rtl');
+      expect(getTextDirection('\uFB1C')).toBe(null);
+      expect(getTextDirection('\uFE00')).toBe(null);
+      expect(getTextDirection('\uFE6F')).toBe(null);
+      expect(getTextDirection('\uFEFD')).toBe(null);
+      expect(getTextDirection('\uFFFF')).toBe(null);
+      expect(getTextDirection(`\u0591`)).toBe(null);
+      expect(getTextDirection(`\u07FF`)).toBe(null);
       expect(getTextDirection(`\uFB1D`)).toBe('rtl');
-      expect(getTextDirection(`\uFDFD`)).toBe('rtl');
+      expect(getTextDirection(`\uFDFD`)).toBe(null);
       expect(getTextDirection(`\uFE70`)).toBe('rtl');
       expect(getTextDirection(`\uFEFC`)).toBe('rtl');
+      expect(getTextDirection('שלום')).toBe('rtl');
+      expect(getTextDirection('مرحبا')).toBe('rtl');
+      expect(getTextDirection('Apple מוצר חדש')).toBe('ltr');
+      expect(getTextDirection('🎉 שלום')).toBe('rtl');
+      expect(getTextDirection('\u2764\uFE0F שלום')).toBe('rtl');
+      expect(getTextDirection('\u3000שלום')).toBe('rtl');
+      expect(getTextDirection('\uFEFFשלום')).toBe('rtl');
+      expect(getTextDirection('\uFFFDשלום')).toBe('rtl');
+      expect(getTextDirection('\u200FApple מוצר חדש')).toBe('rtl');
+      expect(getTextDirection('\u061CApple')).toBe('rtl');
+      expect(getTextDirection('\u200Eשלום Apple')).toBe('ltr');
+      expect(getTextDirection('١٢٣ Apple')).toBe('ltr');
+      expect(getTextDirection('123. !שלום')).toBe('rtl');
+      expect(getTextDirection('123 🎉 !?')).toBe(null);
+      expect(getTextDirection('\u0840')).toBe('rtl');
+      expect(getTextDirection('\u08A0')).toBe('rtl');
+      expect(getTextDirection('\u{10D00}')).toBe('rtl');
+      expect(getTextDirection('\u{1E900}')).toBe('rtl');
     });
 
     test('isExactShortcutMatch() matches by event.key for single-letter', () => {
@@ -589,6 +607,82 @@ describe('LexicalUtils tests', () => {
         scrollBySpy.mockRestore();
         rootRectSpy.mockRestore();
       }
+    });
+
+    describe('scrollIntoViewIfNeeded in vertical scroll containers', () => {
+      // A scroller between the editor root and the page, like an app frame
+      // with a sticky toolbar inside its own scroll container. Its box spans
+      // y 100 to 500, it can scroll, and it holds the editor root.
+      function setUp(scrollerStyle: string, overflowY = 'auto') {
+        const scroller = document.createElement('div');
+        const root = document.createElement('div');
+        scroller.append(root);
+        document.body.append(scroller);
+        onTestFinished(() => scroller.remove());
+        scroller.setAttribute(
+          'style',
+          `overflow-y: ${overflowY}; ${scrollerStyle}`,
+        );
+        vi.spyOn(scroller, 'getBoundingClientRect').mockReturnValue(
+          new DOMRect(0, 100, 800, 400),
+        );
+        Object.defineProperty(scroller, 'clientHeight', {
+          configurable: true,
+          value: 400,
+        });
+        Object.defineProperty(scroller, 'scrollHeight', {
+          configurable: true,
+          value: 5000,
+        });
+        // jsdom keeps whatever is assigned, without clamping it
+        scroller.scrollTop = 1000;
+        vi.spyOn(root, 'getBoundingClientRect').mockReturnValue(
+          new DOMRect(0, -900, 800, 5000),
+        );
+        return {root, scroller};
+      }
+
+      /** Reveals a caret at y and returns the scroller's scrollTop. */
+      function reveal(
+        top: number,
+        scrollerStyle: string,
+        overflowY?: string,
+      ): number {
+        const {root, scroller} = setUp(scrollerStyle, overflowY);
+        scrollIntoViewIfNeeded(
+          testEnv.editor,
+          new DOMRect(10, top, 0, 20),
+          root,
+        );
+        return scroller.scrollTop;
+      }
+
+      beforeEach(() => {
+        vi.spyOn(window, 'scrollBy').mockImplementation(() => {});
+      });
+
+      afterEach(() => {
+        vi.restoreAllMocks();
+      });
+
+      test('keeps the caret out of the scroll-padding at the top', () => {
+        // The caret line starts 20px below the scroller's top edge, inside a
+        // 40px scroll-padding, so the scroller moves up 20px.
+        expect(reveal(120, 'scroll-padding-top: 40px')).toBe(980);
+        // A percentage resolves against clientHeight: 10% of 400 is 40px
+        expect(reveal(120, 'scroll-padding-top: 10%')).toBe(980);
+        // Below the padding nothing moves
+        expect(reveal(160, 'scroll-padding-top: 40px')).toBe(1000);
+      });
+
+      test('keeps the caret out of the scroll-padding at the bottom', () => {
+        // The caret line ends at 470, 20px into a 50px scroll-padding
+        expect(reveal(450, 'scroll-padding-bottom: 50px')).toBe(1020);
+      });
+
+      test('ignores scroll-padding on an element that does not scroll', () => {
+        expect(reveal(120, 'scroll-padding-top: 40px', 'visible')).toBe(1000);
+      });
     });
 
     describe('scrollIntoViewIfNeeded in horizontal scroll containers', () => {

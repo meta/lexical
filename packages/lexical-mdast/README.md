@@ -22,8 +22,9 @@ in sync.
 
 Like `@lexical/markdown`, the original syntax of a construct is preserved on
 the Lexical nodes (the bullet character of a list, a code block's fence, and a
-hard line break's style), so re-serializing produces **minimally different**
-Markdown — `* a`/`+ b` bullets and `~~~` fences round-trip unchanged.
+hard line break's style), so re-serializing stays **close to the source**,
+though not exact — `* a`/`+ b` bullets and `~~~` fences round-trip unchanged,
+while tables are re-padded and some constructs are normalized (see the guide).
 
 ## Configured through extensions
 
@@ -62,14 +63,16 @@ Behavior and convenience bundles:
 | `MdastRichTextExtension` | bundle of heading + blockquote |
 | `MdastExtension` | core registry, Markdown import and export |
 | `MdastShadowRootQuoteExtension` | opt-in: blockquotes as block containers (full-fidelity nested content) |
+| `MdastQuoteContainerExtension` | opt-in: blockquotes as `QuoteContainerNode`s (`@lexical/rich-text`), quotes that hold blocks and declare it |
 | `MdastHtmlExtension` | opt-in: raw HTML routed through the `@lexical/html` DOM import rules; HTML-encoded export via `$exportViaDOM` / `rawHtmlBlock` |
 | `MdastShortcutsExtension` | streaming keyboard shortcuts |
 
 Everything composes granularly and degrades gracefully: an editor with only
 the extensions it wants imports unsupported constructs as their content
-(a table becomes its cell text), and the typing shortcuts — driven by the
-same registry — only fire for constructs the editor can represent (`> `
-stays literal without `MdastBlockquoteExtension`).
+(without `MdastTableExtension`, which brings the GFM table grammar, a table
+is read as plain CommonMark), and the typing shortcuts — driven by the same
+registry — only fire for constructs the editor can represent (`> ` stays
+literal without `MdastBlockquoteExtension`).
 
 `MdastExtension` owns the shared configuration and exposes both import and
 export. Feature extensions depend on it automatically.
@@ -118,7 +121,9 @@ and
 `$convertSelectionToMarkdownString(selection?)` serializes only the
 selected content (defaulting to the current selection): unselected
 blocks and list items are skipped and partially selected text is
-sliced to the selected range.
+sliced to the selected range. A GFM table writes the rows and columns a
+selection reaches, or a text or node selection within one cell as that
+cell's blocks, as copying in a cell does.
 
 ### unified / remark interop
 
@@ -178,6 +183,90 @@ configExtension(MdastExtension, {
 });
 ```
 
+Export time can grow with the square of a paragraph's size, because of how
+`mdast-util-to-markdown` (2.2.2 and earlier) picks emphasis, strong and
+strikethrough markers that read back correctly
+([syntax-tree/mdast-util-to-markdown#96](https://github.com/syntax-tree/mdast-util-to-markdown/issues/96)).
+The known cases are a paragraph of many short runs of formatting side by
+side whose markers have to change, such as alternating bold, italic, and
+bold italic text (2,000 runs take about 7.5 s), with or without
+strikethrough among them, and many empty emphasis,
+strong or strikethrough nodes side by side, which only a contributed handler
+or mdast tree makes (1,000 take about 14 s).
+
+### Punctuation modes
+
+CommonMark doesn't let `**` open or close between a letter and punctuation,
+so `**你好。**世界` reads with literal asterisks. `importPunctuation` and
+`exportPunctuation` choose how markers beside punctuation are read and
+written:
+
+- `'cjk-friendly'` follows the
+  [CommonMark CJK-friendly amendment](https://github.com/tats-u/markdown-cjk-friendly),
+  as `micromark-extension-cjk-friendly` does. It reads Markdown as CommonMark
+  does except beside Chinese, Japanese and Korean characters and
+  punctuation, where markers open and close as their writer meant. A
+  variation selector before a marker reads as the character it follows,
+  before a closing `~` or `~~` too, as `markdown-it-cjk-friendly` reads it:
+  `x ~~Done ✔︎~~ y` closes, where
+  `micromark-extension-cjk-friendly-gfm-strikethrough` leaves it open, so
+  export writes such a selector as a reference (`x ~~Done ✔&#xFE0E;~~ y`).
+  After a U+0000, which micromark reads as U+FFFD, a selector reads as that
+  U+FFFD, as `markdown-it-cjk-friendly` reads it, where
+  `micromark-extension-cjk-friendly` reads the selector itself.
+- `'strict-commonmark'` follows CommonMark and GFM.
+
+Import defaults to `'cjk-friendly'`, which accepts what CJK writers type and,
+beside CJK text, what `@lexical/markdown` exported before it followed
+CommonMark's Unicode punctuation. Markdown exported earlier with an emoji or a text variation
+selector at the inner edge of a run beside a letter (`Hello**🎉 launch**`,
+`**©︎**2024`) now reads with literal markers, as the amendment reads it;
+strict CommonMark readers still read the selector case as bold, since a
+selector is not punctuation. Import `'strict-commonmark'` keeps the earlier
+reading of those.
+Export defaults to `'strict-commonmark'`: it writes a character reference
+where a marker would not open or close otherwise (`**你好。**&#x4E16;界`),
+which every CommonMark, GFM and CJK-friendly reader reads the same way, with
+three exceptions. A run of three or more markers that a pair uses only part
+of (`***a*b*c***` or `***x****y*`, as on earlier versions, or
+`**“***!。**」!a***`) is read
+differently by micromark and by commonmark.js and markdown-it, which apply the
+rule of 3 to the whole run. A selector after a tab, a line ending, a vertical
+tab or a form feed that ends a run (`**。\v︎**`) reads as that whitespace in
+`markdown-it-cjk-friendly`, which leaves those markers literal.
+A vertical tab beside a marker (`p\v**.**\vq`) reads as whitespace in
+commonmark.js, markdown-it and micromark, but not in cmark and cmark-gfm
+(GitHub's renderer), which follow CommonMark's definition of whitespace, and
+no reference can stand for it. Export `'cjk-friendly'` writes such CJK text as
+typed (`**你好。**世界`, `**你好。**abc`) for readers that follow the
+amendment:
+
+```ts
+configExtension(MdastExtension, {exportPunctuation: 'cjk-friendly'});
+```
+
+A CJK-friendly import reads the `~~` runs of `MdastStrikethroughExtension`
+as it reads emphasis. A strikethrough syntax contributed some other way
+through `micromarkExtensions` is left as it is.
+
+cmark-gfm (GitHub's renderer) differs from micromark in two more ways beside
+a marker: it skips a `~` run beside a `*` or `_` run and reads the character
+beyond it, and it reads a symbol of the Basic Multilingual Plane, such as
+`©`, as a letter. Where either difference keeps a run from opening or
+closing, a strict export writes the character that cmark-gfm reads beside
+the run as a reference (``~~&#x61;~~*`b`*``, `&#xA9;_a_`). It leaves the
+text as it is where a reference could change how another reader reads it,
+or would not be enough: beside punctuation that cmark-gfm's Unicode table
+does not have yet (`⹏_a_`), for a character with no lossless reference, in
+an image or reference label, in a table cell with brackets other than those
+of an inline link (`[text](url)`), in a word that markdown-it may read as a
+link (`see readme.md→_x_`), in a bare URL that cmark-gfm reads across a
+space other than an ASCII space, tab or line ending, such as U+3000, in a
+paragraph with a backtick or a marker beside it that micromark does not read
+as syntax (``a`b ©_a_``), where cmark-gfm pairs markers that micromark leaves
+literal (`**a©**x`, which only an export rule writes), and where the export's
+bounded search finds no repair.
+
 ### Raw HTML (`MdastHtmlExtension`)
 
 Markdown passes raw HTML through — GitHub-style `<details>` blocks, inline
@@ -185,7 +274,9 @@ Markdown passes raw HTML through — GitHub-style `<details>` blocks, inline
 `MdastHtmlExtension` routes it through the editor's `@lexical/html`
 `DOMImportExtension` rules instead, so **any HTML the editor can already
 import works from Markdown**, and Markdown *inside* the construct keeps
-working in both directions, the way it does on GitHub:
+working in both directions: the blocks after a blank line, as on GitHub,
+and also text between the tags, such as the summary line below, which GFM
+itself leaves raw:
 
 ```md
 <details><summary>
@@ -225,7 +316,10 @@ The **body** blocks
   (`$convertSelectionToMarkdownString`) run under
   `RenderContextMarkdownSelection` carrying the selection, so a
   contributed to-markdown handler that appends end-of-document data can
-  scope its output to a clipboard copy.
+  scope its output to a clipboard copy. An export rule reads the selection
+  its own export is limited to as `context.selection` (`null` for a
+  whole-document export, including one a handler runs during a selection
+  export), which needs no active editor.
 
 A complete HTML-encoded construct is one DOM import rule (which then also
 serves HTML paste) plus one export rule:
@@ -252,7 +346,7 @@ export const MdastCollapsibleExtension = defineExtension({
 });
 ```
 
-The [mdast-editor dev example](https://github.com/facebook/lexical/tree/main/dev-examples/mdast-editor)
+The [mdast-editor dev example](https://github.com/meta/lexical/tree/main/dev-examples/mdast-editor)
 demonstrates the block path (a `<details><summary>` collapsible with a
 named summary slot), the inline path (`<kbd>` keys), and inline HTML text
 formats (`<u>`, `<mark>`, `<sub>`/`<sup>`, `style="color: …"` spans).
@@ -329,8 +423,12 @@ configExtension(MdastExtension, {
 Plain formatted text returned by text middleware is merged into adjacent text
 runs so shared and overlapping formats serialize correctly. Output containing
 extra fields such as `data`, or custom structure, is preserved as-is instead
-of merged. Such middleware must ensure its output serializes correctly on its
-own; adjacent bold nodes, for example, can produce `**a****b**`.
+of merged. Such middleware must ensure that each node it returns serializes
+correctly by itself. Two `delete` nodes that end up next to each other have no
+Markdown form (`~~a~~~~b~~` reads back as one strikethrough of `a~~~~b`), so
+while the stock strikethrough handler writes them, Markdown export joins them
+into one, which keeps the first one's fields; `$convertToMdast()` still
+returns both.
 
 Import rules use mdast type strings: mdast nodes are plain objects,
 without a Lexical node class hierarchy. Their `context.next()` runs the next

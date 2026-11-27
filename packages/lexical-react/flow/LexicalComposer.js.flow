@@ -38,4 +38,4 @@ type Props = {
   children: React.Node,
 };
 
-declare export function LexicalComposer(Props): React.MixedElement;
+declare export function LexicalComposer(v: Props): React.MixedElement;

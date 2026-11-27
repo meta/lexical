@@ -110,10 +110,14 @@ import {
 } from './LexicalKeyboardShortcuts';
 import {createRefCountedRegistry} from './LexicalRefCountedRegistry';
 import {
+  $createPoint,
   $createRangeSelectionFromDom,
+  $getPointSlotFrame,
   $internalCreateRangeSelection,
   $internalRefreshSelectionFormatAndStyle,
   $internalResolveSelectionPoint,
+  $isSameFrame,
+  $prepareCompositionTarget,
   type RangeSelection,
 } from './LexicalSelection';
 import {
@@ -129,6 +133,8 @@ import {
   $getDOMTextNode,
   $getNearestNodeFromDOMNode,
   $getNodeByKey,
+  $isEventFromEmbeddedInput,
+  $isSelectionCapturedInDecoratorInput,
   $isTokenOrSegmented,
   $isTokenOrTab,
   $setSelection,
@@ -150,7 +156,6 @@ import {
   getNearestEditorFromDOMNode,
   getParentElement,
   getWindow,
-  isBackspace,
   isDOMCapturingSelection,
   isDOMDocumentNode,
   isDOMNode,
@@ -652,7 +657,7 @@ const FOCUSABLE_SELECTOR =
 // iOS answers that focus by opening the keyboard and scrolling to reveal the
 // caret. A decorator is selected with a NodeSelection, which leaves no DOM
 // caret, so iOS reveals the top of the editor instead and the page jumps
-// (facebook/lexical#9112). Cancelling the mousedown keeps the keyboard closed;
+// (meta/lexical#9112). Cancelling the mousedown keeps the keyboard closed;
 // the click still follows, so CLICK_COMMAND handlers select the node as usual.
 //
 // When the editor did not have focus, it is focused from code instead, with
@@ -1177,12 +1182,20 @@ export function registerDefaultCommandHandlers(editor: LexicalEditor) {
  * such an event into a Lexical command would insert text into the editor
  * instead of the focused control.
  *
+ * A focused `<input>`, `<textarea>` or foreign contentEditable in any node's
+ * DOM owns its input events too, as
+ * {@link $isSelectionCapturedInDecoratorInput} decides, even in unmanaged DOM
+ * that wasn't marked with `captureSelection`: an `<input>` that a render
+ * override adds beside a paragraph's children, say. Firefox gives the
+ * `insertFromPaste` input event of a paste there the pasted text as its data,
+ * which would otherwise be inserted at the editor's selection as well.
+ *
  * Two signals are checked because Firefox 152 changed how it dispatches
  * `beforeinput` for these controls (#8738): the event is retargeted off of the
  * focused control, so its composed target no longer points at it. The deep
  * active element still does, and is used as a fallback.
  */
-function isInputEventTargetingCapturedSelection(
+function $isInputEventTargetingCapturedSelection(
   event: InputEvent,
   editor: LexicalEditor,
 ): boolean {
@@ -1206,7 +1219,8 @@ function isInputEventTargetingCapturedSelection(
   return (
     activeElement !== null &&
     rootElement.contains(activeElement) &&
-    isDOMCapturingSelection(activeElement, editor)
+    (isDOMCapturingSelection(activeElement, editor) ||
+      $isSelectionCapturedInDecoratorInput(rootElement, activeElement))
   );
 }
 
@@ -1236,7 +1250,7 @@ function onBeforeInput(event: InputEvent, editor: LexicalEditor): void {
   updateEditorSync(
     editor,
     () => {
-      if (!isInputEventTargetingCapturedSelection(event, editor)) {
+      if (!$isInputEventTargetingCapturedSelection(event, editor)) {
         dispatchCommand(editor, BEFORE_INPUT_COMMAND, event);
       }
     },
@@ -1420,13 +1434,42 @@ function $handleBeforeInput(event: InputEvent): boolean {
     );
   }
 
+  // Set when a forward deletion's range lay before a caret in a slot, the
+  // shape of a plain Delete (#9363), which then deletes one character.
+  let deleteForwardCharacter = false;
   if (
     (!selection.dirty || inputState.unprocessedBeforeInputData !== null) &&
     selection.isCollapsed() &&
     !$isRootNode(selection.anchor.getNode()) &&
     targetRange !== null
   ) {
+    const {key, offset, type} = selection.anchor;
+    const frame = editor._slotsUsed && $getPointSlotFrame(selection.anchor);
     selection.applyDOMRange(targetRange);
+    // A deletion's range must stay in the caret's frame and, in a slot, not
+    // reach past the caret on the side it keeps: at the end of a
+    // decorator-host slot Chromium's forward delete covers the line before
+    // the caret instead (#9363). Such a deletion is measured from the caret.
+    const isForward = inputType.endsWith('Forward');
+    if (frame !== false && (isForward || inputType.endsWith('Backward'))) {
+      const caret = $createPoint(key, offset, type);
+      const {anchor, focus} = selection;
+      const leftFrame =
+        !$isSameFrame($getPointSlotFrame(anchor), frame) ||
+        !$isSameFrame($getPointSlotFrame(focus), frame);
+      const wrongSide =
+        !leftFrame &&
+        frame !== null &&
+        (isForward
+          ? anchor.isBefore(caret) || focus.isBefore(caret)
+          : caret.isBefore(anchor) || caret.isBefore(focus));
+      if (leftFrame || wrongSide) {
+        anchor.set(key, offset, type);
+        focus.set(key, offset, type);
+        deleteForwardCharacter =
+          wrongSide && inputType === 'deleteContentForward';
+      }
+    }
   }
 
   inputState.unprocessedBeforeInputData = null;
@@ -1488,6 +1531,7 @@ function $handleBeforeInput(event: InputEvent): boolean {
     }
 
     case 'insertFromComposition': {
+      inputState.compositionPhase = 'idle';
       const skipRedundantInsert = inputState.hadOrphanedCompositionEvents;
       inputState.hadOrphanedCompositionEvents = false;
       const prevCompositionKey = editor._compositionKey;
@@ -1577,7 +1621,11 @@ function $handleBeforeInput(event: InputEvent): boolean {
     case 'deleteContentForward':
     case 'deleteHardLineForward':
     case 'deleteSoftLineForward': {
-      dispatchCommand(editor, DELETE_LINE_COMMAND, false);
+      dispatchCommand(
+        editor,
+        deleteForwardCharacter ? DELETE_CHARACTER_COMMAND : DELETE_LINE_COMMAND,
+        false,
+      );
       break;
     }
 
@@ -1622,8 +1670,8 @@ function onInput(event: InputEvent, editor: LexicalEditor): void {
   // Note that the MutationObserver may or may not have already fired,
   // but the DOM and selection may have already changed.
   // See also:
-  // - https://github.com/facebook/lexical/issues/7028
-  // - https://github.com/facebook/lexical/pull/794
+  // - https://github.com/meta/lexical/issues/7028
+  // - https://github.com/meta/lexical/pull/794
 
   // We don't want the onInput to bubble, in the case of nested editors.
   event.stopPropagation();
@@ -1637,7 +1685,7 @@ function onInput(event: InputEvent, editor: LexicalEditor): void {
   updateEditorSync(
     editor,
     () => {
-      if (!isInputEventTargetingCapturedSelection(event, editor)) {
+      if (!$isInputEventTargetingCapturedSelection(event, editor)) {
         editor.dispatchCommand(INPUT_COMMAND, event);
       }
     },
@@ -1652,6 +1700,15 @@ function $handleInput(event: InputEvent): boolean {
   const selection = $getSelection();
   const data = event.data;
   const targetRange = getTargetRange(event);
+
+  // Mobile Safari on iOS 26 commits a composition by deleting the composed
+  // text (deleteCompositionText) and inserting it again
+  // (insertFromComposition). Once the text is deleted, that insertion is not
+  // the redundant one hadOrphanedCompositionEvents skips: skipped, the
+  // composed word would be lost.
+  if (event.inputType === 'deleteCompositionText') {
+    inputState.hadOrphanedCompositionEvents = false;
+  }
 
   let handled = false;
   let rerenderText = false;
@@ -1826,15 +1883,19 @@ function $handleCompositionStart(event: CompositionEvent): boolean {
           (anchor.offset === node.getTextContentSize() &&
             !node.canInsertTextAfter())))
     ) {
-      // We insert a zero width character, ready for the composition
-      // to get inserted into the new node we create. If
-      // we don't do this, Safari will fail on us because
-      // there is no text node matching the selection.
-      dispatchCommand(
-        editor,
-        CONTROLLED_TEXT_INSERTION_COMMAND,
-        COMPOSITION_START_CHAR,
-      );
+      // Prepare a text node for the native composition. Desktop WebKit uses
+      // the rendered composition suffix instead of adding a placeholder to
+      // the document text.
+      // IS_SAFARI also recognizes WebKit ports on non-Apple platforms.
+      if (!IS_IOS && (IS_SAFARI || IS_APPLE_WEBKIT)) {
+        $prepareCompositionTarget(selection);
+      } else {
+        dispatchCommand(
+          editor,
+          CONTROLLED_TEXT_INSERTION_COMMAND,
+          COMPOSITION_START_CHAR,
+        );
+      }
       const updatedSelection = $getSelection();
       if ($isRangeSelection(updatedSelection)) {
         $setCompositionKey(updatedSelection.anchor.key);
@@ -1863,6 +1924,8 @@ function $cleanupComposedSubclass(compositionKey: NodeKey | null): void {
   const composedNode = $getNodeByKey(compositionKey);
   if (
     !$isTextNode(composedNode) ||
+    // Exactly TextNode, which needs no replacing
+    // eslint-disable-next-line @lexical/internal/no-constant-node-type-comparison
     composedNode.getType() === 'text' ||
     $isTokenOrSegmented(composedNode) ||
     !composedNode.isAttached()
@@ -1972,17 +2035,14 @@ function onCompositionEnd(
   event: CompositionEvent,
   editor: LexicalEditor,
 ): void {
-  // Firefox fires compositionEnd before input; Safari fires it before
-  // keydown. The 'ending-*' phases defer handling for those browsers.
-  // Chrome/Webkit fires input first, so it dispatches immediately.
+  // Firefox finishes in the following input event. Desktop WebKit commits
+  // through insertFromComposition; an empty cancellation finishes here.
   const inputState = editor._inputState;
   if (IS_FIREFOX) {
     inputState.compositionPhase = 'ending-firefox';
-  } else if (!IS_IOS && (IS_SAFARI || IS_APPLE_WEBKIT)) {
-    // https://github.com/facebook/lexical/pull/7061
-    inputState.compositionPhase = 'ending-safari';
-    inputState.compositionEndData = event.data;
-  } else {
+  } else if (event.data === '' || IS_IOS || !(IS_SAFARI || IS_APPLE_WEBKIT)) {
+    // Cancellation has no insertFromComposition event to finish the Safari
+    // composition. Release it now so the next ordinary key can dispatch.
     dispatchCommand(editor, COMPOSITION_END_COMMAND, event);
   }
 }
@@ -1993,16 +2053,22 @@ function onKeyDown(event: KeyboardEvent, editor: LexicalEditor): void {
     // The virtual keyboard emits Shift events for manual toggles, but not for
     // automatic capitalization. Other key events may clear this state, never
     // set it, since their shiftKey flag also reflects automatic capitalization.
+    // Opening the #+= symbols plane sends the same Shift keydown and keeps
+    // shiftKey set through the symbols until after the next Return, so Shift
+    // only counts for an Enter pressed right after it: any other key clears it.
     inputState.isShiftKeyDown =
       event.key === 'Shift' ||
-      (inputState.isShiftKeyDown && event.shiftKey && event.key !== 'CapsLock');
+      (inputState.isShiftKeyDown && event.shiftKey && event.key === 'Enter');
   }
   inputState.lastKeyDownTimeStamp = event.timeStamp;
   inputState.lastKeyCode = event.key;
   if (event.key !== 'Backspace') {
     clearHandledSelectionCommandInsertText(inputState);
   }
-  if (editor.isComposing()) {
+  if (
+    editor.isComposing() ||
+    (!IS_IOS && (IS_SAFARI || IS_APPLE_WEBKIT) && event.keyCode === 229)
+  ) {
     return;
   }
   dispatchCommand(editor, KEY_DOWN_COMMAND, event);
@@ -2090,7 +2156,13 @@ function buildKeyDownShortcuts(): KeyDownShortcut[] {
     modifiers: CONTROL_OR_META,
     onMatch: (event, editor) => {
       const prevSelection = editor._editorState._selection;
-      if (prevSelection !== null && !$isRangeSelection(prevSelection)) {
+      // A copy or cut in an input embedded in a node's DOM is the input's.
+      // Preventing the keydown would stop the browser from firing it at all.
+      if (
+        prevSelection !== null &&
+        !$isRangeSelection(prevSelection) &&
+        !$isEventFromEmbeddedInput(event)
+      ) {
         event.preventDefault();
         dispatchCommand(editor, command, event);
       }
@@ -2183,24 +2255,9 @@ function buildKeyDownShortcuts(): KeyDownShortcut[] {
 
 function $handleKeyDown(event: KeyboardEvent): boolean {
   const editor = getActiveEditor();
-  const inputState = editor._inputState;
   if (event.key == null) {
     return true;
   }
-  if (inputState.compositionPhase === 'ending-safari') {
-    const isBack = isBackspace(event);
-    if (isBack) {
-      updateEditorSync(editor, () => {
-        $onCompositionEndImpl(editor, inputState.compositionEndData);
-      });
-    }
-    inputState.compositionPhase = 'idle';
-    inputState.compositionEndData = '';
-    if (isBack) {
-      return true;
-    }
-  }
-
   let keyDownShortcuts = editor._keyDownShortcuts;
   if (keyDownShortcuts === null) {
     keyDownShortcuts = compileKeyboardShortcuts(buildKeyDownShortcuts());
@@ -2277,7 +2334,16 @@ function $selectMouseDown(
 const activeNestedEditorsMap: Map<string, LexicalEditor> = new Map();
 
 function onDocumentSelectionChange(event: Event): void {
-  const domSelection = getDOMSelectionFromTarget(event.target);
+  const target = event.target;
+  // Text controls have their own selection. Their bubbling selectionchange
+  // events do not indicate a change to the document's selection.
+  if (
+    isHTMLElement(target) &&
+    (target.nodeName === 'INPUT' || target.nodeName === 'TEXTAREA')
+  ) {
+    return;
+  }
+  const domSelection = getDOMSelectionFromTarget(target);
   if (domSelection === null) {
     return;
   }
@@ -2298,7 +2364,7 @@ function onDocumentSelectionChange(event: Event): void {
   // landing inside outer's tree) never wins because we have already broken
   // out of the loop.
 
-  const ownerDocument = getDOMOwnerDocument(event.target);
+  const ownerDocument = getDOMOwnerDocument(target);
   let nextActiveEditor: LexicalEditor | null = null;
   const registration =
     ownerDocument !== null

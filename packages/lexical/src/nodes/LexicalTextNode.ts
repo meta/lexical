@@ -13,6 +13,7 @@ import type {
   Spread,
   TextNodeThemeClasses,
 } from '../LexicalEditor';
+import type {TextEditRecord} from '../LexicalEditorState';
 import type {ElementNode} from './LexicalElementNode';
 
 import invariant from '@lexical/internal/invariant';
@@ -67,7 +68,11 @@ import {
   type RangeSelection,
   type TextPointType,
 } from '../LexicalSelection';
-import {errorOnReadOnly} from '../LexicalUpdates';
+import {
+  errorOnReadOnly,
+  getActiveEditor,
+  getActiveEditorState,
+} from '../LexicalUpdates';
 import {
   $applyNodeReplacement,
   $getCompositionKey,
@@ -380,6 +385,276 @@ export function $isInlineFormattable(
   node: (LexicalNode & {__isInlineFormattable?: unknown}) | null | undefined,
 ): node is LexicalNode & InlineFormattableNode {
   return node != null && node.__isInlineFormattable === true;
+}
+
+/**
+ * Record which node the parts of a split came from (see
+ * EditorState#_splitNodes), and the split, while the editor records text
+ * edits.
+ */
+function $recordTextSplit(
+  source: NodeKey,
+  parts: TextNode[],
+  textBefore: string,
+): void {
+  const editor = getActiveEditor();
+  if (!editor._recordTextEdits) {
+    return;
+  }
+  const prevNodeMap = editor._editorState._nodeMap;
+  const editorState = getActiveEditorState();
+  const splitNodes = (editorState._splitNodes ||= new WeakMap());
+  let splits = splitNodes.get(prevNodeMap);
+  if (splits === undefined) {
+    splits = new Map();
+    splitNodes.set(prevNodeMap, splits);
+  }
+  // A part of a part this update made counts from the node first cut.
+  const from = splits.get(source);
+  const starts: number[] = [];
+  let offset = 0;
+  for (const part of parts) {
+    if (part.__key !== source) {
+      splits.set(
+        part.__key,
+        from === undefined ? [source, offset] : [from[0], from[1] + offset],
+      );
+    }
+    starts.push(offset);
+    offset += part.__text.length;
+  }
+  $textEditLog(editor).push([
+    'split',
+    source,
+    parts.map(part => part.__key),
+    starts,
+    textBefore,
+  ]);
+}
+
+/**
+ * The record of text edits of the active update (see
+ * EditorState#_textEdits), for an editor that records text edits.
+ * @internal
+ */
+export function $textEditLog(editor: LexicalEditor): TextEditRecord[] {
+  const prevNodeMap = editor._editorState._nodeMap;
+  const editorState = getActiveEditorState();
+  const textEdits = (editorState._textEdits ||= new WeakMap());
+  let log = textEdits.get(prevNodeMap);
+  if (log === undefined) {
+    log = [];
+    textEdits.set(prevNodeMap, log);
+  }
+  return log;
+}
+
+/**
+ * The node whose text a split or a merge is setting (they record that change
+ * themselves), and the splice a caller makes through setTextContent (see
+ * $setTextContentSpliced).
+ */
+let textEditSuspended: null | NodeKey = null;
+let textEditSplice: null | [NodeKey, number, number, string] = null;
+
+/**
+ * Record a change of `node`'s text to `text` made by setTextContent (see
+ * EditorState#_textEdits): the splice the caller made, when it said so and
+ * it gives that text, and otherwise a change of unknown offsets.
+ */
+function $recordTextContent(node: TextNode, text: string): void {
+  const editor = getActiveEditor();
+  const key = node.__key;
+  if (!editor._recordTextEdits || textEditSuspended === key) {
+    return;
+  }
+  const before = node.__text;
+  const splice = textEditSplice;
+  if (
+    splice !== null &&
+    splice[0] === key &&
+    before.slice(0, splice[1]) +
+      splice[3] +
+      before.slice(splice[1] + splice[2]) ===
+      text
+  ) {
+    $textEditLog(editor).push([
+      'splice',
+      key,
+      splice[1],
+      splice[2],
+      splice[3],
+      before,
+    ]);
+  } else {
+    $textEditLog(editor).push(['set', key, before, text]);
+  }
+}
+
+/**
+ * Record the text of a text node just made for typed text as inserted (see
+ * EditorState#_textEdits), while the editor records text edits.
+ * @internal
+ */
+export function $recordTextInserted(node: TextNode): void {
+  const editor = getActiveEditor();
+  if (editor._recordTextEdits) {
+    $textEditLog(editor).push(['splice', node.__key, 0, 0, node.__text, '']);
+  }
+}
+
+/**
+ * Record a node that the selection removes with what it holds (a range that
+ * covers it, typing over a token) as deleted (see EditorState#_textEdits),
+ * while the editor records text edits: its removal is a delete, where a
+ * removal by app code may be a node swapped for another, as a transform
+ * removes a node and makes it anew.
+ * @internal
+ */
+export function $recordDeleted(node: LexicalNode): void {
+  const editor = getActiveEditor();
+  if (editor._recordTextEdits) {
+    $textEditLog(editor).push(['delete', node.__key]);
+  }
+}
+
+/**
+ * Set the text of `node` to its text with `delCount` characters at `offset`
+ * replaced by `text`, through its setTextContent (which a subclass may
+ * override), and record it as that splice while the editor records text
+ * edits (see EditorState#_textEdits).
+ * @internal
+ */
+export function $setTextContentSpliced<T extends TextNode>(
+  node: T,
+  offset: number,
+  delCount: number,
+  text: string,
+): T {
+  const content = node.getTextContent();
+  const next =
+    content.slice(0, offset) + text + content.slice(offset + delCount);
+  if (
+    !getActiveEditor()._recordTextEdits ||
+    !Number.isInteger(offset) ||
+    !Number.isInteger(delCount) ||
+    offset < 0 ||
+    offset > content.length ||
+    delCount < 0
+  ) {
+    return node.setTextContent(next);
+  }
+  const prev = textEditSplice;
+  textEditSplice = [
+    node.__key,
+    offset,
+    Math.min(delCount, content.length - offset),
+    text,
+  ];
+  try {
+    return node.setTextContent(next);
+  } finally {
+    textEditSplice = prev;
+  }
+}
+
+/**
+ * @internal Not public API.
+ *
+ * Run `fn`, which moves the first `count` characters of text node `from` to
+ * the end of `to`, its previous sibling, with `to.setTextContent` and then
+ * `from.setTextContent` (or `from.remove()` when it moves all of them), as
+ * `registerLexicalTextEntity` grows an entity over the text after it.
+ *
+ * `fn` runs as it is either way. While the editor records text edits (see
+ * EditorState#_textEdits), the two text sets it records are replaced by one
+ * `move` entry when they are exactly that move (`from`'s removal stays after
+ * it), so that the Yjs binding keeps the identity of the moved characters;
+ * otherwise (a subclass's setTextContent that changes other text, say) they
+ * stay as recorded.
+ */
+export function INTERNAL_$recordTextMove(
+  from: TextNode,
+  to: TextNode,
+  count: number,
+  fn: () => void,
+): void {
+  const editor = getActiveEditor();
+  if (!editor._recordTextEdits) {
+    fn();
+    return;
+  }
+  const fromKey = from.__key;
+  const toKey = to.__key;
+  const adjacent = to.getLatest().__next === fromKey;
+  const log = $textEditLog(editor);
+  const start = log.length;
+  fn();
+  if (!adjacent || log.length !== start + 2) {
+    return;
+  }
+  const set = log[start];
+  const next = log[start + 1];
+  if (set[0] !== 'set' || set[1] !== toKey) {
+    return;
+  }
+  const toBefore = set[2];
+  const head = set[3].slice(toBefore.length);
+  if (head.length !== count || count === 0 || toBefore + head !== set[3]) {
+    return;
+  }
+  if (next[0] === 'set') {
+    if (next[1] === fromKey && next[2] === head + next[3]) {
+      log.splice(start, 2, ['move', fromKey, toKey, count, next[2], toBefore]);
+    }
+  } else if (
+    next[0] === 'detach' &&
+    next[1] === fromKey &&
+    from.getLatest().__text === head
+  ) {
+    log.splice(start, 1, ['move', fromKey, toKey, count, head, toBefore]);
+  }
+}
+
+/**
+ * @internal Not public API.
+ *
+ * Record, while the editor records text edits (see EditorState#_textEdits),
+ * that text node `next`, which `prev.replace(next)` just put in the place of
+ * text node `prev`, holds prev's characters: the same text remade as a node
+ * of another type, as `registerLexicalTextEntity` makes an entity plain text
+ * again or plain text an entity. Recorded as a `retype` entry right after
+ * that replace (prev's `detach` and next's `attach`) when both hold the same
+ * text, so that the Yjs binding keeps the identity of the characters;
+ * nothing is recorded otherwise, and nothing else changes.
+ */
+export function INTERNAL_$recordTextRetype(
+  prev: TextNode,
+  next: TextNode,
+): void {
+  const editor = getActiveEditor();
+  if (!editor._recordTextEdits) {
+    return;
+  }
+  const p = prev.getLatest();
+  const n = next.getLatest();
+  const log = $textEditLog(editor);
+  const detach = log[log.length - 2];
+  const attach = log[log.length - 1];
+  if (
+    p.__key !== n.__key &&
+    p.__text === n.__text &&
+    detach !== undefined &&
+    detach[0] === 'detach' &&
+    detach[1] === p.__key &&
+    attach[0] === 'attach' &&
+    attach[1] === n.__key &&
+    attach[2] === detach[2] &&
+    p.__parent === null &&
+    n.__parent === attach[2]
+  ) {
+    log.push(['retype', p.__key, n.__key, n.__text]);
+  }
 }
 
 /** @noInheritDoc */
@@ -879,6 +1154,7 @@ export class TextNode extends LexicalNode implements InlineFormattableNode {
       return this;
     }
     const self = this.getWritable();
+    $recordTextContent(self, text);
     self.__text = text;
     return self;
   }
@@ -982,6 +1258,21 @@ export class TextNode extends LexicalNode implements InlineFormattableNode {
     const updatedText =
       text.slice(0, index) + newText + text.slice(index + delCount);
 
+    const editor = getActiveEditor();
+    if (editor._recordTextEdits) {
+      $textEditLog(editor).push(
+        Number.isInteger(index) && Number.isInteger(delCount) && delCount >= 0
+          ? [
+              'splice',
+              writableSelf.__key,
+              Math.min(index, text.length),
+              Math.max(0, Math.min(delCount, text.length - index)),
+              newText,
+              text,
+            ]
+          : ['set', writableSelf.__key, text, updatedText],
+      );
+    }
     writableSelf.__text = updatedText;
     return writableSelf;
   }
@@ -1078,8 +1369,15 @@ export class TextNode extends LexicalNode implements InlineFormattableNode {
       writableNode.__state = $cloneNodeState(self, writableNode);
       hasReplacedSelf = true;
     } else {
-      // For the first part, update the existing node
-      writableNode = self.setTextContent(firstPart);
+      // For the first part, update the existing node (the split is recorded
+      // below, see $recordTextSplit)
+      const suspended = textEditSuspended;
+      textEditSuspended = key;
+      try {
+        writableNode = self.setTextContent(firstPart);
+      } finally {
+        textEditSuspended = suspended;
+      }
     }
 
     // Then handle all other parts
@@ -1102,6 +1400,7 @@ export class TextNode extends LexicalNode implements InlineFormattableNode {
       textSize = nextTextSize;
       splitNodes.push(sibling);
     }
+    $recordTextSplit(key, splitNodes, textContent);
 
     // Move the selection to the best location in the split string.
     // The end point is always left-biased, and the start point is
@@ -1223,7 +1522,24 @@ export class TextNode extends LexicalNode implements InlineFormattableNode {
     }
     const targetText = target.__text;
     const newText = isBefore ? targetText + text : text + targetText;
-    this.setTextContent(newText);
+    const suspended = textEditSuspended;
+    textEditSuspended = key;
+    try {
+      this.setTextContent(newText);
+    } finally {
+      textEditSuspended = suspended;
+    }
+    const editor = getActiveEditor();
+    if (editor._recordTextEdits) {
+      $textEditLog(editor).push([
+        'merge',
+        key,
+        targetKey,
+        isBefore,
+        text,
+        targetText,
+      ]);
+    }
     const writableSelf = this.getWritable();
     target.remove();
     return writableSelf;

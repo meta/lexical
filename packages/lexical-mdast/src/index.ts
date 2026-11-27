@@ -35,6 +35,7 @@ export {
   MdastHorizontalRuleExtension,
   MdastLinkExtension,
   MdastListExtension,
+  MdastQuoteContainerExtension,
   MdastRichTextExtension,
   MdastShadowRootQuoteExtension,
   MdastShortcutsExtension,
@@ -61,6 +62,7 @@ export type {
   MdastImportRule,
   MdastNode,
   MdastParent,
+  MdastPunctuationMode,
 } from './types';
 // Re-exported so consumers writing import/export handlers (whose
 // signatures traffic in these mdast content types, e.g.

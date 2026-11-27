@@ -95,12 +95,41 @@ function containsComposed(container: Node, target: Node): boolean {
   return false;
 }
 
+// Focuses the first of `candidates` that takes focus and reports whether one
+// did. The selector can't see what the browser won't focus (`display: none`,
+// `hidden`, `inert`, `visibility: hidden`, a disabled `<fieldset>`, a link
+// inside a contentEditable), and `focus()` on such an element does nothing,
+// so check whether focus moved. Moved anywhere counts: a candidate may hand
+// focus on, as a `delegatesFocus` host or a focus handler does. With
+// `insideCounts`, focus already on or inside a candidate counts too: on
+// activation and in the pull-back, focus may already be there. Tab leaves it
+// off, since the candidate holding focus may itself not take focus.
+function focusFirstThatTakesFocus(
+  doc: Document,
+  candidates: HTMLElement[],
+  insideCounts: boolean,
+): boolean {
+  const before = getActiveElementDeep(doc);
+  for (const candidate of candidates) {
+    candidate.focus();
+    const after = getActiveElementDeep(doc);
+    if (
+      after !== before ||
+      (insideCounts && after !== null && containsComposed(candidate, after))
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
 export type FocusTrapInitialFocus = 'firstFocusable' | 'container';
 
 export interface FocusTrapOptions {
   /**
    * Where to land focus when the trap activates:
-   * - `'firstFocusable'` (default): focus the first focusable descendant.
+   * - `'firstFocusable'` (default): focus the first descendant that takes
+   *   focus.
    * - `'container'`: focus the container itself. The container must
    *   satisfy `tabIndex >= -1`; callers typically set `tabIndex={-1}` to
    *   keep it out of the natural Tab order while remaining programmatically
@@ -131,11 +160,12 @@ export interface FocusTrapOptions {
  * (autocomplete panels, tooltips, toasts that auto-focus themselves)
  * will be yanked back as soon as they take focus. Portal them inside
  * `container`, or skip this helper for those dialogs. The pull-back
- * always lands on the first focusable descendant (or the container as a
- * fallback) — `initialFocus` only applies to the activation-time
- * landing, not to subsequent escape recoveries. Only one trap should be
- * mounted at a time — two active traps install competing document-level
- * `focusin` listeners and will fight over focus.
+ * always lands on the first descendant that takes focus (or the container
+ * as a fallback) — `initialFocus` only applies to the activation-time
+ * landing, not to subsequent escape recoveries. When no descendant takes
+ * focus and the container has no `tabindex`, focus stays where it is.
+ * Only one trap should be mounted at a time — two active traps install
+ * competing document-level `focusin` listeners and will fight over focus.
  *
  * Escape is not intercepted — the owner handles close-key behavior.
  */
@@ -149,12 +179,12 @@ function registerFocusTrap(
   const deepActive = getActiveElementDeep(doc);
   const previouslyFocused = isHTMLElement(deepActive) ? deepActive : null;
 
-  const focusable = getFocusableElements(container);
   if (initialFocus === 'container' && container.hasAttribute('tabindex')) {
     container.focus();
-  } else if (focusable.length > 0) {
-    focusable[0].focus();
-  } else if (container.hasAttribute('tabindex')) {
+  } else if (
+    !focusFirstThatTakesFocus(doc, getFocusableElements(container), true) &&
+    container.hasAttribute('tabindex')
+  ) {
     container.focus();
   }
 
@@ -167,32 +197,32 @@ function registerFocusTrap(
     if (event.key !== 'Tab') {
       return;
     }
-    const currentFocusable = getFocusableElements(container);
-    if (currentFocusable.length === 0) {
-      event.preventDefault();
-      return;
-    }
     event.preventDefault();
-    const first = currentFocusable[0];
-    const last = currentFocusable[currentFocusable.length - 1];
+    const currentFocusable = getFocusableElements(container);
     const active = getActiveElementDeep(doc);
     const activeIndex =
       isHTMLElement(active) && containsComposed(container, active)
         ? currentFocusable.indexOf(active)
         : -1;
-    if (event.shiftKey) {
-      (activeIndex <= 0 ? last : currentFocusable[activeIndex - 1]).focus();
-    } else {
-      (activeIndex === -1 || activeIndex === currentFocusable.length - 1
-        ? first
-        : currentFocusable[activeIndex + 1]
-      ).focus();
-    }
+    // The other candidates in Tab order from the active one, wrapping, so a
+    // candidate that doesn't take focus is passed over.
+    const others =
+      activeIndex === -1
+        ? currentFocusable
+        : [
+            ...currentFocusable.slice(activeIndex + 1),
+            ...currentFocusable.slice(0, activeIndex),
+          ];
+    focusFirstThatTakesFocus(
+      doc,
+      event.shiftKey ? others.reverse() : others,
+      false,
+    );
   };
 
   // Safety net — if focus ever escapes the container (e.g. portal
   // ordering routes the browser's default Tab past the modal in
-  // Safari), pull it back to the first focusable inside.
+  // Safari), pull it back to the first descendant that takes focus.
   const focusinHandler = (event: FocusEvent) => {
     const target = getComposedEventTarget(event);
     if (!isHTMLElement(target) || containsComposed(container, target)) {
@@ -201,10 +231,10 @@ function registerFocusTrap(
     if (options.allowOutside != null && options.allowOutside(target)) {
       return;
     }
-    const currentFocusable = getFocusableElements(container);
-    if (currentFocusable.length > 0) {
-      currentFocusable[0].focus();
-    } else if (container.hasAttribute('tabindex')) {
+    if (
+      !focusFirstThatTakesFocus(doc, getFocusableElements(container), true) &&
+      container.hasAttribute('tabindex')
+    ) {
       container.focus();
     }
   };
@@ -241,6 +271,9 @@ export interface RovingTabIndexOptions {
    * Selector for the group's roving items. The default matches direct-child
    * non-disabled buttons. Pass a custom selector to include other focusables
    * or to scope to a marker attribute (e.g. `[data-roving-item]`).
+   * An item counts as the focused one when focus is on it or on a node inside
+   * it, including a node in the shadow root it hosts, so a selector may match a
+   * wrapper instead of the focusable itself.
    */
   itemSelector?: string;
 }
@@ -273,13 +306,29 @@ function registerRovingTabIndex(
     });
   };
 
+  // The element holding focus is not always the item itself: an item may host
+  // its real focus target in a shadow root (a custom element), or wrap a
+  // focusable child, which is exactly what a custom `itemSelector` documents as
+  // supported. `getActiveElementDeep` resolves to that inner element, so the
+  // item is found through the composed tree, the same way `registerFocusManager`
+  // below matches one. Comparing by identity alone makes every such group
+  // restart at the first item on each interaction.
+  const getActiveItemIndex = (items: HTMLElement[]): number => {
+    const active = getActiveElementDeep(container.ownerDocument);
+    if (!isHTMLElement(active)) {
+      return -1;
+    }
+    return items.findIndex(
+      item => item === active || containsComposed(item, active),
+    );
+  };
+
   const init = (): void => {
     const items = getItems();
     if (items.length === 0) {
       return;
     }
-    const active = getActiveElementDeep(container.ownerDocument);
-    const activeIdx = items.findIndex(el => el === active);
+    const activeIdx = getActiveItemIndex(items);
     applyTabIndex(items, activeIdx >= 0 ? activeIdx : 0);
   };
 
@@ -290,8 +339,7 @@ function registerRovingTabIndex(
     if (items.length === 0) {
       return;
     }
-    const active = getActiveElementDeep(container.ownerDocument);
-    const currentIdx = items.findIndex(el => el === active);
+    const currentIdx = getActiveItemIndex(items);
     if (currentIdx < 0) {
       // Firefox can focus the container itself (e.g. role="toolbar") rather
       // than a child item. Treat any arrow/Home/End as "enter the group at

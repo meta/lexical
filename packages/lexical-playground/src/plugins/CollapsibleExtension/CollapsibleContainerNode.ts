@@ -8,6 +8,7 @@
 
 import {
   $getDocument,
+  $getNodeByKey,
   $getSiblingCaret,
   $isElementNode,
   $rewindSiblingCaret,
@@ -83,10 +84,26 @@ export class CollapsibleContainerNode extends ElementNode {
     } else {
       const detailsDom = $getDocument().createElement('details');
       detailsDom.open = this.__open;
+      // The toggle event is async: by the time it fires the node may have
+      // been removed, or rendered into a new element (a new root element, a
+      // restored editor state). Only the element that renders the node now
+      // syncs it, and it sets the node's open state to its own.
+      const key = this.getKey();
       detailsDom.addEventListener('toggle', () => {
-        const open = editor.read('latest', () => this.getOpen());
-        if (open !== detailsDom.open) {
-          editor.update(() => this.toggleOpen());
+        if (editor.getElementByKey(key) !== detailsDom) {
+          return;
+        }
+        const open = editor.read('latest', () => {
+          const node = $getNodeByKey(key);
+          return $isCollapsibleContainerNode(node) ? node.getOpen() : null;
+        });
+        if (open !== null && open !== detailsDom.open) {
+          editor.update(() => {
+            const node = $getNodeByKey(key);
+            if ($isCollapsibleContainerNode(node)) {
+              node.setOpen(detailsDom.open);
+            }
+          });
         }
       });
       dom = detailsDom;

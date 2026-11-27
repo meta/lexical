@@ -9,7 +9,7 @@
 
 import type {LexicalEditor, LexicalNode, NodeKey} from 'lexical';
 
-declare export function NodeEventPlugin({
+declare export function NodeEventPlugin(v: {
   nodeType: Class<LexicalNode>;
   eventType: string;
   eventListener: (

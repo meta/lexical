@@ -1,24 +1,5 @@
 # DOMImportExtension
 
-:::warning Experimental
-
-`DOMImportExtension` and everything described on this page are marked
-`@experimental` and may change between any two Lexical releases —
-including breaking renames, signature changes, or behavior changes —
-until the API stabilizes. We track issues and proposals in the
-[GitHub repo](https://github.com/facebook/lexical); breaking changes
-will be called out in release notes. Apps that depend on this
-pipeline should pin their Lexical version and treat upgrades as
-intentional.
-
-The legacy static `importDOM` machinery and `$generateNodesFromDOM`
-entry are unchanged and remain the supported default for production
-apps that don't want to track an experimental API.
-
-The DOMImportExtension API was introduced in Lexical v0.45.0
-
-:::
-
 The DOM import system in `@lexical/html` lets you convert any HTML or
 DOM tree into Lexical nodes. The legacy entry — the static
 `importDOM` declared on each node class — still works, but for new
@@ -366,7 +347,7 @@ Per-package schemas:
 | `TableRowSchema` (`@lexical/table`) | `TableCellNode` | Dropped |
 
 A rule typically passes a schema when it knows its children's
-allowed type — the legacy `wrapContinuousInlines` and
+allowed type — the legacy `$wrapContinuousInlines` and
 `ArtificialNode__DO_NOT_USE` cases are now `BlockSchema` and
 `NestedBlockSchema` respectively:
 
@@ -572,9 +553,10 @@ whitespace if its `nodeName` is `'PRE'` or its inline `style.whiteSpace`
 starts with `'pre'`; an element is inline if its inline `style.display`
 starts with `'inline'` or its tag name is in the standard inline-tag
 set used by lexical core's `isInlineDomNode` / `isBlockDomNode`
-helpers (`a`, `abbr`, `acronym`, `b`, `cite`, `code`, `del`, `em`,
-`i`, `ins`, `kbd`, `label`, `mark`, `output`, `q`, `ruby`, `s`,
-`samp`, `span`, `strong`, `sub`, `sup`, `time`, `u`, `tt`, `var`).
+helpers (`a`, `abbr`, `acronym`, `b`, `bdi`, `bdo`, `big`, `cite`,
+`code`, `data`, `del`, `dfn`, `em`, `font`, `i`, `ins`, `kbd`, `label`,
+`mark`, `nobr`, `output`, `q`, `ruby`, `s`, `samp`, `small`, `span`,
+`strike`, `strong`, `sub`, `sup`, `time`, `u`, `tt`, `var`).
 The canonical list lives in `packages/lexical/src/LexicalUtils.ts` —
 see the module-private `INLINE_TAG_RE` / `BLOCK_TAG_RE` constants if you
 want to inspect the defaults.
@@ -920,7 +902,7 @@ defineExtension({
 
 See `packages/lexical-list/src/__tests__/unit/ListImportExtension.test.ts`
 ("MS Word paste — preprocess-installed overlay") for a worked unit
-test, and [`dev-examples/dom-import`](https://github.com/facebook/lexical/tree/main/dev-examples/dom-import)
+test, and [`dev-examples/dom-import`](https://github.com/meta/lexical/tree/main/dev-examples/dom-import)
 for a running editor that exercises the same overlay end-to-end (a
 reduced rich-text editor with lists, tables, code blocks, markdown
 shortcuts, and an "Import HTML" dialog so you can paste raw HTML
@@ -1136,7 +1118,7 @@ ready to move a custom node, the translation is mechanical:
 | Numeric `priority` (0–4) | Position in the compiled `rules` list (earlier entry runs first; an extension's rules come ahead of its dependencies') plus `$next()` for deferring — see [Dispatch order](#dispatch-order) |
 | `forChild(node, parent)` | `ctx.$importChildren(el, {context: [...], $onChild})` |
 | `after(children)` | `ctx.$importChildren(el, {$after})` |
-| `wrapContinuousInlines` (block ancestor case) | `ctx.$importChildren(el, {schema: BlockSchema})` |
+| `$wrapContinuousInlines` (block ancestor case) | `ctx.$importChildren(el, {schema: BlockSchema})` |
 | `ArtificialNode__DO_NOT_USE` (nested block) | `ctx.$importChildren(el, {schema: NestedBlockSchema})` |
 | Cross-tag setup via shared state | `createImportState` + `ctx.get` (scoped) or `ctx.session.get/set` (flat) |
 | Mutating the DOM before walking | `DOMPreprocessFn` in `DOMImportConfig.preprocess` |
@@ -1152,7 +1134,7 @@ parent).
 ### Importing children is explicit
 
 The most consequential difference: the legacy `DOMConversion` pipeline
-walked an element's children for you (via `wrapContinuousInlines` /
+walked an element's children for you (via `$wrapContinuousInlines` /
 the post-conversion runner). In `DOMImportExtension`, a rule that
 wants its element's children must call `ctx.$importChildren(el)`
 itself.
@@ -1223,7 +1205,7 @@ attaches them via the normal `ElementNode.splice` primitive.
 ### Concrete example: playground
 
 The lexical-playground application was migrated in
-[#8590](https://github.com/facebook/lexical/pull/8590), which should
+[#8590](https://github.com/meta/lexical/pull/8590), which should
 be a good example of what it would take to move an entire application
 from `importDOM` to `DOMImportExtension` (while adding test coverage).
 

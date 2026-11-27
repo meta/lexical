@@ -86,7 +86,7 @@ const cases = [
   {
     html: `
         <ol dir="auto">
-          <li value="1"><br data-lexical-managed-linebreak="true" /></li>
+          <li><br data-lexical-managed-linebreak="true" /></li>
         </ol>
       `,
     text: '1. ',
@@ -94,7 +94,7 @@ const cases = [
   {
     html: `
         <ol start="25" dir="auto">
-          <li value="25"><br data-lexical-managed-linebreak="true" /></li>
+          <li><br data-lexical-managed-linebreak="true" /></li>
         </ol>
       `,
     text: '25. ',
@@ -102,9 +102,9 @@ const cases = [
   {
     html: `
         <ol dir="auto">
-          <li value="1">
+          <li>
             <ol>
-              <li value="1"><br data-lexical-managed-linebreak="true" /></li>
+              <li><br data-lexical-managed-linebreak="true" /></li>
             </ol>
           </li>
         </ol>
@@ -114,7 +114,7 @@ const cases = [
   {
     html: `
         <ul dir="auto">
-          <li value="1"><br data-lexical-managed-linebreak="true" /></li>
+          <li><br data-lexical-managed-linebreak="true" /></li>
         </ul>
       `,
     text: '- ',
@@ -122,9 +122,9 @@ const cases = [
   {
     html: `
         <ul dir="auto">
-          <li value="1">
+          <li>
             <ul>
-              <li value="1"><br data-lexical-managed-linebreak="true" /></li>
+              <li><br data-lexical-managed-linebreak="true" /></li>
             </ul>
           </li>
         </ul>
@@ -134,7 +134,7 @@ const cases = [
   {
     html: `
         <ul dir="auto">
-          <li value="1"><br data-lexical-managed-linebreak="true" /></li>
+          <li><br data-lexical-managed-linebreak="true" /></li>
         </ul>
       `,
     text: '* ',
@@ -142,9 +142,9 @@ const cases = [
   {
     html: `
         <ul dir="auto">
-          <li value="1">
+          <li>
             <ul>
-              <li value="1"><br data-lexical-managed-linebreak="true" /></li>
+              <li><br data-lexical-managed-linebreak="true" /></li>
             </ul>
           </li>
         </ul>
@@ -154,9 +154,9 @@ const cases = [
   {
     html: `
         <ul dir="auto">
-          <li value="1">
+          <li>
             <ul>
-              <li value="1"><br data-lexical-managed-linebreak="true" /></li>
+              <li><br data-lexical-managed-linebreak="true" /></li>
             </ul>
           </li>
         </ul>
@@ -166,11 +166,11 @@ const cases = [
   {
     html: `
         <ul dir="auto">
-          <li value="1">
+          <li>
             <ul>
-              <li value="1">
+              <li>
                 <ul>
-                  <li value="1">
+                  <li>
                     <br data-lexical-managed-linebreak="true" />
                   </li>
                 </ul>

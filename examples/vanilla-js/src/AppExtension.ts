@@ -34,7 +34,11 @@ export const AppExtension = defineExtension({
     const stateRef =
       document.querySelector<HTMLTextAreaElement>('#lexical-state')!;
     return editor.registerUpdateListener(({editorState}) => {
-      stateRef.value = JSON.stringify(editorState.toJSON(true), null, 2);
+      stateRef.value = JSON.stringify(
+        editorState.read(() => editorState.toJSON(true), {editor}),
+        null,
+        2,
+      );
     });
   },
   theme: {

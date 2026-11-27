@@ -72,6 +72,21 @@ export type SerializationSchemaMeta =
   | {readonly kind: 'enum'; readonly values: readonly unknown[]}
   | {readonly kind: 'array'; readonly item: InnerSerializationSchema}
   | {
+      /**
+       * An {@link arraySetValue}: an array of distinct `item` strings used as
+       * a set, sorted, so that its order carries no meaning.
+       *
+       * This kind is also how code outside the core recognizes a set-valued
+       * NodeState: `stateConfig.schema?.meta.kind === 'set'` marks the value
+       * as a set whose members are independent, so code that stores or
+       * merges NodeState can treat each member separately.
+       *
+       * @experimental
+       */
+      readonly kind: 'set';
+      readonly item: InnerSerializationSchema;
+    }
+  | {
       readonly kind: 'nullable';
       readonly inner: InnerSerializationSchema;
       /** Whether a value equal to `inner`'s default is treated as `null`. */
@@ -185,6 +200,16 @@ export interface SerializationSchema<T, Decls = never, In = T> {
   readonly [NAMES]?: Decls;
   /** The value returned for an out-of-domain input, i.e. `schema(undefined)`. */
   readonly defaultValue: T;
+  /**
+   * @experimental
+   *
+   * `true` when the node's own code recomputes the property from the
+   * document (declared with `withField(schema, {derived: true, field})` or
+   * `withAccessors(schema, {derived: true})`). It is serialized as usual, but
+   * tools that copy or compare a node's data can leave it out, and
+   * `mergeAdjacent` may not name it.
+   */
+  readonly derived?: true;
   /** An introspectable description of this schema's domain. */
   readonly meta: SerializationSchemaMeta;
   /**
@@ -432,6 +457,14 @@ export interface FieldOptions {
    * not written is simply absent.
    */
   readonly when?: string;
+  /**
+   * @experimental
+   *
+   * `true` when the node's own code recomputes this property from the
+   * document (a list item's `value` follows from its position in its list).
+   * See {@link SerializationSchema.derived}.
+   */
+  readonly derived?: boolean;
 }
 
 /**
@@ -452,6 +485,14 @@ export interface FieldOptions {
 export interface SchemaAccessors {
   readonly getter?: SchemaGetterAccessor;
   readonly setter?: SchemaSetterAccessor;
+  /**
+   * @experimental
+   *
+   * `true` when the node's own code recomputes the property from the
+   * document (a list item's `indent` follows from its nesting). See
+   * {@link SerializationSchema.derived}.
+   */
+  readonly derived?: boolean;
 }
 
 /**
@@ -1255,7 +1296,29 @@ function undeclared(combinator: string, inner: AnySerializationSchema): void {
       '%s: the schema it wraps names an accessor. Accessors are named once, on the outermost schema of a property, both directions in that one call',
       combinator,
     );
+    notNestedSet(combinator, inner);
   }
+}
+
+/**
+ * Refuse an {@link arraySetValue} anywhere but as the whole value of a
+ * `createState`. Only a StateConfig puts a value written with `$setState`
+ * into the canonical form; a node property set through its setter, or a
+ * value inside another schema, would keep whatever order and duplicates it
+ * was given. A development build only, like {@link undeclared}.
+ */
+function notNestedSet(
+  combinator: string,
+  inner: AnySerializationSchema | null | undefined,
+): void {
+  // A hand-rolled schema may carry no meta at all
+  const meta: SerializationSchemaMeta | null | undefined =
+    inner == null ? undefined : inner.meta;
+  invariant(
+    meta == null || meta.kind !== 'set',
+    '%s: arraySetValue can only be the whole value of a createState, not part of another schema or a node property',
+    combinator,
+  );
 }
 
 /**
@@ -2862,6 +2925,146 @@ export function arrayValue<T, In = T>(
 }
 
 /**
+ * Build a {@link SerializationSchema} for an array of strings used as a set,
+ * each coerced by `item`, for use as the value of a NodeState:
+ *
+ * ```ts
+ * const tagsState = createState('tags', {parse: arraySetValue(stringValue())});
+ * //    ^? StateConfig<'tags', readonly string[]>
+ * ```
+ *
+ * The value is a frozen array in a canonical form: sorted by UTF-16 code unit,
+ * with no duplicates, so its order carries no meaning.
+ *
+ * - Parsing reads an array, keeps the entries `item` accepts, drops
+ *   duplicates, sorts the result and freezes it. Anything else, `undefined`
+ *   included, is the empty array, which is the default.
+ * - A value written with `$setState` is put into the same form, so
+ *   `$setState(node, tagsState, ['b', 'a', 'a'])` stores, and reads back,
+ *   the frozen `['a', 'b']`.
+ * - Two values are equal when they are equal element by element, which,
+ *   since both are canonical, means they have the same members. A state
+ *   holding the empty array is left out of the JSON like any default.
+ * - The JSON is the same sorted array, so equal sets always serialize
+ *   identically and a round trip through JSON is stable.
+ *
+ * The value is frozen, so changing it in place throws in strict mode: build a
+ * new array and write it with `$setState`. It is meant for small sets, such
+ * as the ids of the comments on a piece of text or a few tags; a large set
+ * does not belong in NodeState.
+ *
+ * The members are strings so that this order is well defined, and so that a
+ * member can be used as a key, for example by code that stores each member
+ * on its own (see the `'set'` kind of {@link SerializationSchemaMeta}).
+ * Narrower string domains such as `enumValue(['a', 'b'])` work as the item
+ * too, and so does an item schema whose `accepts` declines some strings:
+ * the members it declines are dropped.
+ *
+ * `arraySetValue` must be the whole value of a `createState`: it cannot be
+ * wrapped by another schema or used for a node property, and a development
+ * build refuses both, as well as an item schema that does not produce
+ * strings.
+ *
+ * @example
+ * ```ts
+ * const parseTags = arraySetValue(stringValue());
+ * parseTags(['b', 'a', 'b', 1]); // ['a', 'b'] (frozen)
+ * parseTags('nope');             // [] (frozen)
+ * ```
+ *
+ * @experimental
+ * @__NO_SIDE_EFFECTS__
+ */
+export function arraySetValue<T extends string, In = T>(
+  item: SerializationSchema<T, never, In>,
+): SerializationSchema<readonly T[], never, readonly In[]> {
+  undeclared('arraySetValue', item);
+  if (__DEV__) {
+    // The types require string items; this catches untyped callers, whose
+    // members would otherwise be sorted as strings and never be canonical
+    invariant(
+      typeof item.defaultValue === 'string',
+      'arraySetValue: the item schema must produce strings',
+    );
+  }
+  return makeSchema(
+    (value): readonly T[] => {
+      if (!Array.isArray(value)) {
+        return Object.freeze([]);
+      }
+      if (Object.isFrozen(value) && $isCanonicalSet(item, value)) {
+        // Already canonical (a value read back and written again): keep it,
+        // so that writing it back is the same value
+        return value;
+      }
+      const members: T[] = [];
+      for (let i = 0; i < value.length; i++) {
+        const member: unknown = value[i];
+        // Dropped rather than coerced: `item` would turn an out-of-domain
+        // entry into its default, a member nobody added.
+        if (member !== undefined && $acceptsValue(item, member)) {
+          members.push(item(member));
+        }
+      }
+      members.sort();
+      const result: T[] = [];
+      for (let i = 0; i < members.length; i++) {
+        if (i === 0 || members[i] !== members[i - 1]) {
+          result.push(members[i]);
+        }
+      }
+      return Object.freeze(result);
+    },
+    {item, kind: 'set'},
+    undefined,
+    isArraySetEqual,
+    value => Array.isArray(value),
+  );
+}
+
+/**
+ * Whether `value` is already in {@link arraySetValue}'s canonical form for
+ * `item`: every member accepted and unchanged by it, strictly ascending.
+ */
+function $isCanonicalSet<T extends string, In>(
+  item: SerializationSchema<T, never, In>,
+  value: readonly unknown[],
+): boolean {
+  for (let i = 0; i < value.length; i++) {
+    const member = value[i];
+    if (
+      typeof member !== 'string' ||
+      (i > 0 && !((value[i - 1] as string) < member)) ||
+      !$acceptsValue(item, member) ||
+      item(member) !== member
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
+/**
+ * {@link arraySetValue}'s equality: element by element, which is "the same
+ * members" because both sides are sorted and free of duplicates. Total, like
+ * the other built-in comparators.
+ */
+function isArraySetEqual<T>(a: readonly T[], b: readonly T[]): boolean {
+  if (a === b) {
+    return true;
+  }
+  if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length) {
+    return false;
+  }
+  for (let i = 0; i < a.length; i++) {
+    if (a[i] !== b[i]) {
+      return false;
+    }
+  }
+  return true;
+}
+
+/**
  * Compose per-property {@link SerializationSchema}s into a single {@link SerializationSchema} for an
  * object-valued property. Calling it coerces each known property in turn
  * (ignoring any extra properties), so `objectValue(...)` applied to a partial
@@ -2947,6 +3150,7 @@ function checkFieldNames(
         combinator,
         key,
       );
+      notNestedSet(combinator, fields[key]);
     }
   }
 }
@@ -3086,19 +3290,24 @@ export function withField<T, const F extends FieldOptions, In = T>(
   // The two accessor objects are built here rather than written by the
   // caller, so the names can only be recovered from `F` — which the return
   // type does. The runtime value is exactly what withAccessors produced.
-  return named('withField', schema, {
-    getter: {
-      field: field.field,
-      getterTable: field.getterTable,
-      method: field.getter,
-      when: field.when,
+  return named(
+    'withField',
+    schema,
+    {
+      getter: {
+        field: field.field,
+        getterTable: field.getterTable,
+        method: field.getter,
+        when: field.when,
+      },
+      setter: {
+        field: field.field,
+        method: field.setter,
+        setterTable: field.setterTable,
+      },
     },
-    setter: {
-      field: field.field,
-      method: field.setter,
-      setterTable: field.setterTable,
-    },
-  });
+    field.derived === true,
+  );
 }
 
 /**
@@ -3138,7 +3347,12 @@ export function withAccessors<T, const A extends SchemaAccessors, In = T>(
   schema: SerializationSchema<T, never, In>,
   accessors: A,
 ): SerializationSchema<T, AccessorNames<A, T>, In> {
-  return named('withAccessors', schema, accessors);
+  return named(
+    'withAccessors',
+    schema,
+    {getter: accessors.getter, setter: accessors.setter},
+    accessors.derived === true,
+  );
 }
 
 /**
@@ -3154,6 +3368,7 @@ function named<T, Decls, In>(
   combinator: string,
   schema: SerializationSchema<T, never, In>,
   accessors: SchemaAccessors,
+  derived: boolean = false,
 ): SerializationSchema<T, Decls, In> {
   undeclared(combinator, schema);
   // Not through `makeSchema`: that would claim the forwarded `accepts` as
@@ -3162,6 +3377,7 @@ function named<T, Decls, In>(
   return Object.assign((value: unknown) => schema(value), {
     accepts: schema.accepts,
     defaultValue: schema.defaultValue,
+    ...(derived ? {derived: true as const} : {}),
     getter: accessors.getter,
     isEqual: schema.isEqual,
     meta: schema.meta,

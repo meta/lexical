@@ -6,18 +6,18 @@
     "extension",
     "plugin"
   ],
-  "version": "0.52.0",
+  "version": "0.53.0",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/facebook/lexical.git",
+    "url": "git+https://github.com/meta/lexical.git",
     "directory": "packages/lexical-extension"
   },
   "types": "./dist/typescript-too-old.d.ts",
   "bugs": {
-    "url": "https://github.com/facebook/lexical/issues"
+    "url": "https://github.com/meta/lexical/issues"
   },
-  "homepage": "https://github.com/facebook/lexical#readme",
+  "homepage": "https://github.com/meta/lexical#readme",
   "description": "This package provides the extension functionality for Lexical.",
   "sideEffects": false,
   "dependencies": {
@@ -42,6 +42,22 @@
       "development": "./dist/LexicalExtensionAutoFocusExtension.dev.js",
       "production": "./dist/LexicalExtensionAutoFocusExtension.prod.js",
       "default": "./dist/LexicalExtensionAutoFocusExtension.js"
+    },
+    "./BlockIdExtension": {
+      "source": "./src/BlockIdExtension.ts",
+      "types@<5.2": "./dist/typescript-too-old.d.ts",
+      "types": "./dist/BlockIdExtension.d.ts",
+      "development": "./dist/LexicalExtensionBlockIdExtension.dev.js",
+      "production": "./dist/LexicalExtensionBlockIdExtension.prod.js",
+      "default": "./dist/LexicalExtensionBlockIdExtension.js"
+    },
+    "./BlockIdExtension.js": {
+      "source": "./src/BlockIdExtension.ts",
+      "types@<5.2": "./dist/typescript-too-old.d.ts",
+      "types": "./dist/BlockIdExtension.d.ts",
+      "development": "./dist/LexicalExtensionBlockIdExtension.dev.js",
+      "production": "./dist/LexicalExtensionBlockIdExtension.prod.js",
+      "default": "./dist/LexicalExtensionBlockIdExtension.js"
     },
     "./ClearEditorExtension": {
       "source": "./src/ClearEditorExtension.ts",
@@ -250,6 +266,22 @@
       "development": "./dist/LexicalExtensionNodeSelectionExtension.dev.js",
       "production": "./dist/LexicalExtensionNodeSelectionExtension.prod.js",
       "default": "./dist/LexicalExtensionNodeSelectionExtension.js"
+    },
+    "./NodeStructureExtension": {
+      "source": "./src/NodeStructureExtension.ts",
+      "types@<5.2": "./dist/typescript-too-old.d.ts",
+      "types": "./dist/NodeStructureExtension.d.ts",
+      "development": "./dist/LexicalExtensionNodeStructureExtension.dev.js",
+      "production": "./dist/LexicalExtensionNodeStructureExtension.prod.js",
+      "default": "./dist/LexicalExtensionNodeStructureExtension.js"
+    },
+    "./NodeStructureExtension.js": {
+      "source": "./src/NodeStructureExtension.ts",
+      "types@<5.2": "./dist/typescript-too-old.d.ts",
+      "types": "./dist/NodeStructureExtension.d.ts",
+      "development": "./dist/LexicalExtensionNodeStructureExtension.dev.js",
+      "production": "./dist/LexicalExtensionNodeStructureExtension.prod.js",
+      "default": "./dist/LexicalExtensionNodeStructureExtension.js"
     },
     "./NormalizeInlineElementsExtension": {
       "source": "./src/NormalizeInlineElementsExtension.ts",

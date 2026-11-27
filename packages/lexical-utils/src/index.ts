@@ -45,6 +45,7 @@ import {
   $getSlotNames,
   $getState,
   $insertNodeToNearestRootAtCaret,
+  $isBlockContainer,
   $isChildCaret,
   $isElementNode,
   $isRangeSelection,
@@ -257,7 +258,6 @@ export function $dfsIterator(
  * Like {@link $dfs}, but also descends into named slots. Slots are not on the
  * linked-list spine, so each host's slot subtrees are emitted slots-first,
  * right after the host node and before its linked-list children.
- * @experimental
  * @param startNode - The node to start the search (inclusive), defaults to the root node.
  * @param endNode - The node to end the search (inclusive), defaults to all descendants of startNode.
  * Like {@link $dfs}, reaching endNode stops the traversal before visiting any of its
@@ -277,7 +277,6 @@ export function $dfsWithSlots(
  * Slot-aware {@link $dfsIterator}: a host's slot subtrees are emitted
  * slots-first, right after the host node and before its linked-list children.
  * The caret iterator drives the linked-list spine untouched.
- * @experimental
  * @param startNode - The node to start the search (inclusive), defaults to the root node.
  * @param endNode - The node to end the search (inclusive), defaults to all descendants of startNode.
  * Like {@link $dfs}, reaching endNode stops the traversal before visiting any of its
@@ -443,7 +442,6 @@ export function $reverseDfsIterator(
 /**
  * Like {@link $reverseDfs}, but also descends into named slots. Mirror of
  * {@link $dfsWithSlots}.
- * @experimental
  * @param startNode - The node to start the search (inclusive), defaults to the root node.
  * @param endNode - The node to end the search (inclusive), defaults to all descendants of startNode.
  * Mirroring {@link $dfsWithSlots}, reaching endNode stops the traversal without
@@ -466,7 +464,6 @@ export function $reverseDfsWithSlots(
  * traversed. Because the caret spine streams nodes, "left the host subtree" is
  * detected when a node at the host's depth or shallower arrives, flushing the
  * host's pending slots. The caret iterator drives the spine untouched.
- * @experimental
  * @param startNode - The node to start the search (inclusive), defaults to the root node.
  * @param endNode - The node to end the search (inclusive), defaults to all descendants of startNode.
  * Mirroring {@link $dfsWithSlotsIterator}, reaching endNode stops the traversal
@@ -706,21 +703,34 @@ export function $restoreEditorState(
 
 /**
  * Determine whether anything follows the given caret before the end of its
- * nearest root (see {@link lexical!$isRootOrShadowRoot}).
+ * nearest block container (see {@link lexical!$isBlockContainer}).
  */
 function $hasContentAfter(caret: PointCaret<'next'>): boolean {
-  return (
-    $isExtendableTextPointCaret(caret) ||
-    $getAdjacentSiblingOrParentSiblingCaret(
-      $isTextPointCaret(caret) ? caret.getSiblingCaret() : caret,
-      'shadowRoot',
-    ) !== null
-  );
+  if ($isExtendableTextPointCaret(caret)) {
+    return true;
+  }
+  for (
+    let c: null | NodeCaret<'next'> = $isTextPointCaret(caret)
+      ? caret.getSiblingCaret()
+      : caret;
+    c !== null;
+    c = c.getParentCaret('shadowRoot')
+  ) {
+    if (c.getNodeAtCaret() !== null) {
+      return true;
+    }
+    const parent = $isChildCaret(c) ? c.origin : c.origin.getParent();
+    if ($isBlockContainer(parent)) {
+      return false;
+    }
+  }
+  return false;
 }
 
 /**
- * If the selected insertion area is the root/shadow root node (see {@link lexical!$isRootOrShadowRoot}),
- * the node will be appended there, otherwise, it will be inserted before the insertion area.
+ * If the selected insertion area is a block container (the root, a shadow root
+ * or a declared container, see {@link lexical!$isBlockContainer}), the node
+ * will be appended there, otherwise, it will be inserted before the insertion area.
  * If there is no selection where the node is to be inserted, it will be appended after any current nodes
  * within the tree, as a child of the root node. A paragraph will then be added after the inserted node and selected.
  * @param node - The node to be inserted
@@ -936,7 +946,7 @@ function needsManualZoom(): boolean {
     // If the browser implements standardized CSS zoom, then the client rect
     // will be wider after zoom is applied
     // https://chromestatus.com/feature/5198254868529152
-    // https://github.com/facebook/lexical/issues/6863
+    // https://github.com/meta/lexical/issues/6863
     // eslint-disable-next-line no-restricted-syntax
     const div = document.createElement('div');
     div.style.position = 'absolute';

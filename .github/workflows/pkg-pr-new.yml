@@ -36,8 +36,8 @@ concurrency:
 
 jobs:
   publish:
-    # Skip pushes to forks; PRs from forks still run against facebook/lexical.
-    if: github.repository == 'facebook/lexical'
+    # Skip pushes to forks; PRs from forks still run against meta/lexical.
+    if: github.repository == 'meta/lexical'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -60,4 +60,37 @@ jobs:
       # --pnpm packs with pnpm, which resolves `workspace:` and `catalog:`
       # specifiers the way `pnpm publish` does for npm. Private packages
       # (playground, website, devtools, ...) are skipped by pkg-pr-new.
-      - run: pnpm exec pkg-pr-new publish --pnpm --no-template --packageManager=npm,pnpm,yarn './packages/*'
+      #
+      # The PR comment lists npm commands only. Dependencies between Lexical
+      # packages are rewritten to the long commit URL
+      # (pkg.pr.new/meta/lexical/<pkg>@<sha>), and npm dedupes a directly
+      # installed `lexical@<pr>` against it by name and version. pnpm and
+      # yarn key URL dependencies by URL instead, so short-URL commands
+      # install extra copies of `lexical` (pnpm 10, yarn 1) or are refused
+      # because of blockExoticSubdeps (pnpm 11+). The job summary lists pnpm
+      # and yarn commands that use the same long URLs.
+      - id: publish
+        run: pnpm exec pkg-pr-new publish --pnpm --no-template --packageManager=npm --json pkg-pr-new.json './packages/*'
+      - name: Write pnpm and yarn install commands to the job summary
+        run: |
+          {
+            echo '### Install with pnpm or yarn'
+            echo
+            echo 'pnpm and yarn need the long commit URLs below, the same ones Lexical packages use for each other, so that they install one copy of `lexical`. pnpm 11+ also needs `blockExoticSubdeps: false` in `pnpm-workspace.yaml` (or `--config.block-exotic-subdeps=false`). On a cold cache, yarn 1 can fail with "the file appears to be corrupt" while it downloads the same URL for several packages at once; run it again.'
+            echo
+            echo '```sh'
+            echo "pnpm add --config.block-exotic-subdeps=false lexical@$BASE/lexical@$SHA @lexical/react@$BASE/@lexical/react@$SHA"
+            echo "yarn add lexical@$BASE/lexical@$SHA @lexical/react@$BASE/@lexical/react@$SHA"
+            echo '```'
+            echo
+            echo '<details><summary>All packages (pnpm add / yarn add arguments)</summary>'
+            echo
+            echo '```'
+            jq -r --arg base "$BASE" --arg sha "$SHA" '.packages[].name | "\(.)@\($base)/\(.)@\($sha)"' pkg-pr-new.json
+            echo '```'
+            echo
+            echo '</details>'
+          } >> "$GITHUB_STEP_SUMMARY"
+        env:
+          BASE: https://pkg.pr.new/${{ github.repository }}
+          SHA: ${{ steps.publish.outputs.sha }}

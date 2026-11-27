@@ -15,14 +15,22 @@ import {
   $createTextNode,
   $getRoot,
   $getSelection,
+  $isParagraphNode,
   $isRangeSelection,
+  $isTextNode,
   defineExtension,
   type LexicalEditor,
-  type ParagraphNode,
   SKIP_DOM_SELECTION_TAG,
-  type TextNode,
 } from 'lexical';
-import {afterEach, beforeEach, describe, expect, test, vi} from 'vitest';
+import {
+  afterEach,
+  assert,
+  beforeEach,
+  describe,
+  expect,
+  test,
+  vi,
+} from 'vitest';
 
 function setUpEditor() {
   const editor = buildEditorFromExtensions(
@@ -70,8 +78,11 @@ function overselect(editor: LexicalEditor) {
 function overselectByCode(editor: LexicalEditor) {
   editor.update(
     () => {
-      const [p1, p2] = $getRoot().getChildren<ParagraphNode>();
-      p1.getFirstChildOrThrow<TextNode>().select(0, 0);
+      const [p1, p2] = $getRoot().getChildren();
+      assert($isParagraphNode(p1));
+      const text = p1.getFirstChildOrThrow();
+      assert($isTextNode(text));
+      text.select(0, 0);
       const selection = $getSelection();
       if ($isRangeSelection(selection)) {
         selection.focus.set(p2.getKey(), 0, 'element');
@@ -132,11 +143,11 @@ describe('NormalizeTripleClickSelectionExtension', () => {
     using editor = setUpEditor();
     editor.update(
       () => {
-        for (const paragraph of $getRoot().getChildren<ParagraphNode>()) {
-          paragraph
-            .getFirstChildOrThrow<TextNode>()
-            .setFormat('bold')
-            .setStyle('color: red');
+        for (const paragraph of $getRoot().getChildren()) {
+          assert($isParagraphNode(paragraph));
+          const text = paragraph.getFirstChildOrThrow();
+          assert($isTextNode(text));
+          text.setFormat('bold').setStyle('color: red');
         }
       },
       {discrete: true},
