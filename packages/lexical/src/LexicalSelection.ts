@@ -4027,7 +4027,8 @@ export function $updateDOMSelection(
   // TODO: make this not hard-coded, and add another config option
   // that makes this configurable.
   if (
-    (tags.has(COLLABORATION_TAG) && activeElement !== rootElement) ||
+    (tags.has(COLLABORATION_TAG) &&
+      !isEditorFocusHost(editor, rootElement, activeElement)) ||
     (activeElement !== null &&
       $isSelectionCapturedInDecoratorInput(activeElement, activeElement))
   ) {
