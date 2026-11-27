@@ -40,8 +40,6 @@ export interface NodeSelectionDataSelectedConfig {
 }
 
 /**
- * @experimental
- *
  * Mirrors {@link NodeSelection} membership onto the host DOM as an attribute
  * so CSS can render a selection outline for `ElementNode` hosts, which have
  * no `decorate()` render path of their own. Configure it per node type:

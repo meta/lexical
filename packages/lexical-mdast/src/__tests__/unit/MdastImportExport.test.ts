@@ -8,7 +8,7 @@
 
 // @vitest-environment node
 
-import type {Link, Nodes, Paragraph, Root} from 'mdast';
+import type {Link, Nodes, Paragraph, PhrasingContent, Root} from 'mdast';
 
 import {
   buildEditorFromExtensions,
@@ -54,6 +54,7 @@ import {
   defineExtension,
   type LexicalEditor,
   type LexicalNode,
+  ParagraphNode,
   TEXT_TYPE_TO_FORMAT,
   type TextFormatType,
   type TextNode,
@@ -111,6 +112,38 @@ function $firstLink(): LinkNode {
     .find($isLinkNode);
   assert(link);
   return link;
+}
+
+// Each text with its format and the URL of the link around it.
+function $linkRuns(): [string, number, string | null][] {
+  return $getRoot()
+    .getAllTextNodes()
+    .map(node => {
+      const parent = node.getParent();
+      return [
+        node.getTextContent(),
+        node.getFormat(),
+        $isLinkNode(parent) ? parent.getURL() : null,
+      ];
+    });
+}
+
+// Checks that `editor` exports `expected`, which reads back with the same
+// text, formats and links in an editor of `extensions`, and is written the
+// same again.
+function expectLiteralRoundTrip(
+  editor: LexicalEditor,
+  expected: string,
+  ...extensions: Parameters<typeof buildEditorFromExtensions>
+): void {
+  const output = editor.read(() => $convertToMarkdownString());
+  expect(output).toBe(expected);
+  using reimported = buildEditorFromExtensions(...extensions);
+  reimported.update(() => $convertFromMarkdownString(output), {
+    discrete: true,
+  });
+  expect(reimported.read($linkRuns)).toEqual(editor.read($linkRuns));
+  expect(reimported.read(() => $convertToMarkdownString())).toBe(output);
 }
 
 function importExport(markdown: string): string {
@@ -863,6 +896,121 @@ describe('@lexical/mdast import/export', () => {
     expect(parses).toBe(editedExportParses);
   });
 
+  it('keeps a block whose touching deletes are joined as its own in selection exports', () => {
+    let parses = 0;
+    const text = (value: string): PhrasingContent => ({type: 'text', value});
+    using editor = buildEditorFromExtensions(
+      MdastCommonMarkExtension,
+      MdastGfmExtension,
+      configExtension(MdastExtension, {
+        exportRules: [
+          {
+            // A and B are written as plain text, which is joined across the
+            // two blocks; C holds a literal link and two deletes, which are
+            // joined inside C.
+            $export: (node, context) => {
+              context.next();
+              const value = node.getTextContent();
+              return value === 'C'
+                ? {
+                    children: [
+                      text('('),
+                      {
+                        children: [text('https://a.example')],
+                        data: {mdastLinkStyle: 'literal'},
+                        type: 'link',
+                        url: 'https://a.example',
+                      },
+                      text(') '),
+                      {children: [text('x')], type: 'delete'},
+                      {children: [text('y')], type: 'delete'},
+                    ],
+                    type: 'paragraph',
+                  }
+                : text(value);
+            },
+            type: ParagraphNode,
+          },
+        ],
+        mdastExtensions: [
+          {
+            transforms: [
+              () => {
+                parses++;
+              },
+            ],
+          },
+        ],
+        toMarkdownExtensions: [
+          {
+            handlers: {
+              root: (node: Root, _parent, state, info) =>
+                node.children
+                  .map(child => state.handle(child, node, state, info))
+                  .join('\n\n'),
+            },
+          },
+        ],
+      }),
+    );
+    editor.update(
+      () =>
+        $getRoot()
+          .clear()
+          .append(
+            ...['A', 'B', 'C'].map(value =>
+              $createParagraphNode().append($createTextNode(value)),
+            ),
+          ),
+      {discrete: true},
+    );
+    const counts: number[] = [];
+    for (const [start, end] of [
+      [0, 3],
+      [0, 2],
+      [2, 3],
+      [2, 3],
+    ]) {
+      editor.update(
+        () => {
+          const texts = $getRoot().getAllTextNodes();
+          const last = texts[end - 1];
+          texts[start]
+            .select(0, 0)
+            .focus.set(last.getKey(), last.getTextContentSize(), 'text');
+        },
+        {discrete: true},
+      );
+      parses = 0;
+      editor.read(() => $convertSelectionToMarkdownString());
+      counts.push(parses);
+    }
+    // Only the first export parses, for C's literal link. Exporting A and B
+    // alone does not drop what C read, so exporting C after it parses
+    // nothing; it would if C were kept for the root.
+    expect(counts).toEqual([2, 0, 0, 0]);
+  });
+
+  // Joining texts at the top level makes fewer nodes than were marked for
+  // blocks, which an export must not trip over. The list markers are lost,
+  // as before this test.
+  it('exports a list on its own', () => {
+    using editor = buildEditorFromExtensions(
+      MdastCommonMarkExtension,
+      MdastGfmExtension,
+    );
+    editor.update(() => $convertFromMarkdownString('- a\n- b'), {
+      discrete: true,
+    });
+    expect(() =>
+      editor.read(() =>
+        $convertToMarkdownString(
+          $assertNodeType($getRoot().getFirstChildOrThrow(), $isElementNode),
+        ),
+      ),
+    ).not.toThrow();
+  });
+
   it('reuses literal validation across subtree and selection exports', () => {
     let parses = 0;
     using editor = buildEditorFromExtensions(
@@ -1064,6 +1212,15 @@ describe('@lexical/mdast import/export', () => {
       'x[www.example.com](http://www.example.com)',
     ],
     [
+      // Bare, only GFM's transform links it: micromark starts no literal
+      // after `!`.
+      '`!` before',
+      'www.example.com',
+      '!',
+      null,
+      '\\![www.example.com](http://www.example.com)',
+    ],
+    [
       // The writer encodes the last character of the bare form.
       'bold punctuation after',
       'www.example.com',
@@ -1194,28 +1351,15 @@ describe('@lexical/mdast import/export', () => {
         'cjk-friendly',
       ];
       for (const mode of modes) {
-        const createLiteralEditor = () =>
-          buildEditorFromExtensions(
-            MdastGfmExtension,
-            MdastHeadingExtension,
-            configExtension(MdastExtension, {
-              exportPunctuation: mode,
-              importPunctuation: mode,
-            }),
-          );
-        // Each text with its format and the URL of the link around it.
-        const $runs = () =>
-          $getRoot()
-            .getAllTextNodes()
-            .map(node => {
-              const parent = node.getParent();
-              return [
-                node.getTextContent(),
-                node.getFormat(),
-                $isLinkNode(parent) ? parent.getURL() : null,
-              ];
-            });
-        using editor = createLiteralEditor();
+        const extensions = [
+          MdastGfmExtension,
+          MdastHeadingExtension,
+          configExtension(MdastExtension, {
+            exportPunctuation: mode,
+            importPunctuation: mode,
+          }),
+        ] as const;
+        using editor = buildEditorFromExtensions(...extensions);
         editor.update(
           () => {
             $convertFromMarkdownString(markdown);
@@ -1234,14 +1378,7 @@ describe('@lexical/mdast import/export', () => {
           },
           {discrete: true},
         );
-        const output = editor.read(() => $convertToMarkdownString());
-        expect(output).toBe(expected);
-        using reimported = createLiteralEditor();
-        reimported.update(() => $convertFromMarkdownString(output), {
-          discrete: true,
-        });
-        expect(reimported.read($runs)).toEqual(editor.read($runs));
-        expect(reimported.read(() => $convertToMarkdownString())).toBe(output);
+        expectLiteralRoundTrip(editor, expected, ...extensions);
       }
     },
   );
@@ -1365,6 +1502,182 @@ describe('@lexical/mdast import/export', () => {
         {discrete: true},
       );
       expect(editor.read(() => $convertToMarkdownString())).toBe(expected);
+    },
+  );
+
+  it('writes only the literals from the first that would read back differently', () => {
+    using editor = buildEditorFromExtensions(
+      MdastCommonMarkExtension,
+      MdastAutolinkLiteralExtension,
+      MdastExtension,
+    );
+    editor.update(
+      () => {
+        $convertFromMarkdownString(
+          'see www.a.example, www.b.example and www.c.example',
+        );
+        $assertNodeType($getRoot().getFirstChildOrThrow(), $isElementNode)
+          .getLastChildOrThrow()
+          .insertAfter($createTextNode('y'));
+      },
+      {discrete: true},
+    );
+    expectLiteralRoundTrip(
+      editor,
+      'see www.a.example, www.b.example and [www.c.example](http://www.c.example)y',
+      MdastCommonMarkExtension,
+      MdastAutolinkLiteralExtension,
+      MdastExtension,
+    );
+  });
+
+  it('writes every literal from the first that would read back differently', () => {
+    using editor = buildEditorFromExtensions(
+      MdastCommonMarkExtension,
+      MdastAutolinkLiteralExtension,
+      MdastExtension,
+    );
+    editor.update(
+      () => {
+        $convertFromMarkdownString(
+          'see www.a.example, www.b.example and www.c.example',
+        );
+        const [, second, third] = $assertNodeType(
+          $getRoot().getFirstChildOrThrow(),
+          $isElementNode,
+        )
+          .getChildren()
+          .filter($isLinkNode);
+        second.insertAfter($createTextNode('y'));
+        third.insertAfter($createTextNode('y'));
+      },
+      {discrete: true},
+    );
+    expectLiteralRoundTrip(
+      editor,
+      'see www.a.example, [www.b.example](http://www.b.example)y and [www.c.example](http://www.c.example)y',
+      MdastCommonMarkExtension,
+      MdastAutolinkLiteralExtension,
+      MdastExtension,
+    );
+  });
+
+  it.each([
+    [
+      'the next literal keeps its bare form',
+      null,
+      '`x`[www.a.example](http://www.a.example) and www.b.example',
+    ],
+    [
+      // It reads back as a link to `www.a.exampley`, found by the transform.
+      'a letter after it',
+      0,
+      '`x`[www.a.example](http://www.a.example)y and www.b.example',
+    ],
+    [
+      'before another literal that does not read back',
+      1,
+      '`x`[www.a.example](http://www.a.example) and [www.b.example](http://www.b.example)y',
+    ],
+  ])(
+    'writes a literal after a code span in resource form: %s',
+    (_name, letterAfter, expected) => {
+      using editor = buildEditorFromExtensions(
+        MdastCommonMarkExtension,
+        MdastAutolinkLiteralExtension,
+        MdastExtension,
+      );
+      editor.update(
+        () => {
+          $convertFromMarkdownString('www.a.example and www.b.example');
+          const links = $assertNodeType(
+            $getRoot().getFirstChildOrThrow(),
+            $isElementNode,
+          )
+            .getChildren()
+            .filter($isLinkNode);
+          links[0].insertBefore($createTextNode('x').toggleFormat('code'));
+          if (letterAfter !== null) {
+            links[letterAfter].insertAfter($createTextNode('y'));
+          }
+        },
+        {discrete: true},
+      );
+      // GFM's transform reads `www.a.example` back after the code span, but
+      // micromark starts no literal there.
+      expectLiteralRoundTrip(
+        editor,
+        expected,
+        MdastCommonMarkExtension,
+        MdastAutolinkLiteralExtension,
+        MdastExtension,
+      );
+    },
+  );
+
+  it.each([
+    [
+      'a literal that a letter after it breaks',
+      'see www.a.example then',
+      () => $firstLink().insertAfter($createTextNode('y')),
+      'so see [www.a.example](http://www.a.example)y then',
+    ],
+    [
+      "a literal that only GFM's transform links",
+      'www.example.com',
+      () => $firstLink().insertBefore($createTextNode('!')),
+      'so \\![www.example.com](http://www.example.com)',
+    ],
+    [
+      // The resource link is not a literal, so none is left bare.
+      "a literal that only GFM's transform links, beside a link",
+      '[a](http://a.example) www.example.com',
+      () =>
+        $assertNodeType($getRoot().getFirstChildOrThrow(), $isElementNode)
+          .getChildren()
+          .filter($isLinkNode)[1]
+          .insertBefore($createTextNode('!')),
+      'so [a](http://a.example) \\![www.example.com](http://www.example.com)',
+    ],
+  ])(
+    'reads a container back once when it writes again %s',
+    (_name, markdown, $edit, expected) => {
+      let parses = 0;
+      using editor = buildEditorFromExtensions(
+        MdastCommonMarkExtension,
+        MdastAutolinkLiteralExtension,
+        configExtension(MdastExtension, {
+          mdastExtensions: [
+            {
+              transforms: [
+                () => {
+                  parses++;
+                },
+              ],
+            },
+          ],
+        }),
+      );
+      editor.update(
+        () => {
+          $convertFromMarkdownString(markdown);
+          $edit();
+        },
+        {discrete: true},
+      );
+      // What the literal reads alone is kept by now.
+      editor.read(() => $convertToMarkdownString());
+      editor.update(
+        () => {
+          $assertNodeType($getRoot().getFirstChildOrThrow(), $isElementNode)
+            .getFirstChildOrThrow()
+            .insertBefore($createTextNode('so '));
+        },
+        {discrete: true},
+      );
+      parses = 0;
+      expect(editor.read(() => $convertToMarkdownString())).toBe(expected);
+      expect(parses).toBe(1);
     },
   );
 
@@ -2479,17 +2792,11 @@ describe('@lexical/mdast import/export', () => {
     // the BMP.
     using inner = buildEditorFromExtensions(MdastGfmExtension, MdastExtension);
     inner.update(
-      () => {
-        $convertFromMarkdownString('www.example.com');
-        $assertNodeType(
-          $getRoot().getFirstChildOrThrow(),
-          $isElementNode,
-        ).splice(0, 0, [$createTextNode('\u2E00')]);
-      },
+      () => $convertFromMarkdownString('(www.example.com/a\u2E00b)'),
       {discrete: true},
     );
     const alone = inner.read(() => $convertToMarkdownString());
-    expect(alone).toBe('\u2E00www.example.com');
+    expect(alone).toBe('(www.example.com/a\u2E00b)');
     let nested = '';
     using outer = buildEditorFromExtensions(
       MdastGfmExtension,
@@ -2534,16 +2841,13 @@ describe('@lexical/mdast import/export', () => {
       }),
     );
     outer.update(
-      () => {
-        $convertFromMarkdownString('**b** www.example.com');
-        $firstLink().insertBefore($createTextNode('\u2E00'));
-      },
+      () => $convertFromMarkdownString('**b** (www.example.com/a\u2E00b)'),
       {discrete: true},
     );
     // The stand-ins of the inner export are put back before the outer
     // literal is checked.
     expect(outer.read(() => $convertToMarkdownString())).toBe(
-      '**b** \u2E00www.example.com',
+      '**b** (www.example.com/a\u2E00b)',
     );
   });
 

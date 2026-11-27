@@ -2,6 +2,6 @@
 '@lexical/rich-text': patch
 ---
 
-[fix] Typing while a block decorator such as a horizontal rule is selected puts the text on a line of its own right after it (an empty paragraph or heading already there, or a new paragraph), instead of at the top of the document
+[fix] Typing after a selected block decorator inserts text immediately after it, including in Firefox and WebKit
 
-Verify: select a horizontal rule (click it, or arrow onto it from the paragraph above) and type a letter. The letter starts a new paragraph right after the rule; the paragraph that followed the rule is unchanged.
+Verify: Select a horizontal rule by clicking it or arrowing onto it, then type, including an Option-generated character on macOS or an AltGraph character. Text should appear immediately after it, reusing an empty following paragraph or heading or inserting a paragraph before existing text. Cancelled key events, modifier shortcuts, and keyboard input in embedded controls and nested editors should retain their normal behavior.

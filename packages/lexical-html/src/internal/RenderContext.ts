@@ -35,7 +35,6 @@ import {
  * Note that to support the ValueOrUpdater pattern you can not use a
  * function for V (but you may wrap it in an array or object).
  *
- * @experimental
  * @__NO_SIDE_EFFECTS__
  */
 export function createRenderState<V>(
@@ -53,13 +52,11 @@ export function createRenderState<V>(
 
 /**
  * Render context state that is true if the export was initiated from the root of the document.
- * @experimental
  */
 export const RenderContextRoot = createRenderState('root', Boolean);
 
 /**
  * Render context state that is true if this is an export operation ($generateHtmlFromNodes).
- * @experimental
  */
 export const RenderContextExport = createRenderState('isExport', Boolean);
 
@@ -84,7 +81,6 @@ function getRenderContext(
 
 /**
  * Get a render context value during a DOM render or export operation.
- * @experimental
  */
 export function $getRenderContextValue<V>(
   cfg: RenderStateConfig<V>,
@@ -109,8 +105,6 @@ function getRuntime(editor: LexicalEditor) {
  * `disabledForEditor` result, the resident render config is recompiled and the
  * affected nodes are re-rendered. No-op if {@link DOMRenderExtension} is not
  * installed.
- *
- * @experimental
  */
 export function $setRenderContextValue<V>(
   cfg: RenderStateConfig<V>,
@@ -126,8 +120,6 @@ export function $setRenderContextValue<V>(
 /**
  * Imperatively update a value in the persistent editor render context with an
  * updater function. See {@link $setRenderContextValue}.
- *
- * @experimental
  */
 export function $updateRenderContextValue<V>(
   cfg: RenderStateConfig<V>,
@@ -148,8 +140,6 @@ export function $updateRenderContextValue<V>(
  * export/generate session, applying any `disabledForSession` overrides against
  * the active session context. Falls back to the editor's resident config when
  * {@link DOMRenderExtension} is not installed.
- *
- * @experimental
  */
 export function $getSessionDOMRenderConfig(
   editor: LexicalEditor = $getEditor(),
@@ -162,7 +152,6 @@ export function $getSessionDOMRenderConfig(
 
 /**
  * Execute a callback within a render context with the given config pairs.
- * @experimental
  */
 export const $withRenderContext: (
   cfg: readonly AnyRenderStateConfigPairOrUpdater[],
