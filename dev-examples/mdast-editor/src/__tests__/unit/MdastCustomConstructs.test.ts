@@ -462,10 +462,10 @@ describe('footnotes', () => {
     ],
     // A bold italic ref merges with the bold italic text around it.
     ['***x[^a] y***\n\n[^a]: n', '***x[^a] y***\n\n[^a]: n'],
-    ['**a *b[^a]***\n\n[^a]: n', '**a *b[^a]***\n\n[^a]: n'],
+    ['**a *b[^a]***\n\n[^a]: n', '**a _b[^a]_**\n\n[^a]: n'],
     ['**_x_[^a]**\n\n[^a]: n', '**_x_[^a]**\n\n[^a]: n'],
-    ['**a *b[^a]c***\n\n[^a]: n', '**a *b[^a]c***\n\n[^a]: n'],
-    ['**x *[^a]y***\n\n[^a]: n', '**x *[^a]y***\n\n[^a]: n'],
+    ['**a *b[^a]c***\n\n[^a]: n', '**a _b[^a]c_**\n\n[^a]: n'],
+    ['**x *[^a]y***\n\n[^a]: n', '**x _[^a]y_**\n\n[^a]: n'],
     ['**x _[^a]_**_z_\n\n[^a]: n', '**x _[^a]_**_z_\n\n[^a]: n'],
     ['*x __[^a]__*__z__\n\n[^a]: n', '*x __[^a]__*__z__\n\n[^a]: n'],
     ['~~a **b[^a]**~~ c\n\n[^a]: n', '~~a **b[^a]**~~ c\n\n[^a]: n'],

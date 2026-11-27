@@ -166,12 +166,23 @@ describe('Mdast punctuation modes', () => {
     [
       [
         ['a', 0],
+        ['。', bold],
+        ['世', 0],
+      ],
+      '&#x61;**。**&#x4E16;',
+      'a**。**世',
+    ],
+    // A run of `_` does not open or close between two letters for any
+    // reader, so the references beside one stay.
+    [
+      [
+        ['a', 0],
         ['。', bold | italic],
         ['世', italic],
         ['b', 0],
       ],
-      '&#x61;***。**&#x4E16;*&#x62;',
-      'a***。**世*b',
+      '&#x61;*__。__&#x4E16;*&#x62;',
+      '&#x61;*__。__&#x4E16;*&#x62;',
     ],
     // An escaped marker is no run.
     [
@@ -333,15 +344,16 @@ describe('Mdast punctuation modes', () => {
       '&#x61;~~&#x1F44D;ok~~',
       '&#x61;~~\u{1f44d}ok~~',
     ],
-    // The closing run of one attention and the opening run of the next are
-    // one run, which both opens and closes for some readers.
+    // The closing run of one attention beside the opening run of the next,
+    // which mdast-util-to-markdown writes with the other marker so that the
+    // two do not join.
     [
       [
         ['a\u{1f389}', italic],
         ['“b”', bold],
       ],
-      '*a&#x1F389;***“b”**',
-      '*a\u{1f389}***“b”**',
+      '*a&#x1F389;*__“b”__',
+      '*a\u{1f389}*__“b”__',
     ],
     // A CJK character beside the emoji needs one only for strict readers.
     [

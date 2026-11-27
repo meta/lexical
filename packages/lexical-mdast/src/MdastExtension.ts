@@ -142,9 +142,7 @@ export interface MdastConfig {
    * Defaults to `'strict-commonmark'`, which writes a character reference where
    * a marker beside punctuation would otherwise not open or close
    * (`**你好。**&#x4E16;界`), so that every CommonMark, GFM and CJK-friendly reader
-   * reads it the same way, but for a run of three or more markers that a pair
-   * uses only part of (`***a*b*c***`, `***x****y*`), which commonmark.js and markdown-it read
-   * differently from micromark, and a selector after a tab, a line ending, a
+   * reads it the same way, but for a selector after a tab, a line ending, a
    * vertical tab or a form feed that ends a run (`**。\v︎**`), which
    * `markdown-it-cjk-friendly` reads as that whitespace, leaving those
    * markers literal, and a vertical tab beside a marker (`p\v**.**\vq`),

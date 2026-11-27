@@ -276,7 +276,7 @@ describe('@lexical/mdast import/export', () => {
           ['ld', ITALIC],
           ['!', 0],
         ],
-        'he**llo*wor****ld*!',
+        'he**ll&#x6F;_&#x77;or_**_ld_!',
       );
     });
 
@@ -289,7 +289,7 @@ describe('@lexical/mdast import/export', () => {
           ['d', BOLD],
           ['e', 0],
         ],
-        'a*b**c*****d**e',
+        '&#x61;*&#x62;__&#x63;__*__&#x64;__&#x65;',
       );
     });
 
@@ -799,6 +799,36 @@ describe('@lexical/mdast import/export', () => {
       const out = importExport('_a_ and *b*');
       expect(importExport(out)).toBe(out); // and is stable
     });
+  });
+
+  // A destination that starts with `<` is written in angle brackets, with
+  // its own `<` and `>` escaped, so that it does not read as the brackets.
+  it.each([
+    ['<a', '[t](<\\<a>)'],
+    ['<a>', '[t](<\\<a\\>>)'],
+    ['<a)', '[t](<\\<a)>)'],
+  ])('round-trips a link to %j', (url, markdown) => {
+    using editor = createEditor();
+    editor.update(
+      () => {
+        $getRoot()
+          .clear()
+          .append(
+            $createParagraphNode().append(
+              $createLinkNode(url).append($createTextNode('t')),
+            ),
+          );
+      },
+      {discrete: true},
+    );
+    expect(editor.read(() => $convertToMarkdownString())).toBe(markdown);
+    editor.update(
+      () => {
+        $convertFromMarkdownString(markdown);
+      },
+      {discrete: true},
+    );
+    expect(editor.read(() => $firstLink().getURL())).toBe(url);
   });
 
   it('round-trips autolink literals without normalizing to <...>', () => {
@@ -3084,6 +3114,33 @@ describe('@lexical/mdast import/export', () => {
         ),
       ).toBe('Hello **Bold**');
     });
+
+    // A selection that starts at the end of bold, italic or strikethrough
+    // text or ends at its start leaves that format out, rather than writing
+    // it empty. Empty inline code is still written, as two backticks.
+    it.each<[string, (textNodes: TextNode[]) => void, string]>([
+      ['end of bold', ([bold, plain]) => $selectSpan(bold, 2, plain, 1), 'c'],
+      [
+        'end of strikethrough',
+        ([, , , strike, plain]) => $selectSpan(strike, 2, plain, 1),
+        'i',
+      ],
+      [
+        'start of italic',
+        ([, plain, italic]) => $selectSpan(plain, 1, italic, 0),
+        'd',
+      ],
+      [
+        'end of bold and the start of italic',
+        ([bold, , italic]) => $selectSpan(bold, 2, italic, 0),
+        'cd',
+      ],
+    ])(
+      'leaves out a format a selection only touches at the %s',
+      (_name, $select, expected) => {
+        expect(selectionExport('**ab**cd*ef*~~gh~~ij', $select)).toBe(expected);
+      },
+    );
 
     it('returns an empty string for a null or collapsed selection', () => {
       using editor = createEditor();
