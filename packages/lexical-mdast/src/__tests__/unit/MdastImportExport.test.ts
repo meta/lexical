@@ -293,6 +293,23 @@ describe('@lexical/mdast import/export', () => {
       );
     });
 
+    it('writes touching emphasis and strong with the other marker', () => {
+      expectRoundTrip(
+        [
+          ['a ', BOLD],
+          ['b', BOLD | ITALIC],
+        ],
+        '**a _b_**',
+      );
+      expectRoundTrip(
+        [
+          ['ab', BOLD],
+          ['cd', ITALIC],
+        ],
+        '**ab**_cd_',
+      );
+    });
+
     it('round-trips strikethrough overlapping bold', () => {
       expectRoundTrip(
         [

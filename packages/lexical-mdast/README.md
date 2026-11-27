@@ -230,6 +230,10 @@ amendment:
 configExtension(MdastExtension, {exportPunctuation: 'cjk-friendly'});
 ```
 
+It keeps the references beside a `_` run, which the export writes where
+formatting touches formatting and which no reader opens or closes between two
+letters (`&#x61;*__。__&#x4E16;*&#x62;`).
+
 A CJK-friendly import reads the `~~` runs of `MdastStrikethroughExtension`
 as it reads emphasis. A strikethrough syntax contributed some other way
 through `micromarkExtensions` is left as it is.
