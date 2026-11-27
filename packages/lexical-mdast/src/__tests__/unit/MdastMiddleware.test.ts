@@ -1149,31 +1149,31 @@ describe('mdast middleware', () => {
     expect(editor.read(() => $convertToMarkdownString())).toBe('marked: *ab*');
   });
 
-  it.each<[string, boolean, (text: TextNode) => ElementNode, string, string]>([
-    ['a quote', true, text => $createParagraphNode().append(text), '> ', ''],
+  it.each<[string, boolean, (leaf: TextNode) => ElementNode, string, string]>([
+    ['a quote', true, leaf => $createParagraphNode().append(leaf), '> ', ''],
     [
       'a heading',
       false,
-      text => $createHeadingNode('h1').append(text),
+      leaf => $createHeadingNode('h1').append(leaf),
       '# ',
       '',
     ],
     [
       'a list item',
       false,
-      text =>
-        $createListNode('bullet').append($createListItemNode().append(text)),
+      leaf =>
+        $createListNode('bullet').append($createListItemNode().append(leaf)),
       '- ',
       '',
     ],
     [
       'a table cell',
       false,
-      text =>
+      leaf =>
         $createTableNode().append(
           $createTableRowNode().append(
             $createTableCellNode(TableCellHeaderStates.ROW).append(
-              $createParagraphNode().append(text),
+              $createParagraphNode().append(leaf),
             ),
           ),
         ),
@@ -1262,7 +1262,7 @@ describe('mdast middleware', () => {
       );
       editor.update(
         () => {
-          const text = $createTextNode('ab');
+          const selected = $createTextNode('ab');
           $getRoot()
             .clear()
             .append(
@@ -1270,13 +1270,13 @@ describe('mdast middleware', () => {
                 // Bold, so that the editor does not merge it into the selected
                 // text.
                 $createTextNode('x').toggleFormat('bold'),
-                text,
+                selected,
                 $createLinkNode('https://example.com').append(
                   $createTextNode('cd'),
                 ),
               ),
             );
-          text.select(0, 1);
+          selected.select(0, 1);
         },
         {discrete: true},
       );
