@@ -41,6 +41,16 @@ export function getStrikethroughSyntax(): MicromarkExtension {
   });
 }
 
+/**
+ * Whether `extension` holds a CJK-friendly variant, as the syntax from
+ * {@link getStrikethroughSyntax} does and a copy of it does not.
+ *
+ * @internal
+ */
+export function hasCjkFriendlyVariant(extension: MicromarkExtension): boolean {
+  return Object.prototype.hasOwnProperty.call(extension, CJK_FRIENDLY_VARIANT);
+}
+
 // The key under which a micromark extension is marked by
 // {@link referenceAgnostic}. Not enumerable, so micromark does not read it as
 // a hook.
@@ -68,6 +78,46 @@ export function isReferenceAgnostic(extension: MicromarkExtension): boolean {
   return (
     (extension as {[REFERENCE_AGNOSTIC]?: true})[REFERENCE_AGNOSTIC] === true
   );
+}
+
+/**
+ * Whether {@link referenceAgnostic} marked `extension` itself, not one it is
+ * made from, which the cmark-gfm pass's model of micromark asks: a syntax
+ * made from a marked one may replace its hooks.
+ *
+ * @internal
+ */
+export function isOwnReferenceAgnostic(extension: MicromarkExtension): boolean {
+  return Object.prototype.hasOwnProperty.call(extension, REFERENCE_AGNOSTIC);
+}
+
+// The key under which a micromark extension is marked by
+// {@link referenceNeutral}. Not enumerable, so micromark does not read it as
+// a hook.
+const REFERENCE_NEUTRAL = '__lexicalReferenceNeutral';
+
+/**
+ * The syntax that `factory` makes, marked as one whose constructs read a
+ * document alike when a character other than ASCII punctuation is written
+ * as a character reference, beside a marker or anywhere else, so that the
+ * cmark-gfm pass of a strict export may judge its edits with its model of
+ * micromark rather than by parsing. A copy of the syntax is not marked.
+ *
+ * @internal
+ * @__NO_SIDE_EFFECTS__
+ */
+export function referenceNeutral(
+  factory: () => MicromarkExtension,
+): MicromarkExtension {
+  return Object.defineProperty(factory(), REFERENCE_NEUTRAL, {value: true});
+}
+
+/**
+ * Whether {@link referenceNeutral} marked `extension` itself: one made from
+ * it, which may replace its hooks, is not marked.
+ */
+export function isReferenceNeutral(extension: MicromarkExtension): boolean {
+  return Object.prototype.hasOwnProperty.call(extension, REFERENCE_NEUTRAL);
 }
 
 // The key under which a compiled registry holds the micromark extensions of

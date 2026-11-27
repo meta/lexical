@@ -66,16 +66,12 @@ function createEditor(config: Partial<MdastConfig> = {}): LexicalEditor {
   return editor;
 }
 
-/**
- * How an export writes `markdown`, written as raw HTML, which the export
- * keeps as it is but for the references it writes.
- */
-function exportRaw(
-  markdown: string,
+/** An editor whose export writes the text of each text node as raw HTML. */
+function createRawEditor(
   exportPunctuation?: MdastPunctuationMode,
   importPunctuation?: MdastPunctuationMode,
-): string {
-  const editor = createEditor({
+): LexicalEditor {
+  return createEditor({
     exportPunctuation,
     exportRules: [
       {
@@ -88,6 +84,18 @@ function exportRaw(
     ],
     importPunctuation,
   });
+}
+
+/**
+ * How an export writes `markdown`, written as raw HTML, which the export
+ * keeps as it is but for the references it writes.
+ */
+function exportRaw(
+  markdown: string,
+  exportPunctuation?: MdastPunctuationMode,
+  importPunctuation?: MdastPunctuationMode,
+  editor = createRawEditor(exportPunctuation, importPunctuation),
+): string {
   editor.update(
     () =>
       $getRoot()
@@ -98,10 +106,21 @@ function exportRaw(
   return editor.read('latest', () => $convertToMarkdownString());
 }
 
-/** How often a strict export of `markdown` parses it. */
+/**
+ * An editor for {@link exportRaw} whose cmark-gfm pass has run the drift
+ * probe of its model, which runs once for the editor's syntax and parses.
+ */
+function createProbedEditor(): LexicalEditor {
+  const editor = createRawEditor();
+  exportRaw('©_a_', undefined, undefined, editor);
+  return editor;
+}
+
+/** How often a strict export of `markdown` parses it, the probe aside. */
 function countParses(markdown: string): number {
+  const editor = createProbedEditor();
   vi.mocked(parseEvents).mockClear();
-  exportRaw(markdown);
+  exportRaw(markdown, undefined, undefined, editor);
   return vi.mocked(parseEvents).mock.calls.length;
 }
 
@@ -632,9 +651,8 @@ describe('strict export for cmark-gfm', () => {
       expect(exportRaw('_©___©.__ 你→€b*~*©** ©€')).toBe(
         '_&#xA9;___&#xA9;.__ 你→€b*~*©** ©€',
       );
-      // The reading and two rounds, the last of which keeps every edit and
-      // serves the final check.
-      expect(countParses('_©___©.__ 你→€b*~*©** ©€')).toBe(3);
+      // The reading and the final check: the model judges the rounds.
+      expect(countParses('_©___©.__ 你→€b*~*©** ©€')).toBe(2);
       expect(
         exportRaw(
           '***a\\~\\~b***~~你\\~\\~\\\\~~©***`.。`***~~a_b\\_!~~**\\~**',
@@ -646,16 +664,16 @@ describe('strict export for cmark-gfm', () => {
         countParses(
           '***a\\~\\~b***~~你\\~\\~\\\\~~©***`.。`***~~a_b\\_!~~**\\~**',
         ),
-      ).toBe(3);
+      ).toBe(2);
     });
 
     it('splits a proposal that changes the reading in halves', () => {
       expect(exportRaw('~~_a\\~\\~ba\\~\\~b_€a_b\\a~~___`!_.`___')).toBe(
         '~~_a\\~\\~ba\\~\\~b_&#x20AC;a_b\\a~~___`!_.`___',
       );
-      // The reading, the batch, four rounds (the second for each half),
-      // and the document, as the last round drops what it proposed.
-      expect(countParses('~~_a\\~\\~ba\\~\\~b_€a_b\\a~~___`!_.`___')).toBe(7);
+      // The reading and the document: the model judges the batch and the
+      // four rounds (the second for each half).
+      expect(countParses('~~_a\\~\\~ba\\~\\~b_€a_b\\a~~___`!_.`___')).toBe(2);
     });
 
     it('stays within a few parses for a long paragraph', () => {
@@ -800,18 +818,25 @@ describe('strict export for cmark-gfm', () => {
     });
 
     it('returns the export as it is when micromark reads it otherwise', () => {
+      const editor = createProbedEditor();
       const original = vi.mocked(parseEvents).getMockImplementation()!;
-      // The reading, and then the parse of the edits, in which the heading
+      const asQuote: typeof original = (markdown, extensions) => {
+        const events = original(markdown, extensions);
+        events[0][1].type = 'blockQuote';
+        return events;
+      };
+      // The reading, and then the parses of the edits, in which the heading
       // reads as a quote: its text reads as before, the document does not.
+      // The final check after the model's verdicts fails, and so does the
+      // one of the search with parse verdicts after it.
       vi.mocked(parseEvents)
         .mockImplementationOnce(original)
-        .mockImplementationOnce((markdown, extensions) => {
-          const events = original(markdown, extensions);
-          events[0][1].type = 'blockQuote';
-          return events;
-        });
-      expect(exportRaw('# ©_a_')).toBe('# ©_a_');
-      expect(exportRaw('# ©_a_')).toBe('# &#xA9;_a_');
+        .mockImplementationOnce(asQuote)
+        .mockImplementationOnce(asQuote);
+      expect(exportRaw('# ©_a_', undefined, undefined, editor)).toBe('# ©_a_');
+      expect(exportRaw('# ©_a_', undefined, undefined, editor)).toBe(
+        '# &#xA9;_a_',
+      );
     });
   });
 

@@ -58,6 +58,7 @@ import {
 import {gfmTableFromMarkdown, gfmTableToMarkdown} from 'mdast-util-gfm-table';
 import {gfmTable} from 'micromark-extension-gfm-table';
 
+import {referenceNeutral} from './compile';
 import {$append, $isBlockLevelNode, inlineMarker} from './handlers';
 import {getExportedLengths, registerTableCellCodeHandler} from './MdastExport';
 import {MdastExtension} from './MdastExtension';
@@ -740,7 +741,9 @@ export const MdastTableExtension = defineExtension({
         /* @__PURE__ */ gfmTableFromMarkdown(),
         gfmTableHtmlFromMarkdown,
       ],
-      micromarkExtensions: [/* @__PURE__ */ gfmTable()],
+      // The rows and cells of a table do not change when a character in a
+      // cell is written as a reference.
+      micromarkExtensions: [referenceNeutral(gfmTable)],
       toMarkdownExtensions: [gfmTableCellsToMarkdown()],
     }),
   ],
