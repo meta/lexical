@@ -163,7 +163,9 @@ export interface MdastConfig {
    * literal (`**a©**x`, which only an export rule writes), and where its
    * bounded search finds no repair. `'cjk-friendly'` writes CJK text as
    * typed (`**你好。**世界`, `**你好。**abc`), for readers that follow the
-   * CJK-friendly amendment, such as a CJK-friendly import.
+   * CJK-friendly amendment, such as a CJK-friendly import, but keeps the
+   * references beside a `_` run, which no reader opens or closes between two
+   * letters (`&#x61;*__。__&#x4E16;*&#x62;`).
    */
   readonly exportPunctuation?: MdastPunctuationMode;
 }
