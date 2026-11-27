@@ -121,6 +121,7 @@ function client(
     }
     const root = rootOf(key);
     const binding = new YBinding(editor, doc, {
+      onStatus: null,
       root,
       schemaVersion: 1,
       selfCheck: true,

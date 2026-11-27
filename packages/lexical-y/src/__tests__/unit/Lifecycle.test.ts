@@ -72,7 +72,11 @@ describe('version gate', () => {
     Y.applyUpdate(doc, Y.encodeStateAsUpdate(old));
     const warnings: string[] = [];
     const editor = mkEditor(warnings);
-    const b = new YBinding(editor, doc, {schemaVersion: 1, selfCheck: true});
+    const b = new YBinding(editor, doc, {
+      onStatus: null,
+      schemaVersion: 1,
+      selfCheck: true,
+    });
     b.start();
     b.initialize();
     expect(b.status).toBe('readonly');
@@ -86,6 +90,7 @@ describe('version gate', () => {
     Y.applyUpdate(doc, Y.encodeStateAsUpdate(old));
     const warnings: string[] = [];
     const b = new YBinding(mkEditor(warnings), doc, {
+      onStatus: null,
       schemaVersion: 1,
       selfCheck: true,
     });
@@ -110,7 +115,11 @@ describe('version gate', () => {
       doc.get('lexical-y').setAttr(k, v as never);
       const warnings: string[] = [];
       const editor = mkEditor(warnings);
-      const b = new YBinding(editor, doc, {schemaVersion: 1, selfCheck: true});
+      const b = new YBinding(editor, doc, {
+        onStatus: null,
+        schemaVersion: 1,
+        selfCheck: true,
+      });
       b.start();
       b.initialize();
       expect(b.status).toBe('readonly');
@@ -125,7 +134,11 @@ describe('version gate', () => {
       const warnings: string[] = [];
       const editor = mkEditor(warnings);
       editor.setEditable(editable);
-      const b = new YBinding(editor, doc, {schemaVersion: 1, selfCheck: true});
+      const b = new YBinding(editor, doc, {
+        onStatus: null,
+        schemaVersion: 1,
+        selfCheck: true,
+      });
       b.start();
       b.initialize();
       expect(b.status).toBe('readonly');
@@ -140,7 +153,11 @@ describe('version gate', () => {
     src.clientID = 5;
     const warnings: string[] = [];
     const e1 = mkEditor(warnings);
-    const b1 = new YBinding(e1, src, {schemaVersion: 1, selfCheck: true});
+    const b1 = new YBinding(e1, src, {
+      onStatus: null,
+      schemaVersion: 1,
+      selfCheck: true,
+    });
     b1.start();
     e1.update(() => $getRoot().clear().append($p('hello')), {discrete: true});
     b1.initialize();
@@ -150,7 +167,11 @@ describe('version gate', () => {
     Y.applyUpdate(doc, Y.encodeStateAsUpdate(src));
     doc.get('lexical-y').deleteAttr('lexical-y:4');
     const e2 = mkEditor(warnings);
-    const b2 = new YBinding(e2, doc, {schemaVersion: 1, selfCheck: true});
+    const b2 = new YBinding(e2, doc, {
+      onStatus: null,
+      schemaVersion: 1,
+      selfCheck: true,
+    });
     b2.start();
     b2.initialize();
     expect(b2.status).toBe('readonly');
@@ -214,7 +235,10 @@ describe('version gate', () => {
     const warnings: string[] = [];
     const doc = createYDoc();
     Y.applyUpdate(doc, Y.encodeStateAsUpdate(t.b.doc));
-    const fresh = new YBinding(mkEditor(warnings), doc, {schemaVersion: 1});
+    const fresh = new YBinding(mkEditor(warnings), doc, {
+      onStatus: null,
+      schemaVersion: 1,
+    });
     fresh.start();
     fresh.initialize();
     expect(fresh.status).toBe('readonly');
@@ -458,6 +482,7 @@ describe('document settings', () => {
         editor._recordNodeMoves = moves;
         editor._recordTextEdits = edits;
         const b = new YBinding(editor, createYDoc(), {
+          onStatus: null,
           schemaVersion: 1,
           selfCheck: true,
         });
@@ -476,6 +501,7 @@ describe('document settings', () => {
     const doc = createYDoc();
     const before = doc.cleanupFormatting;
     const b = new YBinding(mkEditor([]), doc, {
+      onStatus: null,
       schemaVersion: 1,
       selfCheck: true,
     });

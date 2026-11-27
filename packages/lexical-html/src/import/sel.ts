@@ -352,8 +352,6 @@ export const selBase = {
  * Cross-frame-safe replacement for `node instanceof HTMLXxxElement`. Returns
  * true when `node` is an HTMLElement whose `nodeName` equals `tag` (compared
  * case-insensitively).
- *
- * @experimental
  */
 export function isElementOfTag<T extends keyof HTMLElementTagNameMap>(
   node: Node,

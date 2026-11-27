@@ -529,7 +529,7 @@ By default a shadow root (a table, a layout container, ...) is dragged as one un
 - `'transparent'`: the block gets no handle, but the blocks nested in it can.
 - `'ignored'`: neither the block nor anything inside it gets a handle.
 
-Return `null` to keep the default for a node. To keep the handle on top-level blocks only, pass `$getBlockBehavior={() => 'atomic'}`. Pass a stable function (module level or `useCallback`):
+Return `null` to keep the default for a node. To keep the handle on top-level blocks only, pass `$getBlockBehavior={() => 'atomic'}`:
 
 ```jsx
 function $getBlockBehavior(node) {

@@ -175,12 +175,12 @@ export type DOMSlotForNode<N extends LexicalNode> = N extends ElementNode
   : DOMSlot<HTMLElement>;
 
 export type EditorDOMRenderConfig = {
-  /** @internal @experimental */
+  /** @internal */
   $createDOM: <T extends LexicalNode>(
     node: T,
     editor: LexicalEditor,
   ) => HTMLElement;
-  /** @internal @experimental */
+  /** @internal */
   $getDOMSlot: <N extends LexicalNode>(
     node: N,
     dom: HTMLElement,
@@ -192,12 +192,12 @@ export type EditorDOMRenderConfig = {
     hostDom: HTMLElement,
     editor: LexicalEditor,
   ) => HTMLElement | null;
-  /** @internal @experimental */
+  /** @internal */
   $exportDOM: <T extends LexicalNode>(
     node: T,
     editor: LexicalEditor,
   ) => DOMExportOutput;
-  /** @internal @experimental */
+  /** @internal */
   $extractWithChild: <T extends LexicalNode>(
     node: T,
     childNode: LexicalNode,
@@ -205,20 +205,20 @@ export type EditorDOMRenderConfig = {
     destination: 'clone' | 'html',
     editor: LexicalEditor,
   ) => boolean;
-  /** @internal @experimental */
+  /** @internal */
   $updateDOM: <T extends LexicalNode>(
     nextNode: T,
     prevNode: T,
     dom: HTMLElement,
     editor: LexicalEditor,
   ) => boolean;
-  /** @internal @experimental */
+  /** @internal */
   $shouldInclude: <T extends LexicalNode>(
     node: T,
     selection: null | BaseSelection,
     editor: LexicalEditor,
   ) => boolean;
-  /** @internal @experimental */
+  /** @internal */
   $shouldExclude: <T extends LexicalNode>(
     node: T,
     selection: null | BaseSelection,
@@ -227,7 +227,7 @@ export type EditorDOMRenderConfig = {
 }
 
 export type CreateEditorArgs = {
-  /** @internal @experimental */
+  /** @internal */
   dom?: Partial<EditorDOMRenderConfig>;
   disableEvents?: boolean;
   editorState?: EditorState;
@@ -320,6 +320,7 @@ declare export class LexicalEditor {
     updateFn?: () => void,
   ): EditorState;
   read<V>(callbackFn: () => V): V;
+  read<V>(editorState: EditorState, callbackFn: () => V): V;
   read<V>(mode: EditorReadMode, callbackFn: () => V): V;
   update(updateFn: () => void, options?: EditorUpdateOptions): boolean;
   focus(callbackFn?: () => void, options?: EditorFocusOptions): void;
@@ -480,7 +481,12 @@ export interface EditorState {
   // shape came back. `EditorState` is not extended anywhere, so the
   // override-check limitation that keeps `exportJSON` to one signature does not
   // reach here: a Flow caller passing `true` gets the partial form, in which
-  // every property a compact export may omit is optional.
+  // every property a compact export may omit is optional. The options form
+  // follows `compact` the same way.
+  toJSON(
+    options: {...EditorStateToJSONOptions, compact?: false},
+  ): SerializedEditorState;
+  toJSON(options: EditorStateToJSONOptions): CompactSerializedEditorState;
   toJSON(compact?: false): SerializedEditorState;
   toJSON(compact: boolean): CompactSerializedEditorState;
   clone(selection?: BaseSelection | null): EditorState;
@@ -488,6 +494,10 @@ export interface EditorState {
 type EditorStateReadOptions = {
   editor?: LexicalEditor | null;
 }
+export type EditorStateToJSONOptions = {
+  compact?: boolean;
+  editor?: LexicalEditor | null;
+};
 
 /**
  * LexicalNode
@@ -1343,6 +1353,11 @@ declare export function $splitNode(
   node: ElementNode,
   offset: number,
 ): [ElementNode | null, ElementNode];
+/** @internal */
+declare export function $appendAll(
+  parent: ElementNode,
+  nodes: ReadonlyArray<LexicalNode>,
+): void;
 declare export function $setDirectionFromDOM<T extends ElementNode>(
   node: T,
   domNode: HTMLElement,
@@ -1354,6 +1369,7 @@ declare export function $setFormatFromDOM<T extends ElementNode>(
 declare export function $cloneWithProperties<T extends LexicalNode>(node: T): T;
 declare export function $cloneWithPropertiesEphemeral<T extends LexicalNode>(node: T): T;
 declare export function $copyNode<T extends LexicalNode>(node: T, skipReset?: boolean): T;
+declare export function $deepCopy<T extends LexicalNode>(node: T): T;
 declare export function $getDocument(): Document;
 declare export function $getEditor(): LexicalEditor;
 /** @internal */

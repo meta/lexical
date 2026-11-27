@@ -102,6 +102,7 @@ async function boundRead(input: Input, gc: boolean): Promise<unknown> {
       createYCollabConfig({
         doc,
         layoutUpgrade: null,
+        onYStatus: null,
         root: input.root === 'lexical-y' ? null : doc.get(input.root),
         schemaVersion: input.config.schemaVersion,
         synced: true,
@@ -128,6 +129,7 @@ async function check(input: Input, gc: boolean): Promise<string | null> {
   const config = {...input.config, root: input.root};
   const migrated = migrateYState(input.state, STEPS, {
     gc,
+    pending: 'discard',
     roots: [input.root],
   }).state;
   // A fresh bound reader of the migrated document (a headless read leaves a
@@ -348,7 +350,10 @@ describe('a document below the floor shows what its migration would make of it',
       expect(valueOf(shown)).toBeUndefined();
       // After 2to3: the value, as the release before read it (the frozen
       // read the golden pins).
-      const migrated = migrateYState(input.state, STEPS, {gc}).state;
+      const migrated = migrateYState(input.state, STEPS, {
+        gc,
+        pending: 'discard',
+      }).state;
       const read = plain(readYState(migrated, input.config, $snapshot));
       expect(valueOf(read)).toEqual([1, 2]);
       expect(read).toEqual(plain(golden.main));
@@ -359,6 +364,8 @@ describe('a document below the floor shows what its migration would make of it',
     }
   });
 
+  // Binds an editor to every fixture and migrates it, gc off and on: about
+  // 1 s alone, past vitest's default 5 s on a loaded machine.
   test('the 2to3 golden fixtures', async () => {
     const inputs = goldenInputs();
     expect(inputs.length).toBeGreaterThan(0);
@@ -372,8 +379,10 @@ describe('a document below the floor shows what its migration would make of it',
       ),
       n: inputs.length * 2,
     });
-  });
+  }, 60_000);
 
+  // Binds an editor to every fixture and migrates it, gc off and on: about
+  // 1 s alone, past vitest's default 5 s on a loaded machine.
   test('the 3to4 golden fixtures (layout 3)', async () => {
     const inputs = goldenInputs3to4();
     expect(inputs.length).toBeGreaterThan(30);
@@ -395,14 +404,16 @@ describe('a document below the floor shows what its migration would make of it',
     expect(inputs.filter(i => i.name in KNOWN_3TO4).length).toBe(
       Object.keys(KNOWN_3TO4).length,
     );
-  });
+  }, 60_000);
 
+  // Binds an editor to every fixture and migrates it, gc off and on: about
+  // 1 s alone, past vitest's default 5 s on a loaded machine.
   test('the 1to2 golden fixtures and the layout 2 states 1to2 makes of them', async () => {
     const inputs = goldenInputs1to2();
     expect(inputs.length).toBe(21);
     const {n, failures} = await run(inputs);
     expect({failures, n}).toEqual({failures: [], n: 28});
-  });
+  }, 60_000);
 
   test.skipIf(DIRS.length === 0)(
     'a sample of the stored corpora',

@@ -18,9 +18,10 @@ export function SendButtonPlugin({onSubmit}: SendButtonPluginProps) {
   const [editor] = useLexicalComposerContext();
 
   const handleClick = useCallback(() => {
-    const hasContent = editor
-      .getEditorState()
-      .read(() => $getRoot().getTextContent().trim() !== '');
+    const hasContent = editor.read(
+      'latest',
+      () => $getRoot().getTextContent().trim() !== '',
+    );
     if (hasContent) {
       onSubmit(editor.getEditorState());
       editor.dispatchCommand(CLEAR_EDITOR_COMMAND, undefined);

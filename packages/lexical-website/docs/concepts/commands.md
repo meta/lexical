@@ -80,7 +80,7 @@ You can register a command from anywhere you have access to the `editor` object,
 
 The command listener will always be called from an `editor.update`, so you may use dollar functions. You should not use
 `editor.update` (and *never* call `editor.read(...)` or `editor.read('force-commit', ...)`) synchronously from within a command listener. It is safe to call
-`editor.read('latest', ...)` or `editor.getEditorState().read` if you need to read the previous state after updates have already been made.
+`editor.read('latest', ...)` or `editor.getEditorState().read(fn, {editor})` if you need to read the previous state after updates have already been made.
 
 ```js
 const removeListener = editor.registerCommand(

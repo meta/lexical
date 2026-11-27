@@ -69,6 +69,7 @@ function seed($build: () => void): Uint8Array {
   doc.clientID = 7;
   const binding = new YBinding(editor, doc, {
     captureTimeout: null,
+    onStatus: null,
     schemaVersion: 1,
   });
   binding.start();
@@ -92,6 +93,7 @@ function open(
         configExtension(YCollabExtension, {
           captureTimeout: 0,
           doc,
+          onYStatus: null,
           schemaVersion: 1,
         }),
       ],
@@ -308,6 +310,7 @@ function openWithPictures(
         configExtension(YCollabExtension, {
           captureTimeout,
           doc,
+          onYStatus: null,
           schemaVersion: 1,
         }),
       ],

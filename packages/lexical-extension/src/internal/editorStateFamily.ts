@@ -200,12 +200,14 @@ function $serializeNodeVersion(node: LexicalNode): SerializedNodeVersion {
 
 /**
  * Serializes `states` into a single payload of plain data, sharing one node
- * table across all of them.
+ * table across all of them. `editor`, the editor the states belong to, is
+ * active while their nodes are exported.
  *
  * @internal
  */
 export function serializeEditorStateFamily(
   states: readonly EditorState[],
+  editor: LexicalEditor,
 ): SerializedEditorStateFamily {
   const ids = new Map<LexicalNode, number>();
   const nodes: SerializedNodeVersion[] = [];
@@ -213,7 +215,7 @@ export function serializeEditorStateFamily(
     (state): SerializedFamilyState =>
       // exportJSON reads through getLatest(), so each state's nodes are
       // serialized with that state active.
-      state.read(() => {
+      editor.read(state, () => {
         const stateNodes: number[] = [];
         for (const node of state._nodeMap.values()) {
           let id = ids.get(node);

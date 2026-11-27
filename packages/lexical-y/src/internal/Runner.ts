@@ -42,6 +42,7 @@ import {
   type YMigrationEpoch,
 } from './Layouts';
 import {applyStoredState} from './LoadFully';
+import {requirePendingMaterial, type YPendingMaterial} from './Pending';
 import {createRawYDoc, type YDoc, type YDocOptions} from './RawYDoc';
 import {assertSupportedMigrationYjs} from './YjsMigrationContract';
 
@@ -241,6 +242,13 @@ export interface YMigrationReceipt {
   /** The encoded state's size before and after, in bytes. */
   readonly bytesBefore: number;
   readonly bytesAfter: number;
+  /**
+   * The size of the pending material split out of the input, in bytes (0
+   * when there was none or nothing ran): returned in the result with
+   * `pending: 'return'`, dropped with `'discard'`, so a reader of a copy
+   * can log what it did not show.
+   */
+  readonly pendingBytes: number;
   readonly ms: number;
 }
 
@@ -278,24 +286,50 @@ export interface YMigrateStateOptions extends YMigrateOptions {
    * one): must equal the authority's stored documents' setting.
    */
   readonly gc?: boolean;
+  /**
+   * Required: what to do with the pending material `state` never holds
+   * (see {@link YPendingMaterial}). `'return'` to store it, `'discard'` for
+   * a copy nothing stores.
+   */
+  readonly pending: YPendingMaterial;
 }
 
-/** @experimental What migrateYState returns. */
-export interface YMigrationResult {
-  /**
-   * The migrated state (update format V1), without pending material; the
-   * input bytes themselves when nothing ran (store nothing then).
-   */
-  readonly state: Uint8Array;
-  /** The update from the input's integrated state to `state`; null when nothing ran. */
-  readonly update: Uint8Array | null;
-  /**
-   * The input's pending structs and pending delete set (V1), for the
-   * quarantine: never in `state`. Null when there are none or nothing ran.
-   */
-  readonly pending: Uint8Array | null;
-  readonly receipt: YMigrationReceipt;
-}
+/**
+ * @experimental What migrateYState returns: a union on `split`, so the
+ * migrated bytes are reached only after narrowing on it. Where the input
+ * held pending material (`split: true`, only with `pending: 'return'`),
+ * the migrated state is `integrated` and the material is `pending` beside
+ * it: store both (the material as a `pending` quarantine record), or the
+ * edits it holds are lost. With `pending: 'discard'` the result is never
+ * split.
+ */
+export type YMigrationResult =
+  | {
+      readonly split: false;
+      /**
+       * The migrated state (update format V1); the input bytes themselves
+       * when nothing ran (store nothing then). With `pending: 'discard'`,
+       * without the pending material the input held.
+       */
+      readonly state: Uint8Array;
+      /** The update from the input's integrated state to `state`; null when nothing ran. */
+      readonly update: Uint8Array | null;
+      readonly receipt: YMigrationReceipt;
+    }
+  | {
+      readonly split: true;
+      /** The migrated state (update format V1), without the pending material. */
+      readonly integrated: Uint8Array;
+      /**
+       * The input's pending structs and pending delete set (V1), never in
+       * `integrated`: store it (a `pending` quarantine record,
+       * `createYQuarantineRecord` on `@lexical/y/server`).
+       */
+      readonly pending: Uint8Array;
+      /** The update from the input's integrated state to `integrated`. */
+      readonly update: Uint8Array;
+      readonly receipt: YMigrationReceipt;
+    };
 
 /**
  * @internal (not exported from @lexical/y/migrate). The origin of the
@@ -1511,15 +1545,41 @@ function unchanged(plans: readonly RootPlan[]): YMigrationRootReceipt[] {
  * observer-free copy, each step checked there; any refusal or failed check
  * throws a YMigrationError and nothing is returned. Pending structs, a
  * pending delete set and skipped ranges (with everything after the gap and
- * everything that depends on it) are split out (`pending`), never migrated
- * or kept in `state`. When no root needs a step, the input bytes come back as `state`,
- * with `update: null` and `changed: false`: store nothing.
+ * everything that depends on it) are split out, never migrated or kept in
+ * `state`: `options.pending` (required) says whether the result returns
+ * them (`'return'`, to store them) or drops them (`'discard'`, for a copy
+ * nothing stores). When no root needs a step, the input bytes come back as
+ * `state`, with `update: null` and `changed: false`: store nothing.
+ *
+ * @example
+ * ```ts
+ * const result = migrateYState(stored, steps, {pending: 'return'});
+ * if (result.split) {
+ *   store(result.integrated, pendingRecord(stored, result.pending));
+ * } else if (result.receipt.changed) {
+ *   store(result.state);
+ * }
+ * ```
  */
 export function migrateYState(
   state: Uint8Array,
   steps: readonly YLayoutMigration[],
-  options: YMigrateStateOptions = {},
+  options: YMigrateStateOptions & {readonly pending: 'discard'},
+): Extract<YMigrationResult, {readonly split: false}>;
+export function migrateYState(
+  state: Uint8Array,
+  steps: readonly YLayoutMigration[],
+  options: YMigrateStateOptions,
+): YMigrationResult;
+export function migrateYState(
+  state: Uint8Array,
+  steps: readonly YLayoutMigration[],
+  options: YMigrateStateOptions,
 ): YMigrationResult {
+  requirePendingMaterial(
+    'migrateYState',
+    options == null ? undefined : options.pending,
+  );
   const t0 = Date.now();
   const gc = options.gc ?? true;
   const doc = createYDoc(state, {gc});
@@ -1527,15 +1587,16 @@ export function migrateYState(
     const plans = planOf(doc, steps, options);
     if (plans.every(p => p.steps.length === 0)) {
       return {
-        pending: null,
         receipt: {
           bytesAfter: state.length,
           bytesBefore: state.length,
           changed: false,
           ms: Date.now() - t0,
+          pendingBytes: 0,
           roots: unchanged(plans),
           v: 1,
         },
+        split: false,
         state,
         update: null,
       };
@@ -1550,19 +1611,19 @@ export function migrateYState(
     )!;
     try {
       const out = encodeStateAsUpdate(copy);
-      return {
-        pending,
-        receipt: {
-          bytesAfter: out.length,
-          bytesBefore: state.length,
-          changed: true,
-          ms: Date.now() - t0,
-          roots,
-          v: 1,
-        },
-        state: out,
-        update: checkedUpdate(integrated, copy, encodeStateVector(doc)),
+      const receipt: YMigrationReceipt = {
+        bytesAfter: out.length,
+        bytesBefore: state.length,
+        changed: true,
+        ms: Date.now() - t0,
+        pendingBytes: pending === null ? 0 : pending.length,
+        roots,
+        v: 1,
       };
+      const update = checkedUpdate(integrated, copy, encodeStateVector(doc));
+      return pending !== null && options.pending === 'return'
+        ? {integrated: out, pending, receipt, split: true, update}
+        : {receipt, split: false, state: out, update};
     } finally {
       copy.destroy();
     }
@@ -1619,6 +1680,7 @@ export function migrateYDoc(
       bytesBefore: integrated.length,
       changed: false,
       ms: Date.now() - t0,
+      pendingBytes: 0,
       roots: unchanged(plans),
       v: 1,
     };
@@ -1642,6 +1704,7 @@ export function migrateYDoc(
     bytesBefore: integrated.length,
     changed: true,
     ms: Date.now() - t0,
+    pendingBytes: 0,
     roots,
     v: 1,
   };

@@ -88,7 +88,7 @@ const WEBSOCKET_ID = params.get('collabId') || '0';
  * full. `?collabYSchemaVersion=<n>` overrides it, to try the gate with two
  * tabs.
  */
-const SCHEMA_VERSION = Number(params.get('collabYSchemaVersion')) || 1;
+const SCHEMA_VERSION = Number(params.get('collabYSchemaVersion')) || 2;
 
 export interface CollabYSession {
   doc: YDoc;

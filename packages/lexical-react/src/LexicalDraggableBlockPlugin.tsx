@@ -6,6 +6,7 @@
  *
  */
 
+import {$isListItemNode, $isListNode} from '@lexical/list';
 import {useLexicalComposerContext} from '@lexical/react/LexicalComposerContext';
 import {useLexicalEditable} from '@lexical/react/useLexicalEditable';
 import {eventFiles} from '@lexical/rich-text';
@@ -390,13 +391,29 @@ function $canDropAsSibling(dragged: LexicalNode, target: LexicalNode): boolean {
   return !target.isParentRequired() && !parent.isParentRequired();
 }
 
+function $getFollowingNestedListItem(node: LexicalNode): LexicalNode | null {
+  if (!$isListItemNode(node)) {
+    return null;
+  }
+  const next = node.getNextSibling();
+  if (
+    $isListItemNode(next) &&
+    next.getChildrenSize() === 1 &&
+    $isListNode(next.getFirstChild())
+  ) {
+    return next;
+  }
+  return null;
+}
+
 /**
  * Resolves the block that `dragged` would be inserted next to when dropped on
  * `hoveredElem`: the hovered block, or the nearest ancestor that can take
  * `dragged` as a sibling. This is how a paragraph dragged over a list item
  * targets the enclosing list, so the drop line is only shown where the drop
  * will happen. Returns null when there is no such ancestor, or when the drop
- * would move `dragged` into itself (into its children or its named slots).
+ * would move `dragged` into itself (into its children, named slots, or a
+ * following nested-list wrapper item).
  */
 function $resolveDropTarget(
   dragged: LexicalNode,
@@ -406,12 +423,23 @@ function $resolveDropTarget(
   while (target !== null && !$canDropAsSibling(dragged, target)) {
     target = $getParentOrSlotHost(target);
   }
+  const nestedListSibling = $getFollowingNestedListItem(dragged);
+  if (
+    target !== null &&
+    nestedListSibling !== null &&
+    target.is(nestedListSibling)
+  ) {
+    return null;
+  }
   for (
     let ancestor = target !== null ? $getParentOrSlotHost(target) : null;
     ancestor !== null;
     ancestor = $getParentOrSlotHost(ancestor)
   ) {
-    if (ancestor.is(dragged)) {
+    if (
+      ancestor.is(dragged) ||
+      (nestedListSibling !== null && ancestor.is(nestedListSibling))
+    ) {
       return null;
     }
   }
@@ -421,9 +449,9 @@ function $resolveDropTarget(
 /**
  * Tidies up `parent` after its last child was dragged out of it. A parent
  * that may not be empty (a list) is removed, and so is each ancestor that
- * this leaves empty (the item that held a nested list). A shadow root (the
- * content of a collapsible, a multi-block named slot) stays and gets an
- * empty paragraph, so that there is a block to type in.
+ * this leaves empty (the item that held a nested list). A shadow root or custom
+ * block container stays and gets an empty paragraph, so that there is a block
+ * to type in.
  */
 function $cleanUpEmptiedParent(parent: LexicalNode | null): void {
   let node = parent;
@@ -444,7 +472,8 @@ function $cleanUpEmptiedParent(parent: LexicalNode | null): void {
   if (
     $isElementNode(node) &&
     node.isAttached() &&
-    node.isShadowRoot() &&
+    !node.isInline() &&
+    !$isRootNode(node) &&
     node.getChildrenSize() === 0
   ) {
     node.append($createParagraphNode());
@@ -669,20 +698,30 @@ function setTargetLine(
 
   const top =
     lineTop - anchorTop - TARGET_LINE_HALF_HEIGHT + anchorElem.scrollTop;
-  // The line starts at the target's own left edge, so that it shows the
-  // nesting depth of a nested target (a list item in a nested list); for a
-  // top-level block it starts where it always did.
-  const left = Math.max(
-    TEXT_BOX_HORIZONTAL_PADDING - SPACE,
-    targetBlockElemLeft - anchorLeft - SPACE,
-  );
-
-  // A nested target sits in a container that can be narrower than the editor
-  // (the content of a collapsible, a layout column), so its line ends at the
-  // target's own right edge instead of running past the container.
+  // For a nested target, align the indicator with the target's content box
+  // (subtracting horizontal padding) and cap it within the editor gutter;
+  // top-level targets keep the historical full-width gutter alignment.
+  let left = TEXT_BOX_HORIZONTAL_PADDING - SPACE;
   let right = anchorWidth - (TEXT_BOX_HORIZONTAL_PADDING - SPACE);
   if (isNested) {
-    right = Math.min(right, targetBlockElemRight - anchorLeft + SPACE);
+    const targetView = targetBlockElem.ownerDocument.defaultView;
+    const targetStyle = targetView
+      ? targetView.getComputedStyle(targetBlockElem)
+      : null;
+    const paddingLeft = targetStyle
+      ? parseFloat(targetStyle.paddingLeft) || 0
+      : 0;
+    const paddingRight = targetStyle
+      ? parseFloat(targetStyle.paddingRight) || 0
+      : 0;
+    left = Math.max(
+      left,
+      targetBlockElemLeft + paddingLeft - anchorLeft - SPACE,
+    );
+    right = Math.min(
+      right,
+      targetBlockElemRight - paddingRight - anchorLeft + SPACE,
+    );
   }
 
   targetLineElem.style.transform = `translate(${left}px, ${top}px)`;
@@ -711,11 +750,16 @@ function useDraggableBlockMenu(
     node: LexicalNode,
   ) => DraggableBlockBehavior | null | undefined,
 ): JSX.Element {
+  const getBlockBehaviorRef = useRef($getBlockBehavior);
+  useEffect(() => {
+    getBlockBehaviorRef.current = $getBlockBehavior;
+  }, [$getBlockBehavior]);
+
   const $getBehavior = useCallback(
     (node: LexicalNode): DraggableBlockBehavior =>
-      ($getBlockBehavior && $getBlockBehavior(node)) ||
+      (getBlockBehaviorRef.current && getBlockBehaviorRef.current(node)) ||
       $getDefaultBlockBehavior(node),
-    [$getBlockBehavior],
+    [],
   );
   const scrollerElem = getParentElement(anchorElem);
 
@@ -799,7 +843,8 @@ function useDraggableBlockMenu(
       if (isFileTransfer) {
         return false;
       }
-      // The pointer in viewport coordinates, like the rects it is compared to.
+      // Viewport coordinate, to compare with getBoundingClientRect(); pageY
+      // would add the window's scroll offset.
       const clientY = event.clientY;
       // Composed target so the zoom level is read from the real element rather
       // than the shadow host when the editor is in a shadow tree.
@@ -847,6 +892,7 @@ function useDraggableBlockMenu(
       if (isFileTransfer) {
         return false;
       }
+      // Viewport coordinate, like getBoundingClientRect() in isDropAfter below.
       const {dataTransfer, clientY} = event;
       // Composed target so the zoom level is read from the real element rather
       // than the shadow host when the editor is in a shadow tree.
@@ -887,17 +933,28 @@ function useDraggableBlockMenu(
       }
       // A node that requires a parent (a list item) dropped outside such a
       // parent gets an empty copy of the one it came from, so a numbered
-      // item dragged out of its list stays a numbered item. The copy is made
-      // before the move so the original parent still has its state.
+      // item dragged out of its list stays a numbered item (resetting `start`
+      // to 1). Carry a following nested-list wrapper sibling along too.
       const draggedParent = draggedNode.getParent();
       const targetParent = targetNode.getParent();
-      const nodeToInsert =
+      const draggedSubListItem = $getFollowingNestedListItem(draggedNode);
+      const wrapInList =
         draggedNode.isParentRequired() &&
         draggedParent !== null &&
         targetParent !== null &&
-        draggedParent.getType() !== targetParent.getType()
-          ? $copyNode(draggedParent).append(draggedNode)
-          : draggedNode;
+        draggedParent.getType() !== targetParent.getType();
+      let nodeToInsert = draggedNode;
+      if (wrapInList) {
+        const wrapperList = $copyNode(draggedParent);
+        if ($isListNode(wrapperList) && wrapperList.getListType() === 'number') {
+          wrapperList.setStart(1);
+        }
+        wrapperList.append(draggedNode);
+        if (draggedSubListItem !== null) {
+          wrapperList.append(draggedSubListItem);
+        }
+        nodeToInsert = wrapperList;
+      }
       if (
         isDropAfter(
           targetBlockElem,
@@ -908,6 +965,9 @@ function useDraggableBlockMenu(
         targetNode.insertAfter(nodeToInsert);
       } else {
         targetNode.insertBefore(nodeToInsert);
+      }
+      if (!wrapInList && draggedSubListItem !== null) {
+        draggedNode.insertAfter(draggedSubListItem);
       }
       $cleanUpEmptiedParent(draggedParent);
       setDraggableBlockElem(null);
@@ -1091,8 +1151,7 @@ export function DraggableBlockPlugin_EXPERIMENTAL({
   /**
    * Decides how the plugin treats a block, see {@link DraggableBlockBehavior}.
    * Return `null` or `undefined` to keep the default for that block. Called
-   * with the editor state active. Pass a stable function (module level or
-   * `useCallback`).
+   * with the editor state active.
    */
   $getBlockBehavior?: (
     node: LexicalNode,

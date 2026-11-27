@@ -152,6 +152,7 @@ export default defineConfig({
           include: [
             'packages/**/__tests__/unit/**/*.test{.ts,.tsx,.js,.jsx}',
             'dev-examples/**/__tests__/unit/**/*.test{.ts,.tsx,.js,.jsx}',
+            'examples/**/__tests__/unit/**/*.test{.ts,.tsx,.js,.jsx}',
           ],
           name: 'unit',
           // Reuse jsdom's implementation while keeping each file's window and

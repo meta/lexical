@@ -52,11 +52,11 @@ import {
   DOM_TEXT_TYPE,
   ELEMENT_TYPE_TO_FORMAT,
   HAS_DIRTY_NODES,
-  LTR_REGEX,
   NO_DIRTY_NODES,
   NODE_STATE_KEY,
   PROTOTYPE_CONFIG_METHOD,
   RTL_REGEX,
+  STRONG_DIRECTION_REGEX,
   TEXT_TYPE_TO_FORMAT,
 } from './LexicalConstants';
 import {type DOMSlot, ElementDOMSlot} from './LexicalDOMSlot';
@@ -111,13 +111,16 @@ import {
   type PointType,
   type RangeSelection,
 } from './LexicalSelection';
+import {$exportNodeJSON} from './LexicalSerializedExport';
 import {
   $getSlot,
   $getSlotHostKey,
+  $getSlotNames,
   $isSlotChild,
   $isSlotHost,
 } from './LexicalSlot';
 import {
+  $parseSerializedNode,
   errorOnInfiniteTransforms,
   errorOnReadOnly,
   getActiveEditor,
@@ -237,7 +240,7 @@ export function $isSelectionCapturedInDecoratorInput(
   if (!isHTMLElement(activeElement)) {
     return false;
   }
-  // @experimental named-slots. A slot container is contentEditable inside an
+  // A slot container is contentEditable inside an
   // otherwise non-editable decorator host, but its content is Lexical-managed —
   // not a foreign editor input — so it must stay under Lexical's DOM-selection
   // control instead of being treated as captured.
@@ -333,15 +336,38 @@ export function getEditorPropertyFromDOMNode(node: Node | null): unknown {
   return node ? node.__lexicalEditor : null;
 }
 
-/** Returns the text direction ('ltr' or 'rtl') of the given string, or null if it contains no strong directional characters. */
+/**
+ * @internal
+ *
+ * Whether `element` is one of `editor`'s own editing hosts: its root element,
+ * or an editable island inside it, such as a named slot's container or any
+ * other element marked with {@link $markSlotEditable}.
+ */
+export function isEditorFocusHost(
+  editor: LexicalEditor,
+  rootElement: HTMLElement,
+  element: Element | null,
+): boolean {
+  return (
+    element === rootElement ||
+    (element !== null &&
+      rootElement.contains(element) &&
+      getEditorPropertyFromDOMNode(element) === editor)
+  );
+}
+
+/**
+ * Returns the direction of the first strong directional character in the
+ * text. This is the direction that the browser gives an element with
+ * `dir="auto"`. Characters with no strong direction before it (digits,
+ * punctuation, spaces, emoji) are skipped.
+ */
 export function getTextDirection(text: string): 'ltr' | 'rtl' | null {
-  if (RTL_REGEX.test(text)) {
-    return 'rtl';
+  const strong = STRONG_DIRECTION_REGEX.exec(text);
+  if (strong === null) {
+    return null;
   }
-  if (LTR_REGEX.test(text)) {
-    return 'ltr';
-  }
-  return null;
+  return RTL_REGEX.test(strong[0]) ? 'rtl' : 'ltr';
 }
 
 /**
@@ -514,7 +540,7 @@ function internalMarkParentElementsAsDirty(
       break;
     }
     dirtyElements.set(nextParentKey, false);
-    // @experimental named-slots. A slotted node has no __parent; its
+    // A slotted node has no __parent; its
     // up-pointer is __slotHost. Crossing that boundary here lets a slot
     // content edit dirty the host so it re-reconciles. Non-slot trees keep
     // __slotHost === null, so this is the plain __parent walk there.
@@ -575,7 +601,7 @@ export function internalMarkNodeAsDirty(node: LexicalNode): void {
     node.__key,
     node.__type,
   );
-  // @experimental named-slots. A slotted node's up-pointer is __slotHost,
+  // A slotted node's up-pointer is __slotHost,
   // not __parent; start the dirty walk from whichever is set so a slot
   // content edit propagates into the host. Non-slot trees keep
   // __slotHost === null, so this is the plain __parent start there.
@@ -733,8 +759,11 @@ export function cloneDecorators(
   return pendingDecorators;
 }
 
-export function getEditorStateTextContent(editorState: EditorState): string {
-  return editorState.read(() => $getRoot().getTextContent());
+export function getEditorStateTextContent(
+  editorState: EditorState,
+  editor: LexicalEditor,
+): string {
+  return editor.read(editorState, () => $getRoot().getTextContent());
 }
 
 export function markNodesWithTypesAsDirty(
@@ -845,7 +874,7 @@ export function $setSelection(selection: null | BaseSelection): void {
     }
     selection.dirty = true;
     selection.setCachedNodes(null);
-    // @experimental named-slots. A RangeSelection committed through the API
+    // A RangeSelection committed through the API
     // must not straddle a slot boundary (slots are shadow-root-isolated), the
     // programmatic counterpart of the DOM-read clamp in selection resolution.
     // Gated on `_slotsUsed` so editors that never slot anything skip the walk,
@@ -2103,6 +2132,78 @@ export function $copyNode<T extends LexicalNode>(
   return copy;
 }
 
+/**
+ * Returns a deep copy of node: the node itself, its children and its named
+ * slots, recursively, all with new keys. The copy is built by serializing the
+ * subtree and parsing it back, so it keeps everything a Lexical-JSON paste
+ * keeps (including NodeState). Like {@link $copyNode}, the copy is detached
+ * and must be separately added to the document.
+ *
+ * Unlike {@link $copyNode}, the copy is not reset: `resetOnCopyNodeFrom` is
+ * not called and NodeState declared with `resetOnCopyNode` keeps its value
+ * (a block id, a checked task), just as it would in a pasted copy. Properties
+ * that `exportJSON` does not write are not copied.
+ *
+ * A descendant ElementNode whose `excludeFromCopy('clone')` returns true is
+ * left out and its children take its place, as with the clipboard; its own
+ * NodeState and slots are not copied. The node passed in, and the value of
+ * each slot, are always copied.
+ *
+ * @param node - The node to be copied. It must not be the RootNode, which
+ * cannot be copied (copy its children instead).
+ * @returns The copy of the node and its subtree.
+ */
+export function $deepCopy<T extends LexicalNode>(node: T): T {
+  // RootNode.importJSON returns the existing root rather than a new node, so
+  // parsing would append the copied children to the live document.
+  invariant(
+    !$isRootNode(node),
+    '$deepCopy: the RootNode cannot be copied, copy its children instead',
+  );
+  return $parseSerializedNode($serializeForDeepCopy(node)) as T;
+}
+
+// The same walk as $exportNodeToJSON in LexicalEditorState, plus the
+// excludeFromCopy splice the clipboard export does; keep them in step.
+function $serializeForDeepCopy(node: LexicalNode): SerializedLexicalNode {
+  const serializedNode = $exportNodeJSON(node) as SerializedLexicalNode;
+  if ($isElementNode(node)) {
+    const children: SerializedLexicalNode[] = [];
+    $appendDeepCopyChildren(node, children);
+    (serializedNode as SerializedLexicalNode & {children: unknown}).children =
+      children;
+  }
+  const slotNames = $getSlotNames(node);
+  if (slotNames.length > 0) {
+    const slots: Record<string, SerializedLexicalNode> = {};
+    for (const name of slotNames) {
+      const slotNode = $getSlot(node, name);
+      invariant(
+        slotNode !== null,
+        '$deepCopy: Node %s has slot "%s" but it resolved to no node',
+        node.constructor.name,
+        name,
+      );
+      slots[name] = $serializeForDeepCopy(slotNode);
+    }
+    serializedNode.$slots = slots;
+  }
+  return serializedNode;
+}
+
+function $appendDeepCopyChildren(
+  parent: ElementNode,
+  target: SerializedLexicalNode[],
+): void {
+  for (const child of parent.getChildren()) {
+    if ($isElementNode(child) && child.excludeFromCopy('clone')) {
+      $appendDeepCopyChildren(child, target);
+    } else {
+      target.push($serializeForDeepCopy(child));
+    }
+  }
+}
+
 /** Applies any registered node replacement for the given node's type, returning the replacement node or the original if none is registered. */
 export function $applyNodeReplacement<N extends LexicalNode>(node: N): N {
   const editor = getActiveEditor();
@@ -2341,12 +2442,12 @@ export function getDOMSelectionFromTarget(
  * @param node A value that may be a DOM ShadowRoot.
  * @returns True if node is a DOM ShadowRoot (an open or closed shadow tree
  *   root), false otherwise. A ShadowRoot is a DocumentFragment with a host.
- *
- * @experimental Shape may change as shadow DOM support stabilizes.
  */
 export function isDOMShadowRoot(node: unknown): node is ShadowRoot {
   return isDocumentFragment(node) && 'host' in node;
 }
+
+const EMPTY_SHADOW_ROOTS: ShadowRoot[] = [];
 
 /**
  * Collects the DOM ShadowRoots between `node` and its document, innermost
@@ -2358,11 +2459,7 @@ export function isDOMShadowRoot(node: unknown): node is ShadowRoot {
  *
  * @param node The DOM node to start from (typically the editor root element).
  * @returns The enclosing ShadowRoots, innermost first.
- *
- * @experimental Shape may change as shadow DOM support stabilizes.
  */
-const EMPTY_SHADOW_ROOTS: ShadowRoot[] = [];
-
 export function getDOMShadowRoots(node: Node): ShadowRoot[] {
   const root = node.getRootNode();
   if (root === node || !isDOMShadowRoot(root)) {
@@ -2462,8 +2559,6 @@ export function $getDocument(): Document {
  * the latter). In the undefined case anchor/focus default to the composed
  * StaticRange's tree order; callers needing strict backward fidelity
  * inside a shadow root should check `direction !== undefined`.
- *
- * @experimental Shape may change as shadow DOM support stabilizes.
  */
 export interface DOMSelectionBoundaryPoints {
   anchorNode: Node | null;
@@ -2489,8 +2584,6 @@ export interface DOMSelectionBoundaryPoints {
  * @returns The composed StaticRange, or `null` when `rootElement` is in the
  *   light DOM, the platform does not implement `getComposedRanges`, or there
  *   is no selection.
- *
- * @experimental Shape may change as shadow DOM support stabilizes.
  */
 export function getComposedStaticRange(
   domSelection: Selection,
@@ -2544,8 +2637,6 @@ export function getComposedStaticRange(
  * StaticRange cannot provide.
  *
  * @returns A live Range, or null when the selection has no ranges.
- *
- * @experimental Shape may change as shadow DOM support stabilizes.
  */
 export function getDOMSelectionRange(
   domSelection: Selection,
@@ -2592,8 +2683,6 @@ export function getDOMSelectionRange(
  * via `points === domSelection` to detect when the return aliases
  * `domSelection`, rather than caching the returned reference across
  * selection mutations.
- *
- * @experimental Shape may change as shadow DOM support stabilizes.
  */
 export function getDOMSelectionPoints(
   domSelection: Selection,
@@ -2615,8 +2704,6 @@ export function getDOMSelectionPoints(
  *
  * @returns The composed Range plus the boundary points; the Range is null
  *   when the selection has no ranges.
- *
- * @experimental Shape may change as shadow DOM support stabilizes.
  */
 export function getDOMSelectionRangeAndPoints(
   domSelection: Selection,
@@ -2703,8 +2790,6 @@ function readDirection(
  *
  * @param node A node whose tree's active element is wanted.
  * @returns The active element, or null.
- *
- * @experimental Shape may change as shadow DOM support stabilizes.
  */
 export function getActiveElement(node: Node): Element | null {
   const root = node.getRootNode();
@@ -2721,8 +2806,6 @@ export function getActiveElement(node: Node): Element | null {
  *
  * @param root The Document or ShadowRoot to start from.
  * @returns The deepest active element, or null.
- *
- * @experimental Shape may change as shadow DOM support stabilizes.
  */
 export function getActiveElementDeep(
   root: Document | ShadowRoot,
@@ -2757,8 +2840,6 @@ export function getActiveElementDeep(
  *
  * @param event The dispatched event.
  * @returns The un-retargeted target, or null when the event has none.
- *
- * @experimental Shape may change as shadow DOM support stabilizes.
  */
 export function getComposedEventTarget(event: Event): EventTarget | null {
   const target = event.target;
@@ -2985,8 +3066,6 @@ export function $getEditor(): LexicalEditor {
 }
 
 /**
- * @experimental
- *
  * Read the editor's `$getDOMSlot` configuration (defaulting to the base
  * implementation when no override is registered via {@link DOMRenderExtension}).
  * Cross-package consumers (`@lexical/utils`, `@lexical/react`) use this to
@@ -2999,8 +3078,6 @@ export function $getEditorDOMRenderConfig(
 }
 
 /**
- * @experimental
- *
  * Resolve the DOM slot for a node through the configured `$getDOMSlot` hook,
  * narrowing the return type via {@link DOMSlotForNode}: for an `ElementNode`
  * the result is an {@link ElementDOMSlot} (with children-management methods),
@@ -3053,8 +3130,6 @@ export function $getSlotContainer(
 }
 
 /**
- * @experimental
- *
  * Attach a host's named-slot container to `target` and make it visible.
  * The reconciler renders every slot subtree synchronously into a hidden
  * (`display: 'none'`) placeholder container parked slots-first in the host
@@ -3095,8 +3170,6 @@ export function mountSlotContainer(
 }
 
 /**
- * @experimental
- *
  * Reverse of {@link mountSlotContainer}: hide `container` again and park it
  * back in the host's DOM as the leading hidden placeholder, where the
  * reconciler manages it. Call when the mount target goes away while the host
@@ -3116,8 +3189,6 @@ export function unmountSlotContainer(
 }
 
 /**
- * @experimental
- *
  * Type guard narrowing a {@link DOMSlot} to an {@link ElementDOMSlot}, which
  * exposes children-management methods like `insertChild` and the managed
  * line-break helpers.
@@ -3129,8 +3200,6 @@ export function $isElementDOMSlot(
 }
 
 /**
- * @experimental
- *
  * Resolve the actual text DOM (`Text`) for a `TextNode` through the
  * configured `$getDOMSlot` hook. Unlike the plain {@link getDOMTextNode}
  * which descends the first child chain from a raw element, this routes
@@ -3453,8 +3522,6 @@ export function $setFormatFromDOM<T extends ElementNode>(
 
 /**
  * Options accepted by {@link setDOMUnmanaged}.
- *
- * @experimental
  */
 export interface SetDOMUnmanagedOptions {
   /**
@@ -3479,8 +3546,6 @@ export interface SetDOMUnmanagedOptions {
  * Pass `{captureSelection: true}` to additionally treat the subtree's
  * window selection as decorator-like, so resolution does not force-sync
  * the caret out of unmanaged DOM (see {@link isDOMCapturingSelection}).
- *
- * @experimental
  */
 export function setDOMUnmanaged(
   elementDom: HTMLElement & LexicalPrivateDOM,
@@ -3494,8 +3559,6 @@ export function setDOMUnmanaged(
 
 /**
  * True if this DOM node was marked with {@link setDOMUnmanaged}.
- *
- * @experimental
  */
 export function isDOMUnmanaged(elementDom: Node & LexicalPrivateDOM): boolean {
   return elementDom.__lexicalUnmanaged === true;
@@ -3509,8 +3572,6 @@ export function isDOMUnmanaged(elementDom: Node & LexicalPrivateDOM): boolean {
  * {@link $fullReconcile} re-applies this when {@link LexicalEditor.setEditable}
  * toggles. Call it for any other editable island an app attaches itself (e.g. a
  * `getDOMSlot` children element rendered inside a `contentEditable=false` shell).
- *
- * @experimental
  */
 export function $markSlotEditable(
   element: HTMLElement & {__lexicalEditor?: undefined | LexicalEditor},
@@ -3546,8 +3607,6 @@ export function $markSlotEditable(
  * DecoratorNode DOM is marked with `setDOMUnmanaged({captureSelection:
  * true})` by the reconciler, so decorator subtrees also report as
  * captured here.
- *
- * @experimental
  */
 export function isDOMCapturingSelection(
   elementDom: Node & LexicalPrivateDOM,
@@ -3558,7 +3617,7 @@ export function isDOMCapturingSelection(
     if (dom.__lexicalCapturedSelection === true) {
       return true;
     }
-    // @experimental named-slots. A decorator host's slot container is a
+    // A decorator host's slot container is a
     // key-less scaffolding wrapper made contentEditable so its Lexical-managed
     // content stays editable. Walking up from inside a slot would otherwise
     // reach the decorator host's captured-selection flag and misread the slot
@@ -5711,8 +5770,6 @@ export function* iterStaticNodeConfigChain(
  * The result lets callers expand a base node type to all of its registered
  * subclass types up front, so a subclass instance can be matched by type
  * without a runtime `instanceof`.
- *
- * @experimental
  */
 export function getRegisteredSubtypeMap(
   nodes: Iterable<Klass<LexicalNode>>,

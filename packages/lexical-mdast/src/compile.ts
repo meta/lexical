@@ -41,6 +41,57 @@ export function getStrikethroughSyntax(): MicromarkExtension {
   });
 }
 
+// The key under which a micromark extension is marked by
+// {@link referenceAgnostic}. Not enumerable, so micromark does not read it as
+// a hook.
+const REFERENCE_AGNOSTIC = '__lexicalReferenceAgnostic';
+
+/**
+ * The syntax that `factory` makes, marked as one that, in what an export
+ * writes, matches beside a character reference with a `*` or `~` run on its
+ * other side as it does beside the character that the reference stands for,
+ * so that a CJK-friendly export writes such a reference beside the ASCII
+ * punctuation that the syntax starts with as that character. A copy of the
+ * syntax, such as a spread of it, is not marked, and the reference stays.
+ *
+ * @internal
+ * @__NO_SIDE_EFFECTS__
+ */
+export function referenceAgnostic(
+  factory: () => MicromarkExtension,
+): MicromarkExtension {
+  return Object.defineProperty(factory(), REFERENCE_AGNOSTIC, {value: true});
+}
+
+/** Whether {@link referenceAgnostic} marked `extension`. */
+export function isReferenceAgnostic(extension: MicromarkExtension): boolean {
+  return (
+    (extension as {[REFERENCE_AGNOSTIC]?: true})[REFERENCE_AGNOSTIC] === true
+  );
+}
+
+// The key under which a compiled registry holds the micromark extensions of
+// a strict import, which a strict export reads its Markdown with whatever the
+// import reads. Not enumerable, so a copy of the registry does not hold it.
+const STRICT_SYNTAX = '__lexicalStrictSyntax';
+
+/**
+ * The micromark extensions that `compiled` reads Markdown with in a strict
+ * import: the strict emphasis and the contributed syntax extensions as they
+ * are, not their CJK-friendly variants. `null` for a registry that
+ * {@link compileMdast} did not compile.
+ *
+ * @internal
+ */
+export function getStrictMicromarkExtensions(
+  compiled: CompiledMdast,
+): MicromarkExtension[] | null {
+  return (
+    (compiled as {[STRICT_SYNTAX]?: MicromarkExtension[]})[STRICT_SYNTAX] ||
+    null
+  );
+}
+
 /** The extension a CJK-friendly import uses in place of `extension`. */
 function toCjkFriendlyVariant(
   extension: MicromarkExtension,
@@ -129,22 +180,24 @@ export function compileMdast(
   if (cjkFriendly) {
     probeLayout();
   }
-  return {
+  // micromark tries the constructs of later extensions first, so the
+  // emphasis goes first, before the extensions of the config, which may
+  // handle markers of their own.
+  const strictSyntax = [strictEmphasis(), ...config.micromarkExtensions];
+  const compiled: CompiledMdast = {
     exportHandlers,
     exportPunctuation: config.exportPunctuation,
     importHandlers,
     inlineShortcutTriggers: new Set(config.inlineShortcutTriggers),
     inlineShortcutTypes: new Set(config.inlineShortcutTypes),
     mdastExtensions: [...config.mdastExtensions],
-    // micromark tries the constructs of later extensions first, so the
-    // emphasis goes first, before the extensions of the config, which may
-    // handle markers of their own.
     micromarkExtensions: cjkFriendly
       ? [
           cjkFriendlyEmphasis(),
           ...config.micromarkExtensions.map(toCjkFriendlyVariant),
         ]
-      : [strictEmphasis(), ...config.micromarkExtensions],
+      : strictSyntax,
     toMarkdownExtensions: [...config.toMarkdownExtensions],
   };
+  return Object.defineProperty(compiled, STRICT_SYNTAX, {value: strictSyntax});
 }

@@ -31,6 +31,12 @@ const publicNpmNames = new Set(
   packagesManager.getPublicPackages().map(pkg => pkg.getNpmName()),
 );
 
+const publicPackageJsons = new Map(
+  packagesManager
+    .getPublicPackages()
+    .map(pkg => [pkg.getNpmName(), pkg.packageJson]),
+);
+
 describe('standalone projects are their own pnpm workspace root', () => {
   // Examples and integration fixtures live inside the monorepo tree but are
   // not workspace members. Each needs its own pnpm-workspace.yaml: it is what
@@ -110,6 +116,35 @@ describe('public package.json audits (`pnpm run update-packages` to fix most iss
         expect(
           Object.keys(peerDependencies).filter(dep => publicNpmNames.has(dep)),
         ).toEqual([]);
+      });
+      it('keeps its optional peerDependencies optional in the monorepo packages it depends on', () => {
+        // A peer marked optional here is required again by any monorepo
+        // package in this package's dependency tree that declares the same
+        // peer without marking it optional (e.g. @lexical/react depends on
+        // @lexical/yjs, which declares yjs).
+        const optionalPeers = Object.keys(peerDependencies).filter(
+          dep => packageJson.peerDependenciesMeta?.[dep]?.optional === true,
+        );
+        const requiredBelow: string[] = [];
+        const seen = new Set<string>([npmName]);
+        const queue = Object.keys(dependencies);
+        for (let dep = queue.shift(); dep !== undefined; dep = queue.shift()) {
+          const depJson = publicPackageJsons.get(dep);
+          if (seen.has(dep) || !depJson) {
+            continue;
+          }
+          seen.add(dep);
+          for (const peer of optionalPeers) {
+            if (
+              depJson.peerDependencies?.[peer] !== undefined &&
+              depJson.peerDependenciesMeta?.[peer]?.optional !== true
+            ) {
+              requiredBelow.push(`${dep} requires ${peer}`);
+            }
+          }
+          queue.push(...Object.keys(depJson.dependencies || {}));
+        }
+        expect(requiredBelow).toEqual([]);
       });
       it('monorepo dependencies must use workspace:* as the version', () => {
         Object.entries(dependencies).forEach(([dep, version]) => {

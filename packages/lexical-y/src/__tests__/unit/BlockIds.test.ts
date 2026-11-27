@@ -67,6 +67,7 @@ function peer(name: string, clientID: number): P {
       dependencies: [
         configExtension(YCollabExtension, {
           doc,
+          onYStatus: null,
           schemaVersion: 1,
           selfCheck: true,
         }),
@@ -229,7 +230,11 @@ describe('@lexical/y with BlockIdExtension', () => {
       editor: buildEditorFromExtensions(
         defineExtension({
           dependencies: [
-            configExtension(YCollabExtension, {doc, schemaVersion: 1}),
+            configExtension(YCollabExtension, {
+              doc,
+              onYStatus: null,
+              schemaVersion: 1,
+            }),
           ],
           name: 'block-ids-without',
           nodes: NODES,

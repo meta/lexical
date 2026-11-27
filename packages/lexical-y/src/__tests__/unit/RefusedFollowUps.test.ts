@@ -140,6 +140,7 @@ function reader(id: number, update: Uint8Array, blockIdsLate: boolean) {
   });
   const collab = configExtension(YCollabExtension, {
     doc,
+    onYStatus: null,
     schemaVersion: 1,
     selfCheck: true,
   });

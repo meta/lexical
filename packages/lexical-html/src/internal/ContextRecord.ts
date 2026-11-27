@@ -23,8 +23,6 @@ type WithContext<Ctx extends AnyContextSymbol> = {
 };
 
 /**
- * @experimental
- *
  * The LexicalEditor with context
  */
 export type EditorContext = {
@@ -32,8 +30,6 @@ export type EditorContext = {
 } & WithContext<AnyContextSymbol>;
 
 /**
- * @experimental
- *
  * @param contextRecord The ContextRecord
  * @param cfg The configuration
  * @returns The value or defaultValue of cfg
@@ -49,8 +45,6 @@ export function getContextValue<Ctx extends AnyContextSymbol, V>(
 }
 
 /**
- * @experimental
- *
  * Read and delete cfg from this layer of context
  *
  * @param contextRecord The ContextRecord
@@ -67,8 +61,6 @@ export function popOwnContextValue<Ctx extends AnyContextSymbol, V>(
 }
 
 /**
- * @experimental
- *
  * Get the value without a default
  *
  * @param contextRecord The ContextRecord
@@ -90,8 +82,6 @@ function getEditorContext(editor: LexicalEditor): undefined | EditorContext {
 }
 
 /**
- * @experimental
- *
  * @param sym The symbol for this ContextRecord (e.g. DOMRenderContextSymbol)
  * @param editor The editor
  * @returns The current context or undefined
@@ -154,7 +144,6 @@ function createChildContext<Ctx extends AnyContextSymbol>(
 
 /**
  * Create a context config pair that sets a value in the render context.
- * @experimental
  */
 export function contextValue<Ctx extends AnyContextSymbol, V>(
   cfg: ContextConfig<Ctx, V>,
@@ -165,7 +154,6 @@ export function contextValue<Ctx extends AnyContextSymbol, V>(
 
 /**
  * Create a context config updater that transforms a value in the render context.
- * @experimental
  */
 export function contextUpdater<Ctx extends AnyContextSymbol, V>(
   cfg: ContextConfig<Ctx, V>,
@@ -176,7 +164,6 @@ export function contextUpdater<Ctx extends AnyContextSymbol, V>(
 
 /**
  * @internal
- * @experimental
  * @__NO_SIDE_EFFECTS__
  */
 export function $withFullContext<Ctx extends AnyContextSymbol, T>(
@@ -197,7 +184,6 @@ export function $withFullContext<Ctx extends AnyContextSymbol, T>(
 
 /**
  * @internal
- * @experimental
  * @__NO_SIDE_EFFECTS__
  */
 export function $withContext<Ctx extends AnyContextSymbol>(
@@ -226,7 +212,6 @@ export function $withContext<Ctx extends AnyContextSymbol>(
 }
 
 /**
- * @experimental
  * @internal
  * @__NO_SIDE_EFFECTS__
  */

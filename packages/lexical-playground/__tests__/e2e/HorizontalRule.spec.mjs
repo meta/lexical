@@ -340,7 +340,7 @@ test.describe('HorizontalRule', () => {
       page,
       html`
         <ul class="PlaygroundEditorTheme__ul" dir="auto">
-          <li class="PlaygroundEditorTheme__listItem" value="1">
+          <li class="PlaygroundEditorTheme__listItem">
             <span data-lexical-text="true">Test</span>
           </li>
         </ul>
@@ -364,7 +364,7 @@ test.describe('HorizontalRule', () => {
       page,
       html`
         <ul class="PlaygroundEditorTheme__ul" dir="auto">
-          <li class="PlaygroundEditorTheme__listItem" value="1">
+          <li class="PlaygroundEditorTheme__listItem">
             <span data-lexical-text="true">Te</span>
           </li>
         </ul>
@@ -373,7 +373,7 @@ test.describe('HorizontalRule', () => {
           contenteditable="false"
           data-lexical-decorator="true" />
         <ul class="PlaygroundEditorTheme__ul" dir="auto">
-          <li class="PlaygroundEditorTheme__listItem" value="1">
+          <li class="PlaygroundEditorTheme__listItem">
             <span data-lexical-text="true">st</span>
           </li>
         </ul>
@@ -405,7 +405,7 @@ test.describe('HorizontalRule', () => {
       page,
       html`
         <ul class="PlaygroundEditorTheme__ul" dir="auto">
-          <li class="PlaygroundEditorTheme__listItem" value="1">
+          <li class="PlaygroundEditorTheme__listItem">
             <br data-lexical-managed-linebreak="true" />
           </li>
         </ul>
@@ -420,7 +420,7 @@ test.describe('HorizontalRule', () => {
       page,
       html`
         <ul class="PlaygroundEditorTheme__ul" dir="auto">
-          <li class="PlaygroundEditorTheme__listItem" value="1">
+          <li class="PlaygroundEditorTheme__listItem">
             <br data-lexical-managed-linebreak="true" />
           </li>
         </ul>
@@ -429,7 +429,7 @@ test.describe('HorizontalRule', () => {
           contenteditable="false"
           data-lexical-decorator="true" />
         <ul class="PlaygroundEditorTheme__ul" dir="auto">
-          <li class="PlaygroundEditorTheme__listItem" value="1">
+          <li class="PlaygroundEditorTheme__listItem">
             <br data-lexical-managed-linebreak="true" />
           </li>
         </ul>

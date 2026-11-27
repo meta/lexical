@@ -43,7 +43,7 @@ document, `readYState` from `@lexical/y/headless` does it in one call (see
 import {readYState} from '@lexical/y/headless';
 import {$getEditor} from 'lexical';
 
-const json = readYState(state, {extensions, schemaVersion}, () =>
+const json = readYState(state, {extensions, onWarn: null, schemaVersion}, () =>
   $getEditor().getEditorState().toJSON(),
 );
 ```
@@ -80,7 +80,7 @@ no-op provider for Yjs:
       applyUpdate(binding.doc, yDocState, {isUpdateRemote: true});
       editor.update(() => {}, {discrete: true});
 
-      return editor.getEditorState().toJSON();
+      return editor.read('latest', () => editor.getEditorState().toJSON());
     });
   }
 

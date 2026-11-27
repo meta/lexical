@@ -292,6 +292,7 @@ describe('another binding writing meanwhile', () => {
         onWarn: e => void warnings.push(String(e)),
       });
       const binding = new YBinding(editor, doc, {
+        onStatus: null,
         root: doc.get(name),
         schemaVersion: 1,
         selfCheck: true,
@@ -369,6 +370,7 @@ test('another editor on the same root keeps its selection', async () => {
         onWarn: e => void warnings.push(String(e)),
       });
       const binding = new YBinding(editor, doc, {
+        onStatus: null,
         root,
         schemaVersion: 1,
         selfCheck: true,
@@ -424,6 +426,7 @@ test('a change another binding writes while the remote change is applied is not 
       onWarn: e => void warnings.push(String(e)),
     });
     const binding = new YBinding(editor, doc, {
+      onStatus: null,
       root: doc.get('root'),
       schemaVersion: 1,
       selfCheck: true,
@@ -485,6 +488,7 @@ test.fails(
         },
       });
       const binding = new YBinding(editor, doc, {
+        onStatus: null,
         root: doc.get('root'),
         schemaVersion: 1,
         selfCheck: true,

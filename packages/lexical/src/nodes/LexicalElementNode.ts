@@ -234,14 +234,47 @@ function $normalizeShadowRootChildren(node: ElementNode): void {
     $isRootOrShadowRoot(node) &&
     !INTERNAL_isNodeStructureEnforced(getActiveEditor())
   ) {
-    let block: ElementNode | null = null;
-    for (const child of node.getChildren()) {
-      block = child.isInline()
-        ? (block || child.replace(child.createParentElementNode())).append(
-            child,
-          )
-        : null;
+    const children = node.getChildren();
+    if (!children.some(child => child.isInline())) {
+      return;
     }
+    // An element point on this node counts its children, which the wrapping
+    // regroups, so each one is put back beside the child that followed it
+    // (or after the last child).
+    const selection = $getSelection();
+    const elementPoints = $isRangeSelection(selection)
+      ? [selection.anchor, selection.focus].filter(
+          point => point.type === 'element' && point.key === node.__key,
+        )
+      : [];
+    const pointChildren = elementPoints.map(point =>
+      point.offset < children.length
+        ? ([children[point.offset], 0] as const)
+        : ([children[children.length - 1], 1] as const),
+    );
+    let block: ElementNode | null = null;
+    for (const child of children) {
+      if (!child.isInline()) {
+        block = null;
+        continue;
+      }
+      if (block === null) {
+        // Inserted beside the child rather than put in its place with
+        // replace(), which would move a caret in the child to the new,
+        // still empty block: moved by append, the child keeps it.
+        block = child.createParentElementNode();
+        child.insertBefore(block);
+      }
+      block.append(child);
+    }
+    elementPoints.forEach((point, i) => {
+      const [child, after] = pointChildren[i];
+      point.set(
+        child.getParentOrThrow().getKey(),
+        child.getIndexWithinParent() + after,
+        'element',
+      );
+    });
   }
 }
 
@@ -858,8 +891,6 @@ export class ElementNode
     return writableSelf;
   }
   /**
-   * @experimental
-   *
    * An ElementNode subclass can override this to control where its children
    * are inserted into the DOM, e.g. to add a wrapping node or accessory nodes
    * before or after the children. The root of the node returned by createDOM

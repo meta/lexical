@@ -76,6 +76,7 @@ describe.each([false, true])('a write that fails part way, gc %s', gc => {
       }),
     );
     const binding = new YBinding(editor, doc, {
+      onStatus: null,
       schemaVersion: options.schemaVersion ?? 1,
     });
     binding.start();

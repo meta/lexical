@@ -183,7 +183,11 @@ const LogChangesExtension = defineExtension({
         if (dirtyElements.size === 0 && dirtyLeaves.size === 0) {
           return;
         }
-        console.log(JSON.stringify(editorState.toJSON(true)));
+        console.log(
+          JSON.stringify(
+            editorState.read(() => editorState.toJSON(true), {editor}),
+          ),
+        );
       },
     );
   },

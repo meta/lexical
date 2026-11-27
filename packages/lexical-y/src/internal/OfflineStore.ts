@@ -68,30 +68,54 @@ export type YOfflineErrorCode =
   /** Any other IndexedDB failure; `cause` holds it. */
   | 'failed';
 
-/**
- * @experimental A failure of the local store. Nothing here throws for a
- * storage failure: every call returns a {@link YOfflineResult}, and
- * `message` says what to do.
- */
-export interface YOfflineError {
-  readonly code: YOfflineErrorCode;
+/** @experimental What every {@link YOfflineError} carries. */
+interface YOfflineErrorBase {
   /** What happened and what the app can do about it. */
   readonly message: string;
   /** The underlying error, when there is one. */
   readonly cause?: unknown;
-  /**
-   * With `'corrupt'`: what the readable rows hold (their merge, the base
-   * apart), so the app can offer it before clearing the slot.
-   */
-  readonly salvage?: YOfflineSalvage;
-  /** With `'limit'`: which limit (see {@link YOfflineLimits}). */
-  readonly limit?: 'keys' | 'bytes';
-  /**
-   * With `'corrupt'` or `'newer'` from a slot: the slot's epoch (null: the
-   * never-synced slot), for `store.clear(key, {epoch, captures: false})`.
-   */
-  readonly epoch?: string | null;
 }
+
+/**
+ * @experimental A failure of the local store. Nothing here throws for a
+ * storage failure: every call returns a {@link YOfflineResult}, and
+ * `message` says what to do. A union by `code` (and `where`, for
+ * `'corrupt'`): narrow on it to reach the fields that code carries, such as
+ * the readable rows of a corrupt slot (`salvage`), which the app offers the
+ * user before it clears the slot.
+ */
+export type YOfflineError =
+  /** Rows of a slot are not readable (see {@link YOfflineSlot.load}). */
+  | (YOfflineErrorBase & {
+      readonly code: 'corrupt';
+      readonly where: 'slot';
+      /** The slot's epoch (null: the never-synced slot), for `store.clear`. */
+      readonly epoch: string | null;
+      /** What the readable rows hold: offer it before clearing the slot. */
+      readonly salvage: YOfflineSalvage;
+    })
+  /** Stored captures are not readable (see {@link YOfflineStore.captures}). */
+  | (YOfflineErrorBase & {
+      readonly code: 'corrupt';
+      readonly where: 'captures';
+      /** How many: `store.clear(key, {slots: 'none', captures: 'unreadable'})` drops them. */
+      readonly unreadable: number;
+    })
+  /** Rows a newer release wrote: keep them, and reload to update the tab. */
+  | (YOfflineErrorBase & {
+      readonly code: 'newer';
+      /** The slot's epoch (null: the never-synced slot). */
+      readonly epoch: string | null;
+    })
+  /** A write refused by the store's `limits` (nothing was evicted). */
+  | (YOfflineErrorBase & {
+      readonly code: 'limit';
+      /** Which limit (see {@link YOfflineLimits}). */
+      readonly limit: 'keys' | 'bytes';
+    })
+  | (YOfflineErrorBase & {
+      readonly code: 'unavailable' | 'blocked' | 'quota' | 'closed' | 'failed';
+    });
 
 /**
  * @experimental Caps a store keeps by refusing writes (`'limit'`), never by
@@ -136,6 +160,12 @@ export interface YOfflineStored {
   readonly base: Uint8Array | null;
   /** Whether updates were stored after `base`: the server may lack them. */
   readonly hasUnsyncedEdits: boolean;
+  /**
+   * When the server was known to hold `base` (Unix ms): the session's
+   * `markSynced()` that made it, as passed to `confirm`. Null or absent
+   * when unknown (a store of your own may leave it out).
+   */
+  readonly baseAt?: number | null;
 }
 
 /** @experimental One slot of a key (see {@link YOfflineStore.slots}). */
@@ -162,6 +192,13 @@ export interface YOfflineCapture {
   readonly reason: 'stale' | 'legacy' | 'expired';
   /** When it was captured (Unix ms). */
   readonly capturedAt: number;
+  /**
+   * When the base (the document the edits were made against) was last
+   * known to be on the server (Unix ms): how old the copy the edits were
+   * made on is. Null or absent when unknown (a capture of an earlier
+   * release, or a store of your own); see `autoReplay`'s `maxBaseAge`.
+   */
+  readonly baseAt?: number | null;
   /** The whole document as the client held it (a Yjs update). */
   readonly state: Uint8Array;
   /**
@@ -181,6 +218,37 @@ export interface YOfflineCapture {
   readonly base: Uint8Array | null;
   /** Set once a replay stage took the capture (see claimCapture). */
   readonly claimed: boolean;
+  /**
+   * When the capture was claimed (Unix ms): set by `claimCapture` of the
+   * store of `openYOfflineStore`. A claim that is old and never resolved
+   * was made by a tab that is gone (see `recoverYOfflineEdits`).
+   */
+  readonly claimedAt?: number;
+  /**
+   * The ids the first blocks the claimant writes for the leftovers get,
+   * chosen before it writes (`recoverYOfflineEdits`, with block ids). A
+   * retake whose document holds any of them holds the write, and resolves
+   * the capture instead of writing it again.
+   */
+  readonly claimedWrite?: {readonly ids: readonly string[]};
+  /**
+   * Set once a recovery wrote everything of the capture into the document
+   * (`recoverYOfflineEdits` with `leftovers: {wrap}`): when (Unix ms), and
+   * the new ids of the top-level blocks written for the blocks that could
+   * not be replayed. Nothing of a resolved capture is left to show; it is
+   * deleted once the server holds the document.
+   */
+  readonly resolved?: {
+    readonly at: number;
+    readonly inserted: readonly string[];
+    /**
+     * The state vector of the document right after it was written: a
+     * recovery on another document deletes the capture only once that
+     * document holds this write, and takes it again when it still does not
+     * a minute later (the tab that wrote it closed before it synced).
+     */
+    readonly vector: Uint8Array;
+  };
 }
 
 /** @experimental One (key, epoch) of a {@link YOfflineStore}. */
@@ -203,8 +271,13 @@ export interface YOfflineSlot {
   /**
    * The server holds `state` (the whole document, which holds every row of
    * this handle): it becomes the base and this handle's rows are removed.
+   * `confirmedAt`: when the server was known to hold it (Unix ms), which
+   * `load` returns as `baseAt`; null or absent when unknown.
    */
-  confirm(state: Uint8Array): Promise<YOfflineResult<void>>;
+  confirm(
+    state: Uint8Array,
+    confirmedAt?: number | null,
+  ): Promise<YOfflineResult<void>>;
   /**
    * Replace this handle's `since` rows by one: `since` when given (what the
    * document holds beyond the base), else their merge.
@@ -216,6 +289,15 @@ export interface YOfflineSlot {
    * epoch may still be adding to.
    */
   discard(): Promise<YOfflineResult<void>>;
+  /**
+   * Delete only the rows this handle wrote; the rows it loaded stay. What a
+   * moved epoch does when the only unsynced edits the page loaded are a
+   * live tab's (`YOfflineLoaded.unsyncedInLiveTabs`) and the page made none:
+   * nothing is captured, and the rows that tab's recovery builds on (a base
+   * row of a gone writer) are kept. Optional for stores of your own (the
+   * session falls back to `discard()`).
+   */
+  discardWritten?(): Promise<YOfflineResult<void>>;
   /**
    * In one transaction: put `capture` (when not null) and delete the rows
    * `discard()` would, the capture checked against `limits` with those rows
@@ -242,6 +324,22 @@ export interface YOfflineSlot {
   adopt(epoch: string): Promise<YOfflineResult<void>>;
 }
 
+/**
+ * @experimental What {@link YOfflineStore.clear} deletes for a key. Slots
+ * hold the document and its unsynced edits; captures hold edits that did
+ * not sync, for the Offline edits panel.
+ * - `slots`: `{epoch}` one slot (null names the never-synced slot), `'all'`
+ *   every slot of the key (every epoch's, every tab's: unsynced edits
+ *   included), `'none'` no slot.
+ * - `captures`: `'all'`, `'unreadable'` (only captures this release cannot
+ *   read, what a `'corrupt'` error with `where: 'captures'` names) or
+ *   `'none'`.
+ */
+export interface YOfflineClear {
+  readonly slots: {readonly epoch: string | null} | 'all' | 'none';
+  readonly captures: 'all' | 'unreadable' | 'none';
+}
+
 /** @experimental The local store (see {@link openYOfflineStore}). */
 export interface YOfflineStore {
   /** A handle on one slot; nothing is read or written until it is used. */
@@ -254,19 +352,26 @@ export interface YOfflineStore {
   /**
    * Mark a capture as taken by a replay: true for the one caller that gets
    * it (a second tab, or a second call, gets false), so a capture is
-   * replayed automatically at most once.
+   * replayed automatically at most once. Set `claimedAt` to the time with
+   * it, so a claim whose tab closed before it wrote the capture can be told
+   * from one being written now (without it, such a claim counts as old).
+   *
+   * With `retake`, take a capture already claimed instead, only if its
+   * `claimedAt` is still the one given (null: none), in the same atomic
+   * step: set a new `claimedAt` and remove `resolved`. Of two tabs taking
+   * the same old claim again, one gets true.
    */
-  claimCapture(key: string, id: string): Promise<YOfflineResult<boolean>>;
+  claimCapture(
+    key: string,
+    id: string,
+    options?: {readonly retake?: {readonly claimedAt: number | null}},
+  ): Promise<YOfflineResult<boolean>>;
   deleteCapture(key: string, id: string): Promise<YOfflineResult<void>>;
   /**
-   * Delete what is stored for `key`: one slot when `what.epoch` is given
-   * (null names the never-synced slot), else every slot; its captures too
-   * with `what.captures`.
+   * Delete what is stored for `key`: both choices are required, so a call
+   * names what it deletes (see {@link YOfflineClear}).
    */
-  clear(
-    key: string,
-    what: {readonly epoch?: string | null; readonly captures: boolean},
-  ): Promise<YOfflineResult<void>>;
+  clear(key: string, what: YOfflineClear): Promise<YOfflineResult<void>>;
   /**
    * In one transaction: read the rows of slot (key, epoch) whose writer is
    * gone, and when any is past the base, put the capture `build` makes of
@@ -356,6 +461,13 @@ interface Row {
   readonly h: number;
   /** When it was written (Unix ms). */
   readonly t: number;
+  /**
+   * A base row only: when the server was known to hold it (Unix ms), as
+   * `confirm` was told; absent when unknown. Not `t`: a base is stored
+   * again later (on the first edit after a sync with `persist` of unsynced
+   * edits only, or when a clean document is loaded) without a new sync.
+   */
+  readonly c?: number;
 }
 
 const ok = <T>(value: T): YOfflineResult<T> => ({ok: true, value});
@@ -403,6 +515,7 @@ function isRow(value: unknown): value is Row {
     isBytes(row.u) &&
     row.u.length > 0 &&
     typeof row.t === 'number' &&
+    (row.c === undefined || typeof row.c === 'number') &&
     row.h === checksum(row.u)
   );
 }
@@ -450,7 +563,7 @@ function storageError(cause: unknown, doing: string): YOfflineError {
     return {
       cause,
       code: 'quota',
-      message: `@lexical/y/offline: the browser's storage quota is full, so ${doing} was not stored. The edits are still in the page: tell the user they are not saved on this device, free space (store.clear(key, {captures: true}) for documents no longer needed) and the next write retries.`,
+      message: `@lexical/y/offline: the browser's storage quota is full, so ${doing} was not stored. The edits are still in the page: tell the user they are not saved on this device, free space (store.clear(key, {slots: 'all', captures: 'all'}) for documents no longer needed) and the next write retries.`,
     };
   }
   if (name === 'InvalidStateError' || name === 'TransactionInactiveError') {
@@ -668,11 +781,15 @@ class Store implements YOfflineStore {
           }
           const base: Uint8Array[] = [];
           const since: Uint8Array[] = [];
+          let baseAt: number | null = null;
           let newer = 0;
           let unreadable = 0;
           for (const [rowKey, value] of rows) {
             if (isRow(value)) {
               (rowKey[2] === 'b' ? base : since).push(value.u);
+              if (rowKey[2] === 'b' && value.c !== undefined) {
+                baseAt = Math.max(baseAt ?? 0, value.c);
+              }
             } else if (isNewerRow(value)) {
               newer++;
             } else {
@@ -687,7 +804,11 @@ class Store implements YOfflineStore {
                     epoch,
                     message: `@lexical/y/offline: ${unreadable} stored rows of '${key}' at epoch ${String(
                       epoch,
-                    )} are not readable, so they were not captured. Load the slot (store.slot(key, epoch).load()) for what is readable (error.salvage), then store.clear(key, {epoch: error.epoch, captures: false}).`,
+                    )} are not readable, so they were not captured and were kept. Offer the user error.salvage.state if it is not null (createYDoc(state) reads it), then store.clear(key, {slots: {epoch: error.epoch}, captures: 'none'}).`,
+                    // Every readable row of the slot, a live tab's too: the
+                    // clear the message names removes them all.
+                    salvage: salvageOfRows(all),
+                    where: 'slot',
                   }
                 : {
                     code: 'newer',
@@ -713,6 +834,7 @@ class Store implements YOfflineStore {
           }
           const capture = build({
             base: merge(base),
+            baseAt,
             hasUnsyncedEdits: true,
             state: merge([...base, ...since]) as Uint8Array,
           });
@@ -857,7 +979,7 @@ class Store implements YOfflineStore {
         code: 'limit',
         limit: isKeys ? 'keys' : 'bytes',
         message: isKeys
-          ? `@lexical/y/offline: storing '${key}' would make ${amount} keys in its group, past limits.keys (${max}); it was refused and nothing was evicted. The edits are still in the page: tell the user they are not saved on this device, or clear documents no longer needed (store.clear(key, {captures: true})).`
+          ? `@lexical/y/offline: storing '${key}' would make ${amount} keys in its group, past limits.keys (${max}); it was refused and nothing was evicted. The edits are still in the page: tell the user they are not saved on this device, or clear documents no longer needed (store.clear(key, {slots: 'all', captures: 'all'})).`
           : `@lexical/y/offline: storing '${key}' would hold ${amount} bytes, past limits.bytesPerKey (${max}); it was refused and nothing was evicted. The edits are still in the page: tell the user they are not saved on this device.`,
       });
     }
@@ -922,7 +1044,9 @@ class Store implements YOfflineStore {
         code: 'corrupt',
         message: `@lexical/y/offline: ${
           read.value.length - captures.length
-        } stored capture(s) of '${key}' are not readable. Call store.clear(key, {captures: true}) to drop them.`,
+        } stored capture(s) of '${key}' are not readable. They were kept; store.clear(key, {slots: 'none', captures: 'unreadable'}) drops them alone (slots and readable captures stay).`,
+        unreadable: read.value.length - captures.length,
+        where: 'captures',
       });
     }
     return ok(captures.sort((a, b) => a.capturedAt - b.capturedAt));
@@ -960,7 +1084,12 @@ class Store implements YOfflineStore {
     );
   }
 
-  claimCapture(key: string, id: string): Promise<YOfflineResult<boolean>> {
+  claimCapture(
+    key: string,
+    id: string,
+    options?: {readonly retake?: {readonly claimedAt: number | null}},
+  ): Promise<YOfflineResult<boolean>> {
+    const retake = options === undefined ? undefined : options.retake;
     return this.run<boolean>(
       [CAPTURES],
       'readwrite',
@@ -970,8 +1099,20 @@ class Store implements YOfflineStore {
         const request = store.get([key, id]);
         request.onsuccess = guard(() => {
           const capture: unknown = request.result;
-          if (isCapture(capture) && !capture.claimed) {
-            store.put({...capture, claimed: true}, [key, id]);
+          if (!isCapture(capture)) {
+            return;
+          }
+          if (
+            retake === undefined
+              ? !capture.claimed
+              : capture.claimed &&
+                (capture.claimedAt ?? null) === retake.claimedAt
+          ) {
+            const {resolved: _resolved, ...rest} = capture;
+            store.put({...rest, claimed: true, claimedAt: this.now()}, [
+              key,
+              id,
+            ]);
             out.value = true;
           }
         });
@@ -993,38 +1134,89 @@ class Store implements YOfflineStore {
     );
   }
 
-  clear(
-    key: string,
-    what: {readonly epoch?: string | null; readonly captures: boolean},
-  ): Promise<YOfflineResult<void>> {
+  clear(key: string, what: YOfflineClear): Promise<YOfflineResult<void>> {
     requireKey(key);
+    const slots: unknown =
+      typeof what === 'object' && what !== null ? what.slots : undefined;
+    const captures: unknown =
+      typeof what === 'object' && what !== null ? what.captures : undefined;
     if (
-      typeof what !== 'object' ||
-      what === null ||
-      typeof what.captures !== 'boolean'
+      !(
+        slots === 'all' ||
+        slots === 'none' ||
+        (typeof slots === 'object' &&
+          slots !== null &&
+          'epoch' in slots &&
+          (slots.epoch === null || typeof slots.epoch === 'string'))
+      ) ||
+      !(captures === 'all' || captures === 'unreadable' || captures === 'none')
     ) {
       throw new TypeError(
-        "@lexical/y/offline: clear(key, what) needs what.captures: true to delete the key's captures (the Offline edits panel's content) too, false to keep them.",
+        `@lexical/y/offline: clear(key, what) needs what.slots ({epoch} for one slot, null naming the never-synced one; 'all' for every slot of the key, unsynced edits included; 'none') and what.captures ('all', 'unreadable' or 'none'); got slots ${JSON.stringify(
+          slots,
+        )}, captures ${JSON.stringify(captures)}.`,
       );
     }
     return this.run<void>(
       [UPDATES, CAPTURES],
       'readwrite',
       'clearing',
-      tx => {
+      (tx, _out, guard) => {
         this.forget(key);
-        tx.objectStore(UPDATES).delete(
-          this.prefix(
-            what.epoch === undefined ? [key] : [key, epochKey(what.epoch)],
-          ),
-        );
-        if (what.captures) {
+        if (slots !== 'none') {
+          tx.objectStore(UPDATES).delete(
+            this.prefix(
+              slots === 'all'
+                ? [key]
+                : [key, epochKey((slots as {epoch: string | null}).epoch)],
+            ),
+          );
+        }
+        if (captures === 'all') {
           tx.objectStore(CAPTURES).delete(this.prefix([key]));
+        } else if (captures === 'unreadable') {
+          // Keys and values of one range come in the same order.
+          const store = tx.objectStore(CAPTURES);
+          const range = this.prefix([key]);
+          const keys = store.getAllKeys(range);
+          keys.onsuccess = guard(() => {
+            const values = store.getAll(range);
+            values.onsuccess = guard(() => {
+              (values.result as unknown[]).forEach((value, i) => {
+                if (!isCapture(value)) {
+                  store.delete(keys.result[i]);
+                }
+              });
+            });
+          });
         }
       },
       undefined,
     );
   }
+}
+
+/**
+ * What the readable rows of a slot hold (their merge), for a `'corrupt'`
+ * error: null when none is readable or they do not merge.
+ */
+function salvageOfRows(rows: readonly [RowKey, unknown][]): YOfflineSalvage {
+  const readable: Uint8Array[] = [];
+  let unreadable = 0;
+  for (const [, value] of rows) {
+    if (isRow(value)) {
+      readable.push(value.u);
+    } else if (!isNewerRow(value)) {
+      unreadable++;
+    }
+  }
+  let state: Uint8Array | null = null;
+  try {
+    state = merge(readable);
+  } catch {
+    state = null;
+  }
+  return {readableRows: readable.length, state, unreadableRows: unreadable};
 }
 
 /** The bytes a stored capture counts for `limits.bytesPerKey`. */
@@ -1157,13 +1349,14 @@ class Slot implements YOfflineSlot {
     return [this.key, epochKey(this.epochValue), kind, this.writer, this.n++];
   }
 
-  private row(update: Uint8Array): Row {
-    return {
+  private row(update: Uint8Array, confirmedAt: number | null = null): Row {
+    const row: Row = {
       h: checksum(update),
       t: this.store.now(),
       u: exact(update),
       v: ROW_VERSION,
     };
+    return confirmedAt === null ? row : {...row, c: confirmedAt};
   }
 
   async load(options?: {
@@ -1192,11 +1385,16 @@ class Slot implements YOfflineSlot {
     }
     const base: Uint8Array[] = [];
     const since: Uint8Array[] = [];
+    // When the newest base was confirmed (confirm()'s confirmedAt).
+    let baseAt: number | null = null;
     let unreadable = 0;
     let newer = 0;
     for (const [key, value] of read.value) {
       if (isRow(value)) {
         (key[2] === 'b' ? base : since).push(value.u);
+        if (key[2] === 'b' && value.c !== undefined) {
+          baseAt = Math.max(baseAt ?? 0, value.c);
+        }
       } else if (isNewerRow(value)) {
         newer++;
       } else {
@@ -1218,7 +1416,12 @@ class Slot implements YOfflineSlot {
       stored =
         state === null
           ? null
-          : {base: mergedBase, hasUnsyncedEdits: since.length > 0, state};
+          : {
+              base: mergedBase,
+              baseAt: mergedBase === null ? null : baseAt,
+              hasUnsyncedEdits: since.length > 0,
+              state,
+            };
     } catch (error) {
       cause = error;
       unreadable = read.value.length;
@@ -1230,12 +1433,13 @@ class Slot implements YOfflineSlot {
         epoch: this.epochValue,
         message: `@lexical/y/offline: ${unreadable} of ${
           read.value.length
-        } stored rows of '${this.key}' are not readable (the store was changed or damaged). Offer the user error.salvage.state if it is not null (createYDoc(state) reads it), then call store.clear(key, {epoch: error.epoch, captures: false}) and load the document from the server.`,
+        } stored rows of '${this.key}' are not readable (the store was changed or damaged). Offer the user error.salvage.state if it is not null (createYDoc(state) reads it), then call store.clear(key, {slots: {epoch: error.epoch}, captures: 'none'}) and load the document from the server.`,
         salvage: {
           readableRows: read.value.length - unreadable,
           state: stored === null ? null : stored.state,
           unreadableRows: unreadable,
         },
+        where: 'slot',
       });
     }
     for (const [key] of read.value) {
@@ -1272,12 +1476,16 @@ class Slot implements YOfflineSlot {
     return result;
   }
 
-  async confirm(state: Uint8Array): Promise<YOfflineResult<void>> {
+  async confirm(
+    state: Uint8Array,
+    confirmedAt?: number | null,
+  ): Promise<YOfflineResult<void>> {
     return this.replace(
       await this.removable(this.owned),
       'b',
       state,
       'the synced document',
+      confirmedAt ?? null,
     );
   }
 
@@ -1352,6 +1560,31 @@ class Slot implements YOfflineSlot {
     return result;
   }
 
+  async discardWritten(): Promise<YOfflineResult<void>> {
+    const writer = this.writer;
+    const mine = this.owned.filter(key => key[3] === writer);
+    if (mine.length === 0) {
+      return DONE;
+    }
+    const result = await this.store.run<void>(
+      [UPDATES],
+      'readwrite',
+      'removing a captured document',
+      tx => {
+        this.store.forget(this.key);
+        const store = tx.objectStore(UPDATES);
+        for (const key of mine) {
+          store.delete(key);
+        }
+      },
+      undefined,
+    );
+    if (result.ok) {
+      this.owned = this.owned.filter(key => key[3] !== writer);
+    }
+    return result;
+  }
+
   async compact(since?: Uint8Array): Promise<YOfflineResult<void>> {
     const mine = await this.removable(this.owned.filter(key => key[2] === 's'));
     if (mine.length <= 1 && since === undefined) {
@@ -1370,6 +1603,7 @@ class Slot implements YOfflineSlot {
     kind: RowKind,
     update: Uint8Array | null,
     doing: string,
+    confirmedAt: number | null = null,
   ): Promise<YOfflineResult<void>> {
     await this.hold();
     const key = this.nextKey(kind);
@@ -1388,7 +1622,7 @@ class Slot implements YOfflineSlot {
             }
           }
           if (value !== null) {
-            store.put(this.row(value), key);
+            store.put(this.row(value, confirmedAt), key);
           }
         };
         if (update !== null) {

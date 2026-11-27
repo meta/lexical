@@ -126,6 +126,7 @@ export class CatalogPeer {
       doc.clientID = clientID;
       this.doc = doc;
       const binding = new YBinding(editor, doc, {
+        onStatus: null,
         schemaVersion: 1,
         selfCheck: true,
       });

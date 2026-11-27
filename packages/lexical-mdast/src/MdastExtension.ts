@@ -33,7 +33,7 @@ import {
 } from '@lexical/extension';
 import {LinkNode} from '@lexical/link';
 import {ListItemNode, ListNode} from '@lexical/list';
-import {HeadingNode, QuoteNode} from '@lexical/rich-text';
+import {HeadingNode, QuoteContainerNode, QuoteNode} from '@lexical/rich-text';
 import {
   $getState,
   $setState,
@@ -60,7 +60,11 @@ import {
 import {gfmAutolinkLiteral} from 'micromark-extension-gfm-autolink-literal';
 import {gfmTaskListItem} from 'micromark-extension-gfm-task-list-item';
 
-import {compileMdast, getStrikethroughSyntax} from './compile';
+import {
+  compileMdast,
+  getStrikethroughSyntax,
+  referenceAgnostic,
+} from './compile';
 import {
   $exportCode,
   $exportHeading,
@@ -77,6 +81,7 @@ import {
   $importList,
   $importListItem,
   $importParagraph,
+  $importQuoteContainerBlockquote,
   $importShadowRootBlockquote,
   $importStrong,
   exportParagraph,
@@ -144,8 +149,22 @@ export interface MdastConfig {
    * `markdown-it-cjk-friendly` reads as that whitespace, leaving those
    * markers literal, and a vertical tab beside a marker (`p\v**.**\vq`),
    * which cmark and cmark-gfm don't read as whitespace and no reference can
-   * stand for. `'cjk-friendly'` writes such CJK text as typed
-   * (`**你好。**世界`, `**你好。**abc`), for readers that follow the
+   * stand for. It also writes a reference where cmark-gfm (GitHub's
+   * renderer) reads a run otherwise: it skips a `~` run beside a `*` or `_`
+   * run and reads the character beyond it, and it reads a symbol of the
+   * Basic Multilingual Plane as a letter (``~~&#x61;~~*`b`*``, `&#xA9;_a_`).
+   * It leaves the text as it is beside punctuation newer than cmark-gfm's
+   * Unicode table (`⹏_a_`), for a character with no lossless reference, in
+   * image and reference labels, in a table cell with brackets other than
+   * those of an inline link (`[text](url)`), in a word that markdown-it may
+   * read as a link (`see readme.md→_x_`), in a bare URL that cmark-gfm
+   * reads across a space other than an ASCII space, tab or line ending
+   * (`http://a.co/\u3000©_a_`), in a paragraph with a backtick, `~`, `*`
+   * or `_` beside it that micromark does not read as syntax
+   * (``a`b ©_a_``), where cmark-gfm pairs markers that micromark leaves
+   * literal (`**a©**x`, which only an export rule writes), and where its
+   * bounded search finds no repair. `'cjk-friendly'` writes CJK text as
+   * typed (`**你好。**世界`, `**你好。**abc`), for readers that follow the
    * CJK-friendly amendment, such as a CJK-friendly import.
    */
   readonly exportPunctuation?: MdastPunctuationMode;
@@ -423,7 +442,12 @@ export const MdastTaskListExtension = defineExtension({
     MdastListExtension,
     configExtension(MdastExtension, {
       mdastExtensions: [/* @__PURE__ */ gfmTaskListItemFromMarkdown()],
-      micromarkExtensions: [/* @__PURE__ */ gfmTaskListItem()],
+      // A check is `[` at the start of a list item, then whitespace, `x` or
+      // `X`, then `]` right after it, and the export escapes a `[` that
+      // opens no link. A reference rewritten after a link's `[` has a run
+      // right after it, where a check needs its `]`, and one before the `[`
+      // leaves the `[` where it was.
+      micromarkExtensions: [referenceAgnostic(gfmTaskListItem)],
       toMarkdownExtensions: [/* @__PURE__ */ gfmTaskListItemToMarkdown()],
     }),
   ],
@@ -485,8 +509,31 @@ export const MdastAutolinkLiteralExtension = defineExtension({
     MdastLinkExtension,
     configExtension(MdastExtension, {
       mdastExtensions: [/* @__PURE__ */ gfmAutolinkLiteralFromMarkdown()],
-      micromarkExtensions: [/* @__PURE__ */ gfmAutolinkLiteral()],
-      toMarkdownExtensions: [/* @__PURE__ */ gfmAutolinkLiteralToMarkdown()],
+      // Its `+ - . _` start only an email literal, which needs an `@` that
+      // the export escapes outside a link's text, where micromark starts no
+      // literal, and gfmAutolinkLiteralFromMarkdown finds literals in the
+      // decoded text, where a reference is its character.
+      micromarkExtensions: [referenceAgnostic(gfmAutolinkLiteral)],
+      toMarkdownExtensions: [
+        /* @__PURE__ */ gfmAutolinkLiteralToMarkdown(),
+        // Its rule escapes the `.` of `www.` only before an ASCII letter or
+        // digit, `_`, `-` or `.` as typed, but micromark starts a literal
+        // before anything else the export writes there too, such as a
+        // character reference, an escape or the marker of a format, and
+        // reads it as part of the link. This rule has no `after`, because
+        // mdast-util-to-markdown skips a rule that has an `after` where a
+        // rule with no condition escapes the next character, as one does `*`.
+        {
+          unsafe: [
+            {
+              before: '[Ww]{3}',
+              character: '.',
+              inConstruct: 'phrasing',
+              notInConstruct: ['autolink', 'link', 'image', 'label'],
+            },
+          ],
+        },
+      ],
     }),
   ],
   name: '@lexical/mdast/AutolinkLiteral',
@@ -517,6 +564,40 @@ export const MdastShadowRootQuoteExtension = defineExtension({
     }),
   ],
   name: '@lexical/mdast/ShadowRootQuote',
+});
+
+/**
+ * Opt-in: import Markdown blockquotes as `QuoteContainerNode`s, quotes that
+ * hold blocks and declare it (`@lexical/rich-text`), so structured
+ * blockquotes (several paragraphs, nested lists, code blocks, nested quotes)
+ * round-trip, and tools that read the declaration, such as `@lexical/y`,
+ * treat the quote as the container it is.
+ *
+ * Not part of {@link MdastCommonMarkExtension}; add it alongside to opt in:
+ * ```ts
+ * dependencies: [MdastCommonMarkExtension, MdastQuoteContainerExtension]
+ * ```
+ * It registers `QuoteContainerNode`. An editor that replaces `QuoteNode`
+ * with it (`QuoteContainerReplacementExtension`) does not need this
+ * extension: there the default blockquote handler builds a container
+ * already. The quote export handler writes every kind of quote. It changes
+ * import only: a quote typed with the `> ` shortcut is still a `QuoteNode`;
+ * use the replacement to make typed quotes containers too.
+ * @experimental
+ */
+export const MdastQuoteContainerExtension = defineExtension({
+  dependencies: [
+    MdastBlockquoteExtension,
+    // Declared after (and depending on) MdastBlockquoteExtension so this
+    // blockquote rule merges later and takes priority over the default.
+    configExtension(MdastExtension, {
+      importRules: [
+        {$import: $importQuoteContainerBlockquote, type: 'blockquote'},
+      ],
+    }),
+  ],
+  name: '@lexical/mdast/QuoteContainer',
+  nodes: [QuoteContainerNode],
 });
 
 const $importThematicBreak: MdastImportHandler<ThematicBreak> = (node, ctx) => {

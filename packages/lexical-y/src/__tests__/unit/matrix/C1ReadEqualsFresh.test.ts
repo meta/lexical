@@ -43,9 +43,11 @@ import {
   seedShapes,
   shapeDocs,
   shapesWith,
+  showsValues,
   type Snapshot,
   snapshot,
   unboundSnapshot,
+  valuesOnUnorderedItems,
 } from '../../catalog';
 
 const FULL = process.env.MATRIX_FULL === '1';
@@ -110,12 +112,15 @@ function diffs(
     );
   }
   const rendered = renderedValues(b.root);
-  if (
-    rendered !== null &&
-    JSON.stringify(rendered) !== JSON.stringify(shown.numbering.values)
-  ) {
+  if (rendered !== null && !showsValues(rendered, shown.numbering.values)) {
     out.push(
-      `${when}: rendered <li value> ${JSON.stringify(rendered)} != ${JSON.stringify(shown.numbering.values)}`,
+      `${when}: rendered numbers ${JSON.stringify(rendered)} != ${JSON.stringify(shown.numbering.values)}`,
+    );
+  }
+  const unordered = valuesOnUnorderedItems(b.root);
+  if (unordered.length > 0) {
+    out.push(
+      `${when}: bullet or check items carry a value: ${JSON.stringify(unordered)}`,
     );
   }
   if (b.errors.length > 0) {

@@ -63,6 +63,7 @@ Behavior and convenience bundles:
 | `MdastRichTextExtension` | bundle of heading + blockquote |
 | `MdastExtension` | core registry, Markdown import and export |
 | `MdastShadowRootQuoteExtension` | opt-in: blockquotes as block containers (full-fidelity nested content) |
+| `MdastQuoteContainerExtension` | opt-in: blockquotes as `QuoteContainerNode`s (`@lexical/rich-text`), quotes that hold blocks and declare it |
 | `MdastHtmlExtension` | opt-in: raw HTML routed through the `@lexical/html` DOM import rules; HTML-encoded export via `$exportViaDOM` / `rawHtmlBlock` |
 | `MdastShortcutsExtension` | streaming keyboard shortcuts |
 
@@ -248,6 +249,24 @@ A CJK-friendly import reads the `~~` runs of `MdastStrikethroughExtension`
 as it reads emphasis. A strikethrough syntax contributed some other way
 through `micromarkExtensions` is left as it is.
 
+cmark-gfm (GitHub's renderer) differs from micromark in two more ways beside
+a marker: it skips a `~` run beside a `*` or `_` run and reads the character
+beyond it, and it reads a symbol of the Basic Multilingual Plane, such as
+`©`, as a letter. Where either difference keeps a run from opening or
+closing, a strict export writes the character that cmark-gfm reads beside
+the run as a reference (``~~&#x61;~~*`b`*``, `&#xA9;_a_`). It leaves the
+text as it is where a reference could change how another reader reads it,
+or would not be enough: beside punctuation that cmark-gfm's Unicode table
+does not have yet (`⹏_a_`), for a character with no lossless reference, in
+an image or reference label, in a table cell with brackets other than those
+of an inline link (`[text](url)`), in a word that markdown-it may read as a
+link (`see readme.md→_x_`), in a bare URL that cmark-gfm reads across a
+space other than an ASCII space, tab or line ending, such as U+3000, in a
+paragraph with a backtick or a marker beside it that micromark does not read
+as syntax (``a`b ©_a_``), where cmark-gfm pairs markers that micromark leaves
+literal (`**a©**x`, which only an export rule writes), and where the export's
+bounded search finds no repair.
+
 ### Raw HTML (`MdastHtmlExtension`)
 
 Markdown passes raw HTML through — GitHub-style `<details>` blocks, inline
@@ -404,8 +423,12 @@ configExtension(MdastExtension, {
 Plain formatted text returned by text middleware is merged into adjacent text
 runs so shared and overlapping formats serialize correctly. Output containing
 extra fields such as `data`, or custom structure, is preserved as-is instead
-of merged. Such middleware must ensure its output serializes correctly on its
-own; adjacent bold nodes, for example, can produce `**a****b**`.
+of merged. Such middleware must ensure that each node it returns serializes
+correctly by itself. Two `delete` nodes that end up next to each other have no
+Markdown form (`~~a~~~~b~~` reads back as one strikethrough of `a~~~~b`), so
+while the stock strikethrough handler writes them, Markdown export joins them
+into one, which keeps the first one's fields; `$convertToMdast()` still
+returns both.
 
 Import rules use mdast type strings: mdast nodes are plain objects,
 without a Lexical node class hierarchy. Their `context.next()` runs the next

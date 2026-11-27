@@ -47,6 +47,7 @@ function headless(doc: YDoc) {
       dependencies: [
         configExtension(YCollabExtension, {
           doc,
+          onYStatus: null,
           schemaVersion: 1,
           selfCheck: true,
         }),

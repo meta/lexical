@@ -144,9 +144,6 @@ without any extra cost.
 | `node.getRootNode() instanceof ShadowRoot` (cross‑realm‑safe) | `isDOMShadowRoot(node)` |
 | Walking up to discover enclosing shadow roots | `getDOMShadowRoots(node)` |
 
-All nine helpers are marked `@experimental` while the surface stabilizes — the
-return shape may change, but the behavior in the light DOM is stable.
-
 ### `getDOMSelectionPoints` read semantics
 
 In the light DOM `getDOMSelectionPoints` returns the live `Selection` itself,
@@ -184,7 +181,11 @@ class LexicalEditorElement extends HTMLElement {
 
   get value() {
     return this.editor
-      ? JSON.stringify(this.editor.getEditorState().toJSON())
+      ? JSON.stringify(
+          this.editor.read('latest', () =>
+            this.editor.getEditorState().toJSON(),
+          ),
+        )
       : '';
   }
 

@@ -1548,6 +1548,8 @@ export function $textAttrs(
   const latest = node.getLatest();
   const json = latest.exportJSON(true) as unknown as Attrs;
   const attrs: Attrs = {};
+  // Exactly TextNode is the default, any other type is stored
+  // eslint-disable-next-line @lexical/internal/no-constant-node-type-comparison
   if (latest.getType() !== 'text') {
     attrs[TYPE_KEY] = latest.getType();
   }
@@ -1961,7 +1963,7 @@ export function eachOuterLevel(
  * equal fields (two links to the same URL), which would otherwise read as
  * one.
  */
-const INSTANCE_KEY = '#';
+export const INSTANCE_KEY = '#';
 
 /**
  * Wrapper values (see $wrapperAttrs) of wrappers that hold text: their text
@@ -2121,6 +2123,7 @@ export function $lineAttrs(
   const latest = line.getLatest();
   // The most common type is left out: a marker without one is a paragraph.
   const attrs: Attrs =
+    // eslint-disable-next-line @lexical/internal/no-constant-node-type-comparison
     latest.getType() === 'paragraph' ? {} : {[TYPE_KEY]: latest.getType()};
   const spec = getLineSpec(klassOf(latest))!;
   const json = $schemaJSON(latest);

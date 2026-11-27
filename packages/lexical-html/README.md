@@ -5,7 +5,7 @@
 # HTML
 This package exports utility functions for converting `Lexical` -> `HTML` and `HTML` -> `Lexical`. These same functions are also used in the `lexical-clipboard` package for copy and paste.
 
-[Full documentation can be found here.](https://lexical.dev/docs/concepts/serialization)
+[Full documentation can be found here.](https://lexical.dev/docs/serialization/)
 
 ### Exporting
 ```js

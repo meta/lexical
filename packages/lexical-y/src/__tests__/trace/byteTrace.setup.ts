@@ -54,7 +54,7 @@
 // of thousands of Docs runs out of heap, so trace LaneFuzz in slices of
 // about 500 seeds (LANE_SEEDS, LANE_SEED_START), one output directory each.
 import type * as YTypes from '@y/y';
-import type {LexicalEditor} from 'lexical';
+import type {EditorState, LexicalEditor} from 'lexical';
 
 import * as nodeCrypto from 'node:crypto';
 import * as fs from 'node:fs';
@@ -238,7 +238,14 @@ if (OUT) {
           // (A very large state is compared by its size and by the updates
           // written from it.)
           if (size <= 2500) {
-            s.hashes.states.update(text(editorState.toJSON()));
+            // With the editor active: node methods may call $getEditor().
+            s.hashes.states.update(
+              text(
+                (editorState as unknown as EditorState).toJSON({
+                  editor: this,
+                }),
+              ),
+            );
             const selection = editorState._selection as null | {
               anchor?: Point;
               focus?: Point;

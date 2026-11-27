@@ -19,8 +19,6 @@ import type {
 } from 'lexical';
 
 /**
- * @experimental
- *
  * Any ContextSymbol for {@link ContextConfig} (DOM render or DOM import).
  */
 export type AnyContextSymbol =
@@ -28,8 +26,6 @@ export type AnyContextSymbol =
   | typeof DOMImportContextSymbol;
 
 /**
- * @experimental
- *
  * Context with a phantom type for its purpose (such as {@link DOMRenderContextSymbol}).
  *
  * A ContextRecord is a data structure used in the export and import pipelines
@@ -40,8 +36,6 @@ export type AnyContextSymbol =
 export type ContextRecord<_K extends symbol> = Record<string | symbol, unknown>;
 
 /**
- * @experimental
- *
  * A data structure much like StateConfig (they share implementation details)
  * but for managing context during an export or import pipeline rather than
  * individual node state.
@@ -51,8 +45,6 @@ export type ContextConfig<Sym extends symbol, V> = StateConfig<symbol, V> & {
 };
 
 /**
- * @experimental
- *
  * Update the context at `cfg` with updater, constructed with {@link contextUpdater}
  */
 export type ContextConfigUpdater<Ctx extends AnyContextSymbol, V> = {
@@ -65,8 +57,6 @@ export type ContextConfigUpdater<Ctx extends AnyContextSymbol, V> = {
 };
 
 /**
- * @experimental
- *
  * Set the context at `cfg` to a specific value, constructed with {@link contextValue}
  */
 export type ContextConfigPair<Ctx extends AnyContextSymbol, V> = readonly [
@@ -75,20 +65,16 @@ export type ContextConfigPair<Ctx extends AnyContextSymbol, V> = readonly [
 ];
 
 /**
- * @experimental
- *
  * Set or update a context value, constructed with {@link contextValue} or {@link contextUpdater}
  */
 export type ContextPairOrUpdater<Ctx extends AnyContextSymbol, V> =
   | ContextConfigPair<Ctx, V>
   | ContextConfigUpdater<Ctx, V>;
 
-/** @experimental */
 export type AnyContextConfigPairOrUpdater<Ctx extends AnyContextSymbol> =
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   ContextPairOrUpdater<Ctx, any>;
 
-/** @experimental */
 export interface DOMRenderExtensionOutput {
   /** @internal */
   defaults: undefined | ContextRecord<typeof DOMRenderContextSymbol>;
@@ -97,8 +83,6 @@ export interface DOMRenderExtensionOutput {
 }
 
 /**
- * @experimental
- *
  * A read-only view of a render context layer, passed to the
  * {@link DOMOverrideOptions} predicates so they can decide whether an
  * override should be installed based only on context values.
@@ -108,7 +92,6 @@ export interface RenderContextReader {
 }
 
 /**
- * @experimental
  * @internal
  *
  * Per-editor runtime state for {@link DOMRenderExtension} that backs the
@@ -140,8 +123,6 @@ export interface DOMRenderRuntime {
 }
 
 /**
- * @experimental
- *
  * Options for {@link domOverride} controlling *whether* an override is
  * installed, based only on render context. Both predicates default to
  * "not disabled".
@@ -165,8 +146,6 @@ export interface DOMOverrideOptions {
 }
 
 /**
- * @experimental
- *
  * Context configuration for render context, created with {@link createRenderState}
  */
 export type RenderStateConfig<V> = ContextConfig<
@@ -175,8 +154,6 @@ export type RenderStateConfig<V> = ContextConfig<
 >;
 
 /**
- * @experimental
- *
  * Any setter or updater for {@link RenderStateConfig}
  */
 export type AnyRenderStateConfigPairOrUpdater = AnyContextConfigPairOrUpdater<
@@ -184,16 +161,12 @@ export type AnyRenderStateConfigPairOrUpdater = AnyContextConfigPairOrUpdater<
 >;
 
 /**
- * @experimental
- *
  * Any {@link RenderStateConfig}
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type AnyRenderStateConfig = RenderStateConfig<any>;
 
 /**
- * @experimental
- *
  * Configuration for {@link DOMRenderExtension}
  */
 export interface DOMRenderConfig {
@@ -221,15 +194,12 @@ export interface DOMRenderConfig {
 }
 
 /**
- * @experimental
  * Any {@link DOMRenderMatch}
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type AnyDOMRenderMatch = DOMRenderMatch<any>;
 
 /**
- * @experimental
- *
  * Match a node (and any subclass of that node) by its LexicalNode class,
  * or with a guard (e.g. `ElementNode` or `$isElementNode`).
  *
@@ -241,8 +211,6 @@ export type NodeMatch<T extends LexicalNode> =
   | ((node: LexicalNode) => node is T);
 
 /**
- * @experimental
- *
  * Used to define overrides for the render and export
  * behavior for nodes matching the `nodes` predicate.
  *
@@ -454,8 +422,6 @@ export interface DOMRenderMatch<T extends LexicalNode> {
    * `$next()` to defer to lower-priority overrides / the default
    * (null — a hidden placeholder for explicit imperative mounting via
    * `mountSlotContainer` or lexical-react's `useLexicalSlotRef`).
-   *
-   * @experimental named-slots
    */
   $getSlotTargetElement?: (
     node: T,
@@ -477,8 +443,6 @@ export interface DOMRenderMatch<T extends LexicalNode> {
 }
 
 /**
- * @experimental
- *
  * The hook fields of a {@link DOMRenderMatch} — i.e. without `nodes` or the
  * {@link DOMOverrideOptions} predicates, which are passed separately to
  * {@link domOverride}.

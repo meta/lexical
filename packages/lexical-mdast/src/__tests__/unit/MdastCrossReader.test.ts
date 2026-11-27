@@ -157,6 +157,31 @@ const FIXED_CASES: Runs[] = [
     ['a', bold],
     ['!', strikethrough],
   ],
+  [
+    ['a', strikethrough],
+    ['.', italic],
+  ],
+];
+// A U+0000 at the edge of a run. @lexical/markdown reads its own U+0000
+// back as it is, where markdown-it reads the U+FFFD that replaces it, so only
+// the @lexical/mdast exports of these are read.
+const NUL_CASES: Runs[] = [
+  [
+    ['世', 0],
+    ['\0', bold],
+  ],
+  [
+    ['\0', bold],
+    ['世', 0],
+  ],
+  [
+    ['世', 0],
+    ['\0', strikethrough],
+  ],
+  [
+    ['\0', strikethrough],
+    ['世', 0],
+  ],
 ];
 // Fixed cases run every time. Random ones are too slow for every run: they
 // run with the number of cases in this variable, as in
@@ -228,6 +253,14 @@ function read(reader: Reader, markdown: string): Runs {
   return normalize(runs);
 }
 
+function $getRuns(): Runs {
+  return normalize(
+    $getRoot()
+      .getAllTextNodes()
+      .map(node => [node.getTextContent(), node.getFormat() & FORMATS]),
+  );
+}
+
 function $setRuns(runs: Runs): void {
   $getRoot()
     .clear()
@@ -266,11 +299,14 @@ function createEditors(punctuation: PunctuationMode): {
   return {markdown, mdast};
 }
 
+// The readers that each export is written for.
+const MODES: [punctuation: PunctuationMode, readers: Reader[]][] = [
+  ['strict-commonmark', [STRICT, CJK_FRIENDLY]],
+  ['cjk-friendly', [CJK_FRIENDLY]],
+];
+
 describe('Markdown export read by markdown-it', () => {
-  it.each<[punctuation: PunctuationMode, readers: Reader[]]>([
-    ['strict-commonmark', [STRICT, CJK_FRIENDLY]],
-    ['cjk-friendly', [CJK_FRIENDLY]],
-  ])(
+  it.each(MODES)(
     'reads %s exports as they were written',
     (punctuation, readers) => {
       const {markdown, mdast} = createEditors(punctuation);
@@ -280,12 +316,6 @@ describe('Markdown export read by markdown-it', () => {
         ...FIXED_CASES,
         ...Array.from({length: CASES}, () => generate(random)),
       ];
-      const $read = () =>
-        normalize(
-          $getRoot()
-            .getAllTextNodes()
-            .map(node => [node.getTextContent(), node.getFormat() & FORMATS]),
-        );
       for (const runs of cases) {
         mdast.update(() => $setRuns(runs), {discrete: true});
         markdown.update(() => $setRuns(runs), {discrete: true});
@@ -304,8 +334,8 @@ describe('Markdown export read by markdown-it', () => {
           {discrete: true},
         );
         for (const [text, expected] of [
-          [exported, mdast.read('latest', $read)],
-          [exportedMarkdown, markdown.read('latest', $read)],
+          [exported, mdast.read('latest', $getRuns)],
+          [exportedMarkdown, markdown.read('latest', $getRuns)],
         ] as const) {
           // markdown-it applies the rule of 3 to the whole length of a run,
           // and micromark to what is left of it, so a run of three or more
@@ -327,5 +357,23 @@ describe('Markdown export read by markdown-it', () => {
     },
     // Random cases take about 1 ms each.
     5000 + CASES * 5,
+  );
+
+  it.each(MODES)(
+    'reads a U+0000 at the edge of a run in %s exports as written',
+    (punctuation, readers) => {
+      const {mdast} = createEditors(punctuation);
+      for (const runs of NUL_CASES) {
+        mdast.update(() => $setRuns(runs), {discrete: true});
+        const exported = mdast.read('latest', () => $convertToMarkdownString());
+        mdast.update(() => $convertFromMarkdownString(exported), {
+          discrete: true,
+        });
+        const expected = mdast.read('latest', $getRuns);
+        for (const reader of readers) {
+          expect(read(reader, exported), exported).toEqual(expected);
+        }
+      }
+    },
   );
 });

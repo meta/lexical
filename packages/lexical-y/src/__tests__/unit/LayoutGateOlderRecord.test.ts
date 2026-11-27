@@ -59,6 +59,7 @@ for (const gc of [false, true]) {
     });
     const b = new YBinding(e, doc, {
       layoutUpgrade: null,
+      onStatus: null,
       schemaVersion: 1,
     });
     b.start();
@@ -128,6 +129,7 @@ for (const gc of [false, true]) {
       });
       const b = new YBinding(editor, doc, {
         layoutUpgrade: null,
+        onStatus: null,
         schemaVersion: 1,
         selfCheck: true,
       });
@@ -152,7 +154,7 @@ for (const gc of [false, true]) {
       expect(() =>
         editYState(
           before,
-          {nodes: NODES, schemaVersion: 1},
+          {nodes: NODES, onWarn: null, schemaVersion: 1},
           () => $getRoot().append($p('forbidden')),
           {writer: null},
         ),
