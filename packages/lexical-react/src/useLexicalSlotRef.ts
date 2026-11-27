@@ -15,8 +15,6 @@ import {
 import {type RefCallback, useCallback} from 'react';
 
 /**
- * @experimental
- *
  * Mounts a host's named slot into the host's React-rendered chrome. The
  * reconciler renders every slot subtree synchronously into a hidden
  * placeholder container; attach the returned ref to the element where the

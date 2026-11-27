@@ -240,7 +240,7 @@ export function $isSelectionCapturedInDecoratorInput(
   if (!isHTMLElement(activeElement)) {
     return false;
   }
-  // @experimental named-slots. A slot container is contentEditable inside an
+  // A slot container is contentEditable inside an
   // otherwise non-editable decorator host, but its content is Lexical-managed —
   // not a foreign editor input — so it must stay under Lexical's DOM-selection
   // control instead of being treated as captured.
@@ -349,9 +349,10 @@ export function isEditorFocusHost(
   element: Element | null,
 ): boolean {
   return (
-    element !== null &&
-    rootElement.contains(element) &&
-    getEditorPropertyFromDOMNode(element) === editor
+    element === rootElement ||
+    (element !== null &&
+      rootElement.contains(element) &&
+      getEditorPropertyFromDOMNode(element) === editor)
   );
 }
 
@@ -539,7 +540,7 @@ function internalMarkParentElementsAsDirty(
       break;
     }
     dirtyElements.set(nextParentKey, false);
-    // @experimental named-slots. A slotted node has no __parent; its
+    // A slotted node has no __parent; its
     // up-pointer is __slotHost. Crossing that boundary here lets a slot
     // content edit dirty the host so it re-reconciles. Non-slot trees keep
     // __slotHost === null, so this is the plain __parent walk there.
@@ -600,7 +601,7 @@ export function internalMarkNodeAsDirty(node: LexicalNode): void {
     node.__key,
     node.__type,
   );
-  // @experimental named-slots. A slotted node's up-pointer is __slotHost,
+  // A slotted node's up-pointer is __slotHost,
   // not __parent; start the dirty walk from whichever is set so a slot
   // content edit propagates into the host. Non-slot trees keep
   // __slotHost === null, so this is the plain __parent start there.
@@ -873,7 +874,7 @@ export function $setSelection(selection: null | BaseSelection): void {
     }
     selection.dirty = true;
     selection.setCachedNodes(null);
-    // @experimental named-slots. A RangeSelection committed through the API
+    // A RangeSelection committed through the API
     // must not straddle a slot boundary (slots are shadow-root-isolated), the
     // programmatic counterpart of the DOM-read clamp in selection resolution.
     // Gated on `_slotsUsed` so editors that never slot anything skip the walk,
@@ -2441,12 +2442,12 @@ export function getDOMSelectionFromTarget(
  * @param node A value that may be a DOM ShadowRoot.
  * @returns True if node is a DOM ShadowRoot (an open or closed shadow tree
  *   root), false otherwise. A ShadowRoot is a DocumentFragment with a host.
- *
- * @experimental Shape may change as shadow DOM support stabilizes.
  */
 export function isDOMShadowRoot(node: unknown): node is ShadowRoot {
   return isDocumentFragment(node) && 'host' in node;
 }
+
+const EMPTY_SHADOW_ROOTS: ShadowRoot[] = [];
 
 /**
  * Collects the DOM ShadowRoots between `node` and its document, innermost
@@ -2458,11 +2459,7 @@ export function isDOMShadowRoot(node: unknown): node is ShadowRoot {
  *
  * @param node The DOM node to start from (typically the editor root element).
  * @returns The enclosing ShadowRoots, innermost first.
- *
- * @experimental Shape may change as shadow DOM support stabilizes.
  */
-const EMPTY_SHADOW_ROOTS: ShadowRoot[] = [];
-
 export function getDOMShadowRoots(node: Node): ShadowRoot[] {
   const root = node.getRootNode();
   if (root === node || !isDOMShadowRoot(root)) {
@@ -2562,8 +2559,6 @@ export function $getDocument(): Document {
  * the latter). In the undefined case anchor/focus default to the composed
  * StaticRange's tree order; callers needing strict backward fidelity
  * inside a shadow root should check `direction !== undefined`.
- *
- * @experimental Shape may change as shadow DOM support stabilizes.
  */
 export interface DOMSelectionBoundaryPoints {
   anchorNode: Node | null;
@@ -2589,8 +2584,6 @@ export interface DOMSelectionBoundaryPoints {
  * @returns The composed StaticRange, or `null` when `rootElement` is in the
  *   light DOM, the platform does not implement `getComposedRanges`, or there
  *   is no selection.
- *
- * @experimental Shape may change as shadow DOM support stabilizes.
  */
 export function getComposedStaticRange(
   domSelection: Selection,
@@ -2644,8 +2637,6 @@ export function getComposedStaticRange(
  * StaticRange cannot provide.
  *
  * @returns A live Range, or null when the selection has no ranges.
- *
- * @experimental Shape may change as shadow DOM support stabilizes.
  */
 export function getDOMSelectionRange(
   domSelection: Selection,
@@ -2692,8 +2683,6 @@ export function getDOMSelectionRange(
  * via `points === domSelection` to detect when the return aliases
  * `domSelection`, rather than caching the returned reference across
  * selection mutations.
- *
- * @experimental Shape may change as shadow DOM support stabilizes.
  */
 export function getDOMSelectionPoints(
   domSelection: Selection,
@@ -2715,8 +2704,6 @@ export function getDOMSelectionPoints(
  *
  * @returns The composed Range plus the boundary points; the Range is null
  *   when the selection has no ranges.
- *
- * @experimental Shape may change as shadow DOM support stabilizes.
  */
 export function getDOMSelectionRangeAndPoints(
   domSelection: Selection,
@@ -2803,8 +2790,6 @@ function readDirection(
  *
  * @param node A node whose tree's active element is wanted.
  * @returns The active element, or null.
- *
- * @experimental Shape may change as shadow DOM support stabilizes.
  */
 export function getActiveElement(node: Node): Element | null {
   const root = node.getRootNode();
@@ -2821,8 +2806,6 @@ export function getActiveElement(node: Node): Element | null {
  *
  * @param root The Document or ShadowRoot to start from.
  * @returns The deepest active element, or null.
- *
- * @experimental Shape may change as shadow DOM support stabilizes.
  */
 export function getActiveElementDeep(
   root: Document | ShadowRoot,
@@ -2857,8 +2840,6 @@ export function getActiveElementDeep(
  *
  * @param event The dispatched event.
  * @returns The un-retargeted target, or null when the event has none.
- *
- * @experimental Shape may change as shadow DOM support stabilizes.
  */
 export function getComposedEventTarget(event: Event): EventTarget | null {
   const target = event.target;
@@ -3085,8 +3066,6 @@ export function $getEditor(): LexicalEditor {
 }
 
 /**
- * @experimental
- *
  * Read the editor's `$getDOMSlot` configuration (defaulting to the base
  * implementation when no override is registered via {@link DOMRenderExtension}).
  * Cross-package consumers (`@lexical/utils`, `@lexical/react`) use this to
@@ -3099,8 +3078,6 @@ export function $getEditorDOMRenderConfig(
 }
 
 /**
- * @experimental
- *
  * Resolve the DOM slot for a node through the configured `$getDOMSlot` hook,
  * narrowing the return type via {@link DOMSlotForNode}: for an `ElementNode`
  * the result is an {@link ElementDOMSlot} (with children-management methods),
@@ -3153,8 +3130,6 @@ export function $getSlotContainer(
 }
 
 /**
- * @experimental
- *
  * Attach a host's named-slot container to `target` and make it visible.
  * The reconciler renders every slot subtree synchronously into a hidden
  * (`display: 'none'`) placeholder container parked slots-first in the host
@@ -3195,8 +3170,6 @@ export function mountSlotContainer(
 }
 
 /**
- * @experimental
- *
  * Reverse of {@link mountSlotContainer}: hide `container` again and park it
  * back in the host's DOM as the leading hidden placeholder, where the
  * reconciler manages it. Call when the mount target goes away while the host
@@ -3216,8 +3189,6 @@ export function unmountSlotContainer(
 }
 
 /**
- * @experimental
- *
  * Type guard narrowing a {@link DOMSlot} to an {@link ElementDOMSlot}, which
  * exposes children-management methods like `insertChild` and the managed
  * line-break helpers.
@@ -3229,8 +3200,6 @@ export function $isElementDOMSlot(
 }
 
 /**
- * @experimental
- *
  * Resolve the actual text DOM (`Text`) for a `TextNode` through the
  * configured `$getDOMSlot` hook. Unlike the plain {@link getDOMTextNode}
  * which descends the first child chain from a raw element, this routes
@@ -3553,8 +3522,6 @@ export function $setFormatFromDOM<T extends ElementNode>(
 
 /**
  * Options accepted by {@link setDOMUnmanaged}.
- *
- * @experimental
  */
 export interface SetDOMUnmanagedOptions {
   /**
@@ -3579,8 +3546,6 @@ export interface SetDOMUnmanagedOptions {
  * Pass `{captureSelection: true}` to additionally treat the subtree's
  * window selection as decorator-like, so resolution does not force-sync
  * the caret out of unmanaged DOM (see {@link isDOMCapturingSelection}).
- *
- * @experimental
  */
 export function setDOMUnmanaged(
   elementDom: HTMLElement & LexicalPrivateDOM,
@@ -3594,8 +3559,6 @@ export function setDOMUnmanaged(
 
 /**
  * True if this DOM node was marked with {@link setDOMUnmanaged}.
- *
- * @experimental
  */
 export function isDOMUnmanaged(elementDom: Node & LexicalPrivateDOM): boolean {
   return elementDom.__lexicalUnmanaged === true;
@@ -3609,8 +3572,6 @@ export function isDOMUnmanaged(elementDom: Node & LexicalPrivateDOM): boolean {
  * {@link $fullReconcile} re-applies this when {@link LexicalEditor.setEditable}
  * toggles. Call it for any other editable island an app attaches itself (e.g. a
  * `getDOMSlot` children element rendered inside a `contentEditable=false` shell).
- *
- * @experimental
  */
 export function $markSlotEditable(
   element: HTMLElement & {__lexicalEditor?: undefined | LexicalEditor},
@@ -3646,8 +3607,6 @@ export function $markSlotEditable(
  * DecoratorNode DOM is marked with `setDOMUnmanaged({captureSelection:
  * true})` by the reconciler, so decorator subtrees also report as
  * captured here.
- *
- * @experimental
  */
 export function isDOMCapturingSelection(
   elementDom: Node & LexicalPrivateDOM,
@@ -3658,7 +3617,7 @@ export function isDOMCapturingSelection(
     if (dom.__lexicalCapturedSelection === true) {
       return true;
     }
-    // @experimental named-slots. A decorator host's slot container is a
+    // A decorator host's slot container is a
     // key-less scaffolding wrapper made contentEditable so its Lexical-managed
     // content stays editable. Walking up from inside a slot would otherwise
     // reach the decorator host's captured-selection flag and misread the slot
@@ -5811,8 +5770,6 @@ export function* iterStaticNodeConfigChain(
  * The result lets callers expand a base node type to all of its registered
  * subclass types up front, so a subclass instance can be matched by type
  * without a runtime `instanceof`.
- *
- * @experimental
  */
 export function getRegisteredSubtypeMap(
   nodes: Iterable<Klass<LexicalNode>>,

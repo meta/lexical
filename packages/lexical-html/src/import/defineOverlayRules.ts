@@ -25,8 +25,6 @@ import {type CompiledDispatch, compileImportRules} from './compileImportRules';
  * The internal shape is intentionally not part of the public API: it's a
  * compiled dispatch table tagged with `__type` so callers cannot pass a
  * raw rule array where a compiled overlay is expected.
- *
- * @experimental
  */
 export interface CompiledOverlayRules {
   readonly __type: 'CompiledOverlayRules';
@@ -46,8 +44,6 @@ export interface CompiledOverlayRules {
  * {@link DOMImportRule} or a {@link CompiledOverlayRules} produced by
  * a previous {@link defineOverlayRules} call — passing the latter
  * inlines the overlay's rules at this position in priority order.
- *
- * @experimental
  */
 export type DOMImportRuleEntry = AnyDOMImportRule | CompiledOverlayRules;
 
@@ -98,7 +94,6 @@ function isCompiledOverlayRules(
  * code-table rule that wraps every matching table), call this once at
  * module scope so the dispatch table is built up front.
  *
- * @experimental
  * @__NO_SIDE_EFFECTS__
  */
 export function defineOverlayRules(

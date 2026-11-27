@@ -59,7 +59,7 @@ import {gfmTableFromMarkdown, gfmTableToMarkdown} from 'mdast-util-gfm-table';
 import {gfmTable} from 'micromark-extension-gfm-table';
 
 import {$append, $isBlockLevelNode, inlineMarker} from './handlers';
-import {getExportedLengths} from './MdastExport';
+import {getExportedLengths, registerTableCellCodeHandler} from './MdastExport';
 import {MdastExtension} from './MdastExtension';
 
 /**
@@ -611,6 +611,10 @@ const cellLine = (value: string) =>
  * backslash before a pipe in code or raw HTML has no form in a cell (GFM
  * reads the pair as a pipe whatever is written), so it is lost.
  *
+ * Its inline code handler is recorded with `registerTableCellCodeHandler`,
+ * so that the export joins code in a joined delete in a cell. A call whose
+ * extension is not used can still be dropped, as nothing then reads it.
+ *
  * @__NO_SIDE_EFFECTS__
  */
 function gfmTableCellsToMarkdown(): ToMarkdownExtension {
@@ -618,6 +622,9 @@ function gfmTableCellsToMarkdown(): ToMarkdownExtension {
     stringLength: value => getExportedLengths([value])[0],
   });
   const handlers = extension.handlers || {};
+  if (handlers.inlineCode) {
+    registerTableCellCodeHandler(handlers.inlineCode);
+  }
   const table: Handle = (node: Table, parent, state, info) => {
     const exit = state.enter('phrasing');
     const lines: string[] = [];

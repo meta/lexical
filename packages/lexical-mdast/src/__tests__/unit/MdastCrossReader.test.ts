@@ -157,6 +157,10 @@ const FIXED_CASES: Runs[] = [
     ['a', bold],
     ['!', strikethrough],
   ],
+  [
+    ['a', strikethrough],
+    ['.', italic],
+  ],
 ];
 // A U+0000 at the edge of a run. @lexical/markdown reads its own U+0000
 // back as it is, where markdown-it reads the U+FFFD that replaces it, so only

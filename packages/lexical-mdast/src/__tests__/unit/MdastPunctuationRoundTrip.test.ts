@@ -101,6 +101,10 @@ const FIXED_CASES: Runs[] = [
     ['code \u{1f389}', CODE],
     ['b', 1],
   ],
+  [
+    ['a', 4],
+    ['.', 2],
+  ],
 ];
 
 // mulberry32: a seeded generator with 32-bit state.

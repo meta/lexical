@@ -9,6 +9,7 @@
 import invariant from '@lexical/internal/invariant';
 import {$sliceSelectedTextNodeContent} from '@lexical/selection';
 import {
+  $appendAll,
   $assumeActiveEditor,
   $createLineBreakNode,
   $createParagraphNode,
@@ -178,7 +179,6 @@ export function $generateNodesFromDOM(
 /**
  * Generate DOM nodes from the editor state into the given container element,
  * using the editor's {@link EditorDOMRenderConfig}.
- * @experimental
  */
 export function $generateDOMFromNodes<T extends HTMLElement | DocumentFragment>(
   container: T,
@@ -220,7 +220,6 @@ export function $generateDOMFromNodes<T extends HTMLElement | DocumentFragment>(
 /**
  * Generate DOM nodes from a root node into the given container element,
  * including the root node itself. Uses the editor's {@link EditorDOMRenderConfig}.
- * @experimental
  */
 export function $generateDOMFromRoot<T extends HTMLElement | DocumentFragment>(
   container: T,
@@ -433,8 +432,6 @@ function $appendNodesToHTML(
  * `exportDOM` for NodeState — are intentionally NOT auto-serialized to HTML;
  * a host node opts in by calling this from its own `exportDOM`, e.g. to render
  * each slot value into a `data-lexical-slot` wrapper.
- *
- * @experimental
  */
 export function $appendNodeToHTML(
   editor: LexicalEditor,
@@ -523,11 +520,15 @@ function $createNodesFromDOM(
       }
 
       if (currentLexicalNode) {
-        lexicalNodes.push(
-          ...(Array.isArray(transformNodes)
-            ? transformNodes
-            : [currentLexicalNode]),
-        );
+        // A converter's nodes can be as many as the text it converts has
+        // lines, past the number of arguments a call can take.
+        if (Array.isArray(transformNodes)) {
+          for (const transformNode of transformNodes) {
+            lexicalNodes.push(transformNode);
+          }
+        } else {
+          lexicalNodes.push(currentLexicalNode);
+        }
       }
     }
 
@@ -562,16 +563,16 @@ function $createNodesFromDOM(
         hasBlockAncestorLexicalNode;
 
   for (let i = 0; i < children.length; i++) {
-    childLexicalNodes.push(
-      ...$createNodesFromDOM(
-        children[i],
-        editor,
-        allArtificialNodes,
-        hasBlockAncestorLexicalNodeForChildren,
-        new Map(forChildMap),
-        currentLexicalNode,
-      ),
-    );
+    for (const childLexicalNode of $createNodesFromDOM(
+      children[i],
+      editor,
+      allArtificialNodes,
+      hasBlockAncestorLexicalNodeForChildren,
+      new Map(forChildMap),
+      currentLexicalNode,
+    )) {
+      childLexicalNodes.push(childLexicalNode);
+    }
   }
 
   if (postTransform != null) {
@@ -580,17 +581,21 @@ function $createNodesFromDOM(
 
   if (isBlockDomNode(node)) {
     if (!hasBlockAncestorLexicalNodeForChildren) {
-      childLexicalNodes = wrapContinuousInlines(
+      childLexicalNodes = $wrapContinuousInlines(
         node,
         childLexicalNodes,
         $createParagraphNode,
       );
     } else {
-      childLexicalNodes = wrapContinuousInlines(node, childLexicalNodes, () => {
-        const artificialNode = new ArtificialNode__DO_NOT_USE();
-        allArtificialNodes.push(artificialNode);
-        return artificialNode;
-      });
+      childLexicalNodes = $wrapContinuousInlines(
+        node,
+        childLexicalNodes,
+        () => {
+          const artificialNode = new ArtificialNode__DO_NOT_USE();
+          allArtificialNodes.push(artificialNode);
+          return artificialNode;
+        },
+      );
     }
   }
 
@@ -611,14 +616,14 @@ function $createNodesFromDOM(
     if ($isElementNode(currentLexicalNode)) {
       // If the current node is a ElementNode after conversion,
       // we can append all the children to it.
-      currentLexicalNode.append(...childLexicalNodes);
+      $appendAll(currentLexicalNode, childLexicalNodes);
     }
   }
 
   return lexicalNodes;
 }
 
-function wrapContinuousInlines(
+function $wrapContinuousInlines(
   domNode: Node,
   nodes: LexicalNode[],
   createWrapperFn: () => ElementNode,
@@ -643,7 +648,7 @@ function wrapContinuousInlines(
       ) {
         const wrapper = createWrapperFn();
         wrapper.setFormat(textAlign);
-        wrapper.append(...continuousInlines);
+        $appendAll(wrapper, continuousInlines);
         out.push(wrapper);
         continuousInlines = [];
       }
