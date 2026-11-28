@@ -282,6 +282,7 @@ export default function AutoEmbedPlugin(): JSX.Element {
     <>
       {modal}
       <LexicalAutoEmbedPlugin<PlaygroundEmbedConfig>
+        menuAriaLabel="Embed"
         embedConfigs={EmbedConfigs}
         onOpenEmbedModalForConfig={openEmbedModal}
         getMenuOptions={getMenuOptions}
