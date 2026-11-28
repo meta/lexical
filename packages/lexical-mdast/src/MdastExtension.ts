@@ -45,10 +45,7 @@ import {
   shallowMergeConfig,
   TextNode,
 } from 'lexical';
-import {
-  gfmAutolinkLiteralFromMarkdown,
-  gfmAutolinkLiteralToMarkdown,
-} from 'mdast-util-gfm-autolink-literal';
+import {gfmAutolinkLiteralToMarkdown} from 'mdast-util-gfm-autolink-literal';
 import {
   gfmStrikethroughFromMarkdown,
   gfmStrikethroughToMarkdown,
@@ -60,6 +57,7 @@ import {
 import {gfmAutolinkLiteral} from 'micromark-extension-gfm-autolink-literal';
 import {gfmTaskListItem} from 'micromark-extension-gfm-task-list-item';
 
+import {gfmAutolinkLiteralFromSource} from './autolinkLiteral';
 import {
   compileMdast,
   getStrikethroughSyntax,
@@ -496,7 +494,13 @@ export const MdastLinkExtension = defineExtension({
 
 /**
  * Opt-in: GFM literal autolinks — bare `https://…` / `www.…` URLs and email
- * addresses in prose become links, the way GitHub renders them. This is a GFM
+ * addresses in prose become links, the way GitHub renders them in comments.
+ * A URL links only where micromark finds one in the Markdown as written, so
+ * `https\://x.com`, `&#x77;ww.x.com` and a `www.` URL right after `.`, `!`,
+ * `"` or a code span stay text, and the URLs that the export writes from
+ * text read back as text. An email also links where its `@` is escaped or
+ * written as a character reference (`a\@b.co`). Text that an mdast
+ * transform adds before this one is not searched for URLs. This is a GFM
  * extension rather than CommonMark, so it is not part of
  * {@link MdastCommonMarkExtension}; add it alongside to opt in:
  * ```ts
@@ -508,32 +512,13 @@ export const MdastAutolinkLiteralExtension = defineExtension({
   dependencies: [
     MdastLinkExtension,
     configExtension(MdastExtension, {
-      mdastExtensions: [/* @__PURE__ */ gfmAutolinkLiteralFromMarkdown()],
+      mdastExtensions: [gfmAutolinkLiteralFromSource()],
       // Its `+ - . _` start only an email literal, which needs an `@` that
       // the export escapes outside a link's text, where micromark starts no
-      // literal, and gfmAutolinkLiteralFromMarkdown finds literals in the
-      // decoded text, where a reference is its character.
+      // literal, and the mdast transform finds email literals, and no URL
+      // literal, in the decoded text, where a reference is its character.
       micromarkExtensions: [referenceAgnostic(gfmAutolinkLiteral)],
-      toMarkdownExtensions: [
-        /* @__PURE__ */ gfmAutolinkLiteralToMarkdown(),
-        // Its rule escapes the `.` of `www.` only before an ASCII letter or
-        // digit, `_`, `-` or `.` as typed, but micromark starts a literal
-        // before anything else the export writes there too, such as a
-        // character reference, an escape or the marker of a format, and
-        // reads it as part of the link. This rule has no `after`, because
-        // mdast-util-to-markdown skips a rule that has an `after` where a
-        // rule with no condition escapes the next character, as one does `*`.
-        {
-          unsafe: [
-            {
-              before: '[Ww]{3}',
-              character: '.',
-              inConstruct: 'phrasing',
-              notInConstruct: ['autolink', 'link', 'image', 'label'],
-            },
-          ],
-        },
-      ],
+      toMarkdownExtensions: [/* @__PURE__ */ gfmAutolinkLiteralToMarkdown()],
     }),
   ],
   name: '@lexical/mdast/AutolinkLiteral',

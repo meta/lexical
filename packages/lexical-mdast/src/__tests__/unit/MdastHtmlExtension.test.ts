@@ -29,7 +29,7 @@ import {
   ImportTextStyle,
   sel,
 } from '@lexical/html';
-import {LinkExtension} from '@lexical/link';
+import {$isLinkNode, LinkExtension} from '@lexical/link';
 import {ListExtension, ListNode} from '@lexical/list';
 import {
   $createQuoteNode,
@@ -68,6 +68,7 @@ import {
   MdastCommonMarkExtension,
   type MdastExportHandler,
   MdastExtension,
+  MdastGfmExtension,
   MdastHtmlExtension,
   MdastShadowRootQuoteExtension,
   MdastStrikethroughExtension,
@@ -726,6 +727,33 @@ describe('MdastHtmlExtension', () => {
       expect(out).toBe('press <kbd>**Ctrl**</kbd>');
       expect(importExport(out)).toBe(out);
     });
+
+    it.each(['<span>https\\://x.com</span>', 'a <b>www\\.x.com</b> b'])(
+      'keeps a URL in inline raw HTML as text with GFM: %j',
+      markdown => {
+        // The transform of MdastHtmlExtension moves the text into the HTML
+        // node, before or after the literal autolink transform runs.
+        for (const dependencies of [
+          [MdastGfmExtension, MdastHtmlExtension],
+          [MdastHtmlExtension, MdastGfmExtension],
+        ]) {
+          using editor = buildEditorFromExtensions(
+            defineExtension({dependencies, name: '[root]'}),
+          );
+          editor.update(
+            () => {
+              $convertFromMarkdownString(markdown);
+            },
+            {discrete: true},
+          );
+          editor.read(() => {
+            expect(
+              $collectTextNodes().filter(node => $isLinkNode(node.getParent())),
+            ).toEqual([]);
+          });
+        }
+      },
+    );
   });
 
   describe('interaction with plain spans and templates', () => {

@@ -929,11 +929,8 @@ describe('Mdast punctuation modes', () => {
     ).toEqual(runs);
   });
 
-  // runs, export for strict readers, export for CJK-friendly readers, and
-  // the export, in either mode, of what that export imports to.
-  it.each<
-    [runs: Runs, strict: string, cjkFriendly: string, reexported: string]
-  >([
+  // runs, export for strict readers, and export for CJK-friendly readers.
+  it.each<[runs: Runs, strict: string, cjkFriendly: string]>([
     [
       [
         ['www.世', 0],
@@ -941,7 +938,6 @@ describe('Mdast punctuation modes', () => {
       ],
       'www\\.&#x4E16;**!**',
       'www\\.世**!**',
-      '[www.世](http://www.世)**!**',
     ],
     [
       [
@@ -950,7 +946,6 @@ describe('Mdast punctuation modes', () => {
       ],
       'www\\.&#x4E16;**。**',
       'www\\.世**。**',
-      '[www.世](http://www.世)**。**',
     ],
     // Only the `.` of `www.` is escaped.
     [
@@ -960,7 +955,6 @@ describe('Mdast punctuation modes', () => {
       ],
       'aww. www\\.&#x4E16;**!**',
       'aww. www\\.世**!**',
-      'aww. [www.世](http://www.世)**!**',
     ],
     [
       [
@@ -969,7 +963,6 @@ describe('Mdast punctuation modes', () => {
       ],
       'WWW\\.&#xE9;**!**',
       'WWW\\.&#xE9;**!**',
-      '[WWW.é](http://WWW.é)**!**',
     ],
     [
       [
@@ -978,7 +971,6 @@ describe('Mdast punctuation modes', () => {
       ],
       'www\\.**x**',
       'www\\.**x**',
-      '[www](http://www).**x**',
     ],
     [
       [
@@ -987,7 +979,6 @@ describe('Mdast punctuation modes', () => {
       ],
       '**www\\.**&#x78;',
       '**www\\.**&#x78;',
-      '[**www**](http://www)**.**&#x78;',
     ],
     [
       [
@@ -997,42 +988,28 @@ describe('Mdast punctuation modes', () => {
       ],
       'see www\\.`x` now',
       'see www\\.`x` now',
-      'see [www](http://www).`x` now',
     ],
-    [[['www.*x', 0]], 'www\\.\\*x', 'www\\.\\*x', '[www.\\*x](http://www.*x)'],
-    [
-      [['www.&#x4E16; now', 0]],
-      'www\\.\\&#x4E16; now',
-      'www\\.\\&#x4E16; now',
-      '[www.\\&#x4E16](http://www.\\&#x4E16); now',
-    ],
-  ])(
-    'keeps the characters after `www.` in %j',
-    (runs, strict, cjkFriendly, reexported) => {
-      // micromark starts a literal on `www.` before a reference, an escape
-      // or a marker, which then reads as part of the link.
-      for (const [mode, markdown] of [
-        ['strict-commonmark', strict],
-        ['cjk-friendly', cjkFriendly],
-      ] as const) {
-        const [exported, imported] = roundTrip(runs, mode, mode);
-        expect(exported).toBe(markdown);
-        // The import still links the decoded text, which may split a run.
-        expect(mergeRuns(imported)).toEqual(runs);
-        // A link found in decoded text has no source syntax to keep, so the
-        // next export writes it as `[text](url)`, which reads back the same.
-        const editor = createEditor(mode, mode);
-        importRuns(editor, exported);
-        expect(editor.read('latest', () => $convertToMarkdownString())).toBe(
-          reexported,
-        );
-        expect(mergeRuns(importRuns(editor, reexported))).toEqual(runs);
-        expect(editor.read('latest', () => $convertToMarkdownString())).toBe(
-          reexported,
-        );
-      }
-    },
-  );
+    [[['www.*x', 0]], 'www\\.\\*x', 'www\\.\\*x'],
+    [[['www.&#x4E16; now', 0]], 'www\\.\\&#x4E16; now', 'www\\.\\&#x4E16; now'],
+  ])('keeps the characters after `www.` in %j', (runs, strict, cjkFriendly) => {
+    // micromark starts a literal on `www.` before a reference, an escape
+    // or a marker, which then reads as part of the link.
+    for (const [mode, markdown] of [
+      ['strict-commonmark', strict],
+      ['cjk-friendly', cjkFriendly],
+    ] as const) {
+      const [exported, imported] = roundTrip(runs, mode, mode);
+      expect(exported).toBe(markdown);
+      // micromark starts no literal on `www` before the escaped `.`, so the
+      // runs read back as they were.
+      expect(imported).toEqual(runs);
+      const editor = createEditor(mode, mode);
+      importRuns(editor, exported);
+      expect(editor.read('latest', () => $convertToMarkdownString())).toBe(
+        exported,
+      );
+    }
+  });
 
   it('keeps a link after `www.`', () => {
     const editor = createEditor();
