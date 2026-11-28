@@ -28,6 +28,7 @@ import {
   html,
   initialize,
   insertDateTime,
+  locate,
   test,
 } from '../utils/index.mjs';
 
@@ -477,6 +478,31 @@ test.describe('TextFormatting', () => {
           <span style="font-size: 20px;" data-lexical-text="true">
             Hello world!
           </span>
+        </p>
+      `,
+    );
+  });
+
+  test(`Leaving an emptied font size input shows the selection's font size again`, async ({
+    page,
+  }) => {
+    await focusEditor(page);
+    await page.keyboard.type('Hello world!');
+    await selectCharacters(page, 'left', 5);
+
+    const fontSizeInput = locate(page, '.font-size-input');
+    const fontSize = await fontSizeInput.inputValue();
+    await click(page, '.font-size-input');
+    await fill(page, '.font-size-input', '');
+    await focusEditor(page);
+
+    await expect(fontSizeInput).toHaveValue(fontSize);
+    await expect(locate(page, '.font-decrement')).toBeEnabled();
+    await assertHTML(
+      page,
+      html`
+        <p class="PlaygroundEditorTheme__paragraph" dir="auto">
+          <span data-lexical-text="true">Hello world!</span>
         </p>
       `,
     );
