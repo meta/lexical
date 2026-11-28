@@ -6,6 +6,7 @@
  *
  */
 
+import {$handleDecoratorClickModifiers} from '@lexical/extension';
 import {useLexicalComposerContext} from '@lexical/react/LexicalComposerContext';
 import {LexicalErrorBoundary} from '@lexical/react/LexicalErrorBoundary';
 import {useLexicalEditable} from '@lexical/react/useLexicalEditable';
@@ -67,11 +68,17 @@ export default function EquationComponent({
   // *after* lexical's own selection normalization for the click, so the
   // NodeSelection we set here is not immediately overwritten by the
   // RangeSelection attempt that follows the native `selectionchange`.
-  const onClick = useCallback(
+  const $onClick = useCallback(
     (event: MouseEvent) => {
       const dom = editor.getElementByKey(nodeKey);
       if (dom === null || !dom.contains(event.target as Node)) {
         return false;
+      }
+      if (
+        !showEquationEditor &&
+        $handleDecoratorClickModifiers(event, nodeKey)
+      ) {
+        return true;
       }
       if (event.shiftKey) {
         setSelected(!isSelected);
@@ -81,12 +88,23 @@ export default function EquationComponent({
       }
       return true;
     },
-    [clearSelection, editor, isSelected, nodeKey, setSelected],
+    [
+      clearSelection,
+      editor,
+      isSelected,
+      nodeKey,
+      setSelected,
+      showEquationEditor,
+    ],
   );
 
   useEffect(() => {
-    return editor.registerCommand(CLICK_COMMAND, onClick, COMMAND_PRIORITY_LOW);
-  }, [editor, onClick]);
+    return editor.registerCommand(
+      CLICK_COMMAND,
+      $onClick,
+      COMMAND_PRIORITY_LOW,
+    );
+  }, [editor, $onClick]);
 
   // Pressing Enter while this equation is the lone NodeSelection
   // inserts a fresh empty paragraph right after it and moves the caret

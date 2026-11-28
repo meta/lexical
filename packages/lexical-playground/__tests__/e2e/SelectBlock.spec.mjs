@@ -212,7 +212,7 @@ test.describe('SelectBlock', () => {
 
     await click(page, 'p:last-of-type .editor-image:nth-of-type(2) img');
     await click(page, 'p:last-of-type .editor-image:nth-of-type(3) img', {
-      modifiers: ['Shift'],
+      modifiers: ['ControlOrMeta'],
     });
 
     // node selection does not have native window selection
@@ -354,7 +354,7 @@ test.describe('SelectBlock', () => {
 
     await click(page, 'p .editor-image:nth-of-type(1) img');
     await click(page, 'p:last-of-type .editor-image:nth-of-type(2) img', {
-      modifiers: ['Shift'],
+      modifiers: ['ControlOrMeta'],
     });
 
     // node selection does not have native window selection

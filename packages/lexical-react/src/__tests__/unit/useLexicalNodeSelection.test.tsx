@@ -139,10 +139,9 @@ describe('useLexicalNodeSelection', () => {
     act(() => {
       editor.update(() => void $selectAll(), {discrete: true});
       // LexicalNode.isSelected() is true for a RangeSelection that covers the
-      // node, so the `clearSelection(); setSelected(!isSelected)` toggle used by
-      // HorizontalRuleNode, BlockWithAlignableContents and the playground
-      // decorators arrives here with `false`. Ignoring it makes those a dead
-      // click: isSelected stays true, so the node can never be selected.
+      // node, so a caller that toggles with `setSelected(!isSelected)` arrives
+      // here with `false`. Ignoring it makes that a dead click: isSelected stays
+      // true, so the node can never be selected.
       expect(editor.read(() => $getNodeByKey(ruleKey)!.isSelected())).toBe(
         true,
       );

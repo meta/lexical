@@ -1937,9 +1937,9 @@ test.describe('Links', () => {
 
       // Select both images
       await click(page, 'p:nth-child(1) .editor-image img');
-      await page.keyboard.down('Shift');
-      await click(page, 'p:nth-child(2) .editor-image img');
-      await page.keyboard.up('Shift');
+      await click(page, 'p:nth-child(2) .editor-image img', {
+        modifiers: ['ControlOrMeta'],
+      });
 
       // Add link to both images
       await click(page, '.link');
@@ -2020,9 +2020,9 @@ test.describe('Links', () => {
 
       // Edit link for both images
       await click(page, 'p:nth-child(1) .editor-image img');
-      await page.keyboard.down('Shift');
-      await click(page, 'p:nth-child(2) .editor-image img');
-      await page.keyboard.up('Shift');
+      await click(page, 'p:nth-child(2) .editor-image img', {
+        modifiers: ['ControlOrMeta'],
+      });
       await click(page, '.link-edit');
       await focus(page, '.link-input');
       await selectAll(page);
@@ -2103,9 +2103,9 @@ test.describe('Links', () => {
 
       // Remove links from both images
       await click(page, 'p:nth-child(1) .editor-image img');
-      await page.keyboard.down('Shift');
-      await click(page, 'p:nth-child(2) .editor-image img');
-      await page.keyboard.up('Shift');
+      await click(page, 'p:nth-child(2) .editor-image img', {
+        modifiers: ['ControlOrMeta'],
+      });
       await click(page, '.link-trash');
 
       // Verify links were removed but images remain

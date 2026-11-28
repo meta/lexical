@@ -8,10 +8,13 @@
 
 import './index.css';
 
+import {$handleDecoratorClickModifiers} from '@lexical/extension';
 import {useLexicalComposerContext} from '@lexical/react/LexicalComposerContext';
 import {useLexicalNodeSelection} from '@lexical/react/useLexicalNodeSelection';
 import {
   $getDocument,
+  $getSelection,
+  $isNodeSelection,
   CLICK_COMMAND,
   COMMAND_PRIORITY_LOW,
   DecoratorNode,
@@ -38,10 +41,16 @@ function PageBreakComponent({nodeKey}: {nodeKey: NodeKey}) {
           const pbElem = editor.getElementByKey(nodeKey);
 
           if (event.target === pbElem) {
+            if ($handleDecoratorClickModifiers(event, nodeKey)) {
+              return true;
+            }
+            const selection = $getSelection();
+            const shouldSelect =
+              !$isNodeSelection(selection) || !selection.has(nodeKey);
             if (!event.shiftKey) {
               clearSelection();
             }
-            setSelected(!isSelected);
+            setSelected(shouldSelect);
             return true;
           }
 
@@ -50,7 +59,7 @@ function PageBreakComponent({nodeKey}: {nodeKey: NodeKey}) {
         COMMAND_PRIORITY_LOW,
       ),
     );
-  }, [clearSelection, editor, isSelected, nodeKey, setSelected]);
+  }, [clearSelection, editor, nodeKey, setSelected]);
 
   useEffect(() => {
     const pbElem = editor.getElementByKey(nodeKey);

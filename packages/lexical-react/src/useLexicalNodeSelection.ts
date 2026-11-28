@@ -94,12 +94,8 @@ export function useLexicalNodeSelection(
             // discard the user's caret for no benefit.
             return;
           }
-          // Deselecting a node the selection *does* cover still has to take
-          // effect, or the `clearSelection(); setSelected(!isSelected)` toggle
-          // that HorizontalRuleNode, BlockWithAlignableContents and the
-          // playground decorators use becomes a dead click under a
-          // RangeSelection: isSelected() is true for those, so the toggle
-          // arrives here with `false` and the node could never be selected.
+          // A caller can pass false to deselect a node covered by a range.
+          // Keep that behavior for callers that toggle based on isSelected.
           selection = $createNodeSelection();
           $setSelection(selection);
         }

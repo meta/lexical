@@ -8,6 +8,7 @@
 
 import './ImageNode.css';
 
+import {$handleDecoratorClickModifiers} from '@lexical/extension';
 import {useCollaborationContext} from '@lexical/react/LexicalCollaborationContext';
 import {CollaborationPlugin} from '@lexical/react/LexicalCollaborationPlugin';
 import {useLexicalComposerContext} from '@lexical/react/LexicalComposerContext';
@@ -404,7 +405,7 @@ export default function ImageComponent({
     [caption, editor, setSelected],
   );
 
-  const onClick = useCallback(
+  const $onClick = useCallback(
     (payload: MouseEvent) => {
       const event = payload;
 
@@ -412,6 +413,9 @@ export default function ImageComponent({
         return true;
       }
       if (event.target === imageRef.current) {
+        if ($handleDecoratorClickModifiers(event, nodeKey)) {
+          return true;
+        }
         if (event.shiftKey) {
           setSelected(!isSelected);
         } else {
@@ -423,7 +427,7 @@ export default function ImageComponent({
 
       return false;
     },
-    [isResizing, isSelected, setSelected, clearSelection],
+    [isResizing, isSelected, nodeKey, setSelected, clearSelection],
   );
 
   const onRightClick = useCallback(
@@ -470,10 +474,10 @@ export default function ImageComponent({
   }, [editor]);
   useEffect(() => {
     return mergeRegister(
-      editor.registerCommand(CLICK_COMMAND, onClick, COMMAND_PRIORITY_LOW),
+      editor.registerCommand(CLICK_COMMAND, $onClick, COMMAND_PRIORITY_LOW),
       editor.registerCommand(
         RIGHT_CLICK_IMAGE_COMMAND,
-        onClick,
+        $onClick,
         COMMAND_PRIORITY_LOW,
       ),
       editor.registerCommand(KEY_ENTER_COMMAND, $onEnter, COMMAND_PRIORITY_LOW),
@@ -492,7 +496,7 @@ export default function ImageComponent({
         }
       }),
     );
-  }, [editor, $onEnter, $onEscape, onClick, onRightClick]);
+  }, [editor, $onEnter, $onEscape, $onClick, onRightClick]);
 
   const setShowCaption = (show: boolean, skipHistory = false) => {
     editor.update(

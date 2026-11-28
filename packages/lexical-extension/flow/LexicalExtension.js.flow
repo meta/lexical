@@ -101,7 +101,7 @@ export {namedSignals} from '@lexical/extension/namedSignals';
 export {NestedEditorExtension} from '@lexical/extension/NestedEditorExtension';
 export type {NodeSelectionDataSelectedConfig} from '@lexical/extension/NodeSelectionDataSelectedExtension';
 export {NodeSelectionDataSelectedExtension} from '@lexical/extension/NodeSelectionDataSelectedExtension';
-export {NodeSelectionExtension} from '@lexical/extension/NodeSelectionExtension';
+export {$handleDecoratorClickModifiers, NodeSelectionExtension} from '@lexical/extension/NodeSelectionExtension';
 export type {NodeStructureConfig} from '@lexical/extension/NodeStructureExtension';
 export {
   NodeStructureExtension,

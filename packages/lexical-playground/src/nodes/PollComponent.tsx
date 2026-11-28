@@ -8,6 +8,7 @@
 
 import './PollNode.css';
 
+import {$handleDecoratorClickModifiers} from '@lexical/extension';
 import {useCollaborationContext} from '@lexical/react/LexicalCollaborationContext';
 import {useLexicalComposerContext} from '@lexical/react/LexicalComposerContext';
 import {useLexicalNodeSelection} from '@lexical/react/useLexicalNodeSelection';
@@ -155,10 +156,17 @@ export default function PollComponent({
           const event = payload;
 
           if (event.target === ref.current) {
+            if ($handleDecoratorClickModifiers(event, nodeKey)) {
+              return true;
+            }
+            const currentSelection = $getSelection();
+            const shouldSelect =
+              !$isNodeSelection(currentSelection) ||
+              !currentSelection.has(nodeKey);
             if (!event.shiftKey) {
               clearSelection();
             }
-            setSelected(!isSelected);
+            setSelected(shouldSelect);
             return true;
           }
 
@@ -167,7 +175,7 @@ export default function PollComponent({
         COMMAND_PRIORITY_LOW,
       ),
     );
-  }, [clearSelection, editor, isSelected, nodeKey, setSelected]);
+  }, [clearSelection, editor, nodeKey, setSelected]);
 
   const withPollNode = (
     cb: (node: PollNode) => void,
