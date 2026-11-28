@@ -636,7 +636,8 @@ export const FindReplaceExtension = defineExtension({
         () => {
           const len = output.matches.peek().length;
           if (len > 0) {
-            output.currentIndex.value = (output.currentIndex.peek() + 1) % len;
+            output.currentIndex.value =
+              (output.effectiveIndex.peek() + 1) % len;
           }
           return true;
         },
@@ -649,7 +650,7 @@ export const FindReplaceExtension = defineExtension({
           const len = output.matches.peek().length;
           if (len > 0) {
             output.currentIndex.value =
-              (output.currentIndex.peek() - 1 + len) % len;
+              (output.effectiveIndex.peek() - 1 + len) % len;
           }
           return true;
         },
