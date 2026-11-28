@@ -70,6 +70,19 @@ import {
   PUNCTUATION,
   WHITESPACE,
 } from './cjkFriendly';
+import {
+  ASCII_PUNCTUATION,
+  CMARK_GFM_MODEL_FIXTURES,
+  type CmarkGfmModel,
+  createCmarkGfmModel,
+  type Edits,
+  isModelConfiguration,
+  keyConfiguration,
+  PAIR_TYPES,
+  SUBJECT_TYPES,
+  upperBound,
+  withEdits,
+} from './cmarkGfmModel';
 import {getStrictMicromarkExtensions, isReferenceAgnostic} from './compile';
 import {
   $exportLineBreak,
@@ -1713,7 +1726,6 @@ const CMARK_PUNCTUATION = /[!-/:-@[-`{-~\p{P}]/u;
 const COMMONMARK_PUNCTUATION = /[!-/:-@[-`{-~\p{P}\p{S}]/u;
 const SPACE_SEPARATOR = /\p{Zs}/u;
 const UNICODE_PUNCTUATION_ONLY = /\p{P}/u;
-const ASCII_PUNCTUATION = /^[!-/:-@[-`{-~]$/;
 // What linkify-it, which markdown-it reads links in text with, ends a word
 // at, and the shapes of a word that it may start a link from: a scheme, a
 // protocol-relative link, an email, a domain with a top-level domain of two
@@ -1737,12 +1749,10 @@ const CMARK_URL_BREAK = /[\t\n\r <]/;
 // What may come before the start, then the start.
 const CMARK_URL_START =
   /(^|[^A-Za-z])(?:[Hh][Tt][Tt][Pp][Ss]?|[Ff][Tt][Pp]):\/\/|(^|[*_~(>])www\./;
-// The tokens of micromark that the pass reads: the subjects, the pairs and
-// their sequences, the containers of the region check and the block syntax
-// it counts as accounted for.
-const SUBJECT_TYPES =
-  /^(?:atxHeadingText|paragraph|setextHeadingText|tableContent)$/;
-const PAIR_TYPES = /^(?:emphasis|strikethrough|strong)$/;
+// The tokens of micromark that the pass reads beside its subjects and their
+// pairs (SUBJECT_TYPES and PAIR_TYPES, which the pairing model reads too):
+// the sequences of the pairs, the containers of the region check and the
+// block syntax it counts as accounted for.
 const SEQUENCE_TYPES =
   /^(?:emphasisSequence|strikethroughSequence|strongSequence)$/;
 const CONTAINER_TYPES = /^(?:blockQuote|listOrdered|listUnordered)$/;
@@ -1760,20 +1770,8 @@ const CLOSES = 2;
 // The offset of a character that the region check counts as block syntax.
 const BLOCK_SYNTAX = -2;
 
-/** The offsets of the characters that a pass writes as references. */
-interface Edits {
-  has(offset: number): boolean;
-}
-
 // No edits.
 const NO_EDITS: Edits = {has: () => false};
-
-/** `edits` with `added` too. */
-function withEdits(edits: Edits, added: readonly number[]): Edits {
-  return added.length === 0
-    ? edits
-    : {has: offset => added.includes(offset) || edits.has(offset)};
-}
 
 /**
  * A text that cmark-gfm parses on its own, as {@link toCmarkGfmCompatible}
@@ -2462,21 +2460,6 @@ function indexRegions(markdown: string, accountedIn: Int32Array): RegionIndex {
   return {blankAfter, blankBefore, counts, lineEnds, lineStarts};
 }
 
-/** The first index of `sorted` whose value is more than `value`. */
-function upperBound(sorted: Int32Array, value: number): number {
-  let low = 0;
-  let high = sorted.length;
-  while (low < high) {
-    const middle = (low + high) >> 1;
-    if (sorted[middle] <= value) {
-      low = middle + 1;
-    } else {
-      high = middle;
-    }
-  }
-  return low;
-}
-
 /**
  * The region check: other readers may read the lines of `subject`, and the
  * lines touching them in `container`, otherwise than micromark, as text
@@ -2548,6 +2531,86 @@ function writeReferences(markdown: string, edits: Iterable<number>): string {
   return out + markdown.slice(last);
 }
 
+/**
+ * How {@link toCmarkGfmCompatible} judges whether a proposal leaves micromark's
+ * reading of a subject as it is: with the pairing model of cmarkGfmModel.ts
+ * where it reads the edits, otherwise by parsing; always by parsing; or by
+ * parsing while it compares the pairing model with each parse, as the drift
+ * probe does, adding each difference to `differences`.
+ */
+type CmarkOracle =
+  | {readonly kind: 'model'}
+  | {readonly kind: 'parse'}
+  | {readonly kind: 'probe'; readonly differences: string[]};
+
+const MODEL_ORACLE: CmarkOracle = {kind: 'model'};
+const PARSE_ORACLE: CmarkOracle = {kind: 'parse'};
+
+// Each strict extension list that the pass has searched with, and whether
+// the pairing model judges for it; and the result of the drift probe for each
+// configuration, by keyConfiguration, which every editor with that syntax
+// shares. Made on first use, so nothing runs as the module loads.
+let modelChecks: WeakMap<MicromarkExtension[], boolean> | null = null;
+let probedConfigurations: Map<string, boolean> | null = null;
+// The configurations kept: past these, the first goes. Only syntax made
+// anew for each editor gives a new key, and then each editor probes.
+const MAX_PROBED_CONFIGURATIONS = 16;
+
+/**
+ * Whether the pairing model judges the proposals of a search with
+ * `extensions`: it reads their configuration, and the drift probe finds it
+ * reading {@link CMARK_GFM_MODEL_FIXTURES} as micromark does. The probe runs
+ * once for each configuration, in production too: it is what turns the
+ * pairing model off where a micromark release reads otherwise.
+ */
+function hasCmarkGfmModel(extensions: MicromarkExtension[]): boolean {
+  modelChecks ||= new WeakMap();
+  let hasModel = modelChecks.get(extensions);
+  if (hasModel === undefined) {
+    hasModel = isModelConfiguration(extensions);
+    if (hasModel) {
+      probedConfigurations ||= new Map();
+      const key = keyConfiguration(extensions);
+      const probed = probedConfigurations.get(key);
+      hasModel =
+        probed === undefined
+          ? probeCmarkGfmModel(CMARK_GFM_MODEL_FIXTURES, extensions).length ===
+            0
+          : probed;
+      probedConfigurations.delete(key);
+      probedConfigurations.set(key, hasModel);
+      if (probedConfigurations.size > MAX_PROBED_CONFIGURATIONS) {
+        probedConfigurations.delete(probedConfigurations.keys().next().value!);
+      }
+    }
+    modelChecks.set(extensions, hasModel);
+  }
+  return hasModel;
+}
+
+/**
+ * Where the pairing model reads `documents` otherwise than micromark with
+ * `extensions`: each document is searched on its own with parse verdicts, and
+ * the pairing model's pairs of every subject, and its verdict, incremental and
+ * whole, on every proposal it would judge, are compared with micromark's. Empty
+ * where they all agree.
+ *
+ * @internal
+ */
+export function probeCmarkGfmModel(
+  documents: readonly string[],
+  extensions: MicromarkExtension[],
+): string[] {
+  const differences: string[] = [];
+  for (const document of documents) {
+    toCmarkGfmCompatible(document, extensions, false, {
+      differences,
+      kind: 'probe',
+    });
+  }
+  return differences;
+}
+
 /** Where {@link toCmarkGfmCompatible} is in its search for a subject. */
 interface SubjectSearch {
   readonly subject: CmarkSubject;
@@ -2585,21 +2648,29 @@ interface SubjectSearch {
  * fewer runs fail, takes no flag a run needed however cmark-gfm's older
  * Unicode table reads punctuation, and passes the region check and the word
  * guard; the opener and closer of a pair are repaired together or not at
- * all. Subjects are searched together: each proposes its edits, which one
- * parse checks, and a subject whose proposal changes its reading tries each
- * half of it later, so the parses stay few. A document that micromark reads
- * otherwise after all is returned as it is. `areCells` reads each subject
- * as a table cell, which a table measures its cells as.
+ * all. Subjects are searched together: each proposes its edits, and a
+ * subject whose proposal changes its reading tries each half of it later.
+ * `oracle` judges the proposals: the pairing model of micromark judges
+ * those it reads, and one parse checks the rest of a round, so the parses
+ * stay few. A document that micromark reads otherwise after all is searched
+ * again with parse verdicts if the pairing model judged, and otherwise
+ * returned as it is. `areCells` reads each subject as a table cell, which a
+ * table measures its cells as; `baseEvents` are micromark's reading of
+ * `markdown`, where a search already has them.
  */
 function toCmarkGfmCompatible(
   markdown: string,
   extensions: MicromarkExtension[],
   areCells = false,
+  oracle: CmarkOracle = MODEL_ORACLE,
+  baseEvents?: Event[],
 ): string {
-  if (!CMARK_GFM_GATE.test(markdown)) {
+  // The drift probe reads every subject, whatever the pass would search.
+  const isProbe = oracle.kind === 'probe';
+  if (!isProbe && !CMARK_GFM_GATE.test(markdown)) {
     return markdown;
   }
-  const events = parseEvents(markdown, extensions);
+  const events = baseEvents || parseEvents(markdown, extensions);
   const {excluded, parentPairs, roles, runsBeside, runsNear, subjects} =
     analyzeForCmarkGfm(markdown, events, areCells);
   const searches: SubjectSearch[] = subjects
@@ -2614,7 +2685,7 @@ function toCmarkGfmCompatible(
       start: new Set(),
       subject,
     }));
-  if (searches.length === 0) {
+  if (searches.length === 0 && !isProbe) {
     return markdown;
   }
   const base = readForCmarkGfm(markdown, events);
@@ -2622,19 +2693,82 @@ function toCmarkGfmCompatible(
   // the final check takes as it is when the edits it checks are those.
   let lastParsed = markdown;
   let lastDocument = base.document;
-  // Whether micromark reads a subject as before with `edits`, all in one
-  // parse.
-  const readsAsBefore = (edits: number[]) => {
-    const edited = writeReferences(markdown, edits);
-    const {document, subjects: read} = readForCmarkGfm(
-      edited,
-      parseEvents(edited, extensions),
-    );
-    lastParsed = edited;
-    lastDocument = document;
-    return (subject: CmarkSubject) =>
-      read.length === base.subjects.length &&
-      read[subject.index] === base.subjects[subject.index];
+  // The pairing model, made when a proposal is first judged; null where parses
+  // judge every proposal. After a byte order mark at the start, which
+  // micromark drops, the search finds no run to repair.
+  let pairingModel: CmarkGfmModel | null | undefined;
+  const getPairingModel = () => {
+    if (pairingModel === undefined) {
+      pairingModel =
+        isProbe || (oracle.kind === 'model' && hasCmarkGfmModel(extensions))
+          ? createCmarkGfmModel(markdown, events)
+          : null;
+    }
+    return pairingModel;
+  };
+  if (oracle.kind === 'probe') {
+    for (const subject of subjects) {
+      if (!getPairingModel()!.readsBase(subject)) {
+        oracle.differences.push(
+          `pairs of ${JSON.stringify(markdown.slice(subject.start, subject.end))}`,
+        );
+      }
+    }
+  }
+  const searchOf = new Map<CmarkSubject, SubjectSearch>();
+  for (const search of searches) {
+    searchOf.set(search.subject, search);
+  }
+  // Whether micromark reads a subject as before with `getEdits()`, the edits
+  // accepted and proposed: as the pairing model judges the proposal of its
+  // search, or else as one parse of the edits for all the subjects it does not
+  // judge reads it. The pairing model reads only the proposals, so a round
+  // costs what it proposes, not what was accepted.
+  const readsAsBefore = (
+    getEdits: () => number[],
+    getProposed: (search: SubjectSearch) => readonly number[],
+  ) => {
+    let read: string[] | null = null;
+    const readsByParse = (subject: CmarkSubject) => {
+      if (!read) {
+        // Read only now, after earlier subjects of the round have taken in
+        // their proposals, which the edits then hold twice.
+        const edited = writeReferences(markdown, new Set(getEdits()));
+        const parsed = readForCmarkGfm(edited, parseEvents(edited, extensions));
+        lastParsed = edited;
+        lastDocument = parsed.document;
+        read = parsed.subjects;
+      }
+      return (
+        read.length === base.subjects.length &&
+        read[subject.index] === base.subjects[subject.index]
+      );
+    };
+    const judge = getPairingModel();
+    if (!judge) {
+      return readsByParse;
+    }
+    return (subject: CmarkSubject) => {
+      const search = searchOf.get(subject)!;
+      const accepted = search.edits;
+      const proposed = getProposed(search);
+      const verdict = judge.judge(subject, accepted, proposed);
+      if (oracle.kind !== 'probe') {
+        return verdict === null ? readsByParse(subject) : verdict;
+      }
+      const isKept = readsByParse(subject);
+      const whole = judge.judgeWhole(subject, accepted, proposed);
+      if (verdict !== null && (verdict !== isKept || whole !== isKept)) {
+        oracle.differences.push(
+          `verdict on ${JSON.stringify(
+            markdown.slice(subject.start, subject.end),
+          )} with edits at ${[...accepted, ...proposed].map(
+            edit => edit - subject.start,
+          )}`,
+        );
+      }
+      return isKept;
+    };
   };
 
   // The word guard: linkify-it may start a link from the word that holds a
@@ -2894,7 +3028,8 @@ function toCmarkGfmCompatible(
   }
   if (batches.size > 0) {
     const isKept = readsAsBefore(
-      [...batches.values()].flatMap(edits => [...edits]),
+      () => [...batches.values()].flatMap(edits => [...edits]),
+      search => [...batches.get(search)!],
     );
     for (const [search, edits] of batches) {
       if (isKept(search.subject)) {
@@ -3017,10 +3152,16 @@ function toCmarkGfmCompatible(
     if (proposals.length === 0) {
       break;
     }
-    const isKept = readsAsBefore([
-      ...searches.flatMap(search => [...search.edits]),
-      ...proposals.flatMap(([, proposal]) => proposal.flat()),
-    ]);
+    const proposed = new Map(
+      proposals.map(([search, proposal]) => [search, proposal.flat()]),
+    );
+    const isKept = readsAsBefore(
+      () => [
+        ...searches.flatMap(search => [...search.edits]),
+        ...[...proposed.values()].flat(),
+      ],
+      search => proposed.get(search)!,
+    );
     for (const [search, proposal] of proposals) {
       if (isKept(search.subject)) {
         for (const offset of proposal.flat()) {
@@ -3054,7 +3195,13 @@ function toCmarkGfmCompatible(
   if (out !== lastParsed) {
     lastDocument = readForCmarkGfm(out, parseEvents(out, extensions)).document;
   }
-  return lastDocument === base.document ? out : markdown;
+  if (lastDocument === base.document) {
+    return out;
+  }
+  // The pairing model kept a proposal that micromark reads otherwise.
+  return pairingModel && oracle.kind === 'model'
+    ? toCmarkGfmCompatible(markdown, extensions, areCells, PARSE_ORACLE, events)
+    : markdown;
 }
 
 /**
