@@ -28,6 +28,7 @@ import {
   html,
   initialize,
   insertDateTime,
+  locate,
   test,
 } from '../utils/index.mjs';
 
@@ -457,6 +458,40 @@ test.describe('TextFormatting', () => {
       focusPath: [0, 1, 0],
     });
   });
+
+  for (const key of ['Enter', 'Escape']) {
+    test(`Pressing ${key} in an emptied font size input leaves the font size unchanged`, async ({
+      page,
+    }) => {
+      await focusEditor(page);
+      await page.keyboard.type('Hello world!');
+      await moveLeft(page);
+      await selectCharacters(page, 'left', 5);
+
+      const fontSizeInput = locate(page, '.font-size-input');
+      const fontSize = await fontSizeInput.inputValue();
+      await click(page, '.font-size-input');
+      await fill(page, '.font-size-input', '');
+      await page.keyboard.press(key);
+
+      await assertHTML(
+        page,
+        html`
+          <p class="PlaygroundEditorTheme__paragraph" dir="auto">
+            <span data-lexical-text="true">Hello world!</span>
+          </p>
+        `,
+      );
+      await expect(fontSizeInput).toHaveValue(fontSize);
+      await expect(fontSizeInput).not.toBeFocused();
+      await assertSelection(page, {
+        anchorOffset: 11,
+        anchorPath: [0, 0, 0],
+        focusOffset: 6,
+        focusPath: [0, 0, 0],
+      });
+    });
+  }
 
   test(`Can select text with different size and update font size by entering the value`, async ({
     page,
