@@ -63,6 +63,14 @@ declare export function $isAtEdgeOfElement(
   element: ElementNode,
   direction: CaretDirection,
 ): boolean;
+declare export function $exitNodeSelectionToward(
+  node: LexicalNode,
+  direction: CaretDirection,
+): void;
+declare export function $convertContiguousNodeSelection(
+  selection: NodeSelection,
+  direction: CaretDirection,
+): boolean;
 declare export function $shouldOverrideDefaultCharacterSelection(
   selection: RangeSelection,
   isBackward: boolean,
