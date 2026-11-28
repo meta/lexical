@@ -570,12 +570,11 @@ export function registerLexicalTextEntity<T extends TextNode>(
           }
           if (
             grows &&
-            // A token or segmented entity kept above takes the text its match
-            // extends into, as an entity in normal mode does, only when that
-            // text would merge with it (the same format, style, detail and
-            // NodeState); text with other NodeState or format stays apart,
-            // rather than take the entity's (or make it drop its own).
-            (getMode(prevSibling) === 0 || $wouldMerge(prevSibling, node))
+            // Do not give differently formatted text the entity's formatting.
+            // Token and segmented entities must also keep NodeState separate.
+            (getMode(prevSibling) === 0
+              ? !isTextAfterOutsideSource(prevSibling)
+              : $wouldMerge(prevSibling, node))
           ) {
             const concatText = text.slice(0, diff);
             const newTextContent = previousText + concatText;
