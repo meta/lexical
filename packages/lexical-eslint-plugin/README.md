@@ -27,7 +27,10 @@ export default [
 
 `lexical.configs['flat/recommended']` and `lexical.configs['flat/all']` are
 aliases of `recommended` and `all` from when those names were the legacy
-configs.
+configs. The default presets enable `@lexical/rules-of-lexical` and
+`@lexical/no-nested-editor-updates` as warnings.
+`@lexical/no-document-in-dom-methods` remains opt-in because it is specific
+to Lexical DOM method implementations.
 
 ### Custom Configuration
 
@@ -45,6 +48,96 @@ export default [
   }
 ];
 ```
+
+### Preventing nested editor updates
+
+`@lexical/no-nested-editor-updates` reports same-editor `update()` calls
+directly inside `update`, `registerCommand`, or `registerNodeTransform`
+callbacks. The receivers must match by expression and identifier binding;
+updates to a different editor, such as `childEditor.update(...)`, are valid.
+The default presets enable the rule as a warning; set it to `error` or `off`
+in your flat configuration's `rules` object to change that severity.
+
+When removing an update wrapper from a node transform, check the transform's
+[preconditions](https://lexical.dev/docs/concepts/transforms#preconditions)
+so its mutations converge. Inline mutations participate in the current
+transform cycle and can trigger the transform again.
+
+Command listeners already provide an update context. Remove a nested
+`editor.update()` wrapper and perform the mutation directly:
+
+```js
+editor.registerCommand(
+  REMOVE_NODE_COMMAND,
+  () => {
+    $getSelection().removeText();
+    return true;
+  },
+  COMMAND_PRIORITY_EDITOR,
+);
+```
+
+Inside `editor.read(callback)` or `editor.read(mode, callback)`, the context
+is read-only. Move the intact update after the read instead of removing its
+wrapper:
+
+```js
+const shouldRemove = editor.read('latest', () => {
+  return $getSelection()?.isCollapsed() === false;
+});
+
+if (shouldRemove) {
+  editor.update(() => {
+    $getSelection()?.removeText();
+  });
+}
+```
+
+An update directly inside a $function receives separate guidance: remove the
+wrapper if the function uses the active editor context, or remove the `$`
+prefix if the function intentionally owns the update.
+
+For a statically analyzable options object, preserve `tag` with `$addUpdateTag`
+(once per value for an array), `discrete` with `$flushSyncAfterUpdate`, and
+`onUpdate` with `$onUpdate` before removing the wrapper. Preserve conditional
+option values: call `$flushSyncAfterUpdate()` only when `discrete` is true.
+`skipTransforms` has no in-place equivalent, so objects containing it, opaque
+identifiers, spreads, computed properties, and unknown properties are left
+alone. Updates inside `read()` retain all options when moved after the read.
+
+By default, editor expressions must end in `editor`, ignoring case. This
+recognizes `editor`, `childEditor`, `props.editor`, `$getEditor()`, and
+`this.editor`. The last expression matches across arrow callbacks, where
+`this` is lexical, but not ordinary function callbacks. Inside $functions,
+`editor`, `$getEditor()`, and receivers matching configured `isEditor`
+patterns are assumed to be the active editor.
+
+Use `isEditor` to add names or patterns, and `isDollarFunction` to extend
+the default `/^\$[a-z_]/` function-name matcher:
+
+```js
+const rules = {
+  '@lexical/no-nested-editor-updates': [
+    'error',
+    {
+      isDollarFunction: '^INTERNAL_\\$',
+      isEditor: ['^lexicalInstance$', '^getMyEditor$'],
+    },
+  ],
+};
+```
+
+Repeated zero-argument accessors matching the default naming convention or
+configured `isEditor` patterns, such as `getNestedEditor()`, match as the
+same editor expression. The analysis does not follow callbacks passed by
+reference, aliases between differently named editor variables, or another
+nested callback such as `setTimeout(() => editor.update(...))`. There is no
+autofix.
+
+Async callbacks and async $functions are also left alone because code after
+an `await` no longer has the surrounding editor context. A synchronous
+editor callback nested inside an async function is still checked.
+
 
 ### Advanced configuration
 

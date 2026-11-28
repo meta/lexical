@@ -50,7 +50,7 @@ function createTestEditor(): LexicalEditor {
  * Builds the document with $buildDocument, places the selection with
  * $placeSelection and pastes a heading followed by a paragraph at it.
  */
-function $pasteBlocks(
+function pasteBlocks(
   editor: LexicalEditor,
   $buildDocument: () => LexicalNode[],
   $placeSelection: () => void,
@@ -92,7 +92,7 @@ describe('Regression #4815', () => {
     const editor = createTestEditor();
     let paragraph: ElementNode;
 
-    $pasteBlocks(
+    pasteBlocks(
       editor,
       () => {
         paragraph = $createParagraphNode().append(
@@ -123,7 +123,7 @@ describe('Regression #4815', () => {
     const editor = createTestEditor();
     let paragraph: ElementNode;
 
-    $pasteBlocks(
+    pasteBlocks(
       editor,
       () => {
         paragraph = $createParagraphNode().append(
@@ -153,7 +153,7 @@ describe('Regression #4815', () => {
     const editor = createTestEditor();
     let text: TextNode;
 
-    $pasteBlocks(
+    pasteBlocks(
       editor,
       () => {
         text = $createTextNode('Paragraph 1');
@@ -182,7 +182,7 @@ describe('Regression #4815', () => {
     const editor = createTestEditor();
     let text: TextNode;
 
-    $pasteBlocks(
+    pasteBlocks(
       editor,
       () => {
         text = $createTextNode('Paragraph 1');
@@ -213,7 +213,7 @@ describe('Regression #4815', () => {
     const editor = createTestEditor();
     let text: TextNode;
 
-    $pasteBlocks(
+    pasteBlocks(
       editor,
       () => {
         text = $createTextNode('Paragraph 1');
@@ -244,7 +244,7 @@ describe('Regression #4815', () => {
     const editor = createTestEditor();
     let paragraph: ElementNode;
 
-    $pasteBlocks(
+    pasteBlocks(
       editor,
       () => {
         paragraph = $createParagraphNode().append(
@@ -272,7 +272,7 @@ describe('Regression #4815', () => {
     const editor = createTestEditor();
     let paragraph: ElementNode;
 
-    $pasteBlocks(
+    pasteBlocks(
       editor,
       () => {
         paragraph = $createParagraphNode().append(
@@ -336,7 +336,7 @@ describe('Regression #4815', () => {
     const editor = createTestEditor();
     let paragraph: ElementNode;
 
-    $pasteBlocks(
+    pasteBlocks(
       editor,
       () => {
         paragraph = $createParagraphNode().append(
@@ -365,7 +365,7 @@ describe('Regression #4815', () => {
     const editor = createTestEditor();
     let text: TextNode;
 
-    $pasteBlocks(
+    pasteBlocks(
       editor,
       () => {
         text = $createTextNode('Paragraph 1');

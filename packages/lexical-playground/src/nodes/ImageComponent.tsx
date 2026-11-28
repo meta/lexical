@@ -390,13 +390,11 @@ export default function ImageComponent({
         buttonRef.current === event.target
       ) {
         $setSelection(null);
-        editor.update(() => {
-          setSelected(true);
-          const parentRootElement = editor.getRootElement();
-          if (parentRootElement !== null) {
-            parentRootElement.focus();
-          }
-        });
+        setSelected(true);
+        const parentRootElement = editor.getRootElement();
+        if (parentRootElement !== null) {
+          parentRootElement.focus();
+        }
         return true;
       }
       return false;
