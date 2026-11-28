@@ -1252,9 +1252,37 @@ function onBeforeInput(event: InputEvent, editor: LexicalEditor): void {
     () => {
       if (!$isInputEventTargetingCapturedSelection(event, editor)) {
         dispatchCommand(editor, BEFORE_INPUT_COMMAND, event);
+      } else if ($isNativeHistoryFromCapturedControl(event, editor)) {
+        event.preventDefault();
       }
     },
     {event},
+  );
+}
+
+/**
+ * Chromium and WebKit keep one undo stack per page, so an undo or redo pressed
+ * in a decorator's input with no edit of its own on that stack is fired at the
+ * editor root instead, and would run the browser's native history over the
+ * editor's DOM (#3761, and #6714 for a control outside the editor). The
+ * shortcut is the input's, so it does nothing. Firefox keeps a history per
+ * control and fires the control's own events at the root (#8738), so there an
+ * undo reaching the root is the control's. An undo targeting the control
+ * itself, in a decorator or in a node's unmanaged DOM, is always its own.
+ */
+function $isNativeHistoryFromCapturedControl(
+  event: InputEvent,
+  editor: LexicalEditor,
+): boolean {
+  const composedTarget = getComposedEventTarget(event);
+  return (
+    !IS_FIREFOX &&
+    (event.inputType === 'historyUndo' || event.inputType === 'historyRedo') &&
+    !(
+      isHTMLElement(composedTarget) &&
+      (isDOMCapturingSelection(composedTarget, editor) ||
+        $isSelectionCapturedInDecoratorInput(composedTarget, composedTarget))
+    )
   );
 }
 
@@ -2099,6 +2127,27 @@ const SHIFT_KEY_ANY = {shiftKey: 'any'} as const;
 const ALT_SHIFT_KEY_ANY = {altKey: 'any', shiftKey: 'any'} as const;
 
 /**
+ * Returns true if a keydown comes from an input embedded in a node's DOM that
+ * takes text: a `<textarea>`, a foreign contentEditable, or an `<input>` of a
+ * type the user types into. The browser's own editing shortcuts (delete word,
+ * select all, undo) apply there, so the editor's must not run. A checkbox or a
+ * button has no action of its own for them and keeps the editor's (#3761).
+ */
+function $isEventFromEmbeddedTextInput(event: KeyboardEvent): boolean {
+  const target = getComposedEventTarget(event);
+  return (
+    $isEventFromEmbeddedInput(event) &&
+    !(
+      isHTMLElement(target) &&
+      target.nodeName === 'INPUT' &&
+      /^(button|checkbox|color|file|image|radio|range|reset|submit)$/.test(
+        (target as HTMLInputElement).type,
+      )
+    )
+  );
+}
+
+/**
  * The keydown shortcuts that the editor handles natively, compiled to
  * dispatch by the pressed key and modifiers in O(1). Each shortcut's mask
  * is exclusive of every other mask on the same key, so at most one entry
@@ -2117,7 +2166,11 @@ function buildKeyDownShortcuts(): KeyDownShortcut[] {
       dispatchCommand(editor, command, event);
     },
   });
-  /** preventDefault() and dispatch the command with a fixed payload */
+  /**
+   * preventDefault() and dispatch the command with a fixed payload, unless a
+   * text input embedded in a node's DOM has the focus (#3761): the browser's action
+   * (eg. deleting a word in the input) is the right one there.
+   */
   const prevent = <T>(
     key: string,
     modifiers: KeyboardEventModifierMask,
@@ -2127,6 +2180,9 @@ function buildKeyDownShortcuts(): KeyDownShortcut[] {
     key,
     modifiers,
     onMatch: (event, editor) => {
+      if ($isEventFromEmbeddedTextInput(event)) {
+        return;
+      }
       event.preventDefault();
       dispatchCommand(editor, command, payload);
     },
@@ -2208,6 +2264,9 @@ function buildKeyDownShortcuts(): KeyDownShortcut[] {
             key: 'o',
             modifiers: CTRL_KEY,
             onMatch: (event: KeyboardEvent, editor: LexicalEditor) => {
+              if ($isEventFromEmbeddedTextInput(event)) {
+                return;
+              }
               event.preventDefault();
               dispatchCommand(editor, INSERT_LINE_BREAK_COMMAND, true);
             },
@@ -2242,6 +2301,9 @@ function buildKeyDownShortcuts(): KeyDownShortcut[] {
       key: 'a',
       modifiers: CONTROL_OR_META,
       onMatch: (event, editor) => {
+        if ($isEventFromEmbeddedTextInput(event)) {
+          return;
+        }
         event.preventDefault();
         if (dispatchCommand(editor, SELECT_ALL_COMMAND, event)) {
           markHandledSelectionCommandInsertText(editor._inputState);
