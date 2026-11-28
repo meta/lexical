@@ -131,6 +131,7 @@ describe('LexicalCodeNode tests', () => {
           theme: undefined,
           type: 'code',
           version: 1,
+          wordWrap: undefined,
         });
       });
     });

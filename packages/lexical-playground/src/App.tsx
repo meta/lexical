@@ -13,7 +13,7 @@ import {
   HistoryAnnounceExtension,
   RovingTabIndexExtension,
 } from '@lexical/a11y';
-import {$isCodeNode} from '@lexical/code';
+import {$isCodeNode, CodeLineNumbersExtension} from '@lexical/code';
 import {
   $defaultShouldInsertAfter,
   AutoFocusExtension,
@@ -232,6 +232,7 @@ const PlaygroundRichTextExtension = defineExtension({
     TabFocusExtension,
     CollapsibleExtension,
     CodeHighlightExtension,
+    configExtension(CodeLineNumbersExtension, {onlyWordWrapped: true}),
     configExtension(ListExtension, {
       shouldPreserveNumbering: false,
     }),

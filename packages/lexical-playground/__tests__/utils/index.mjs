@@ -113,6 +113,8 @@ async function initializePlayground({
   shouldAllowHighlightingWithBrackets,
   selectionAlwaysOnDisplay,
   isShadowDOM,
+  isCodeLineNumbers,
+  isCodeShiki,
 }) {
   const appSettings = {};
   appSettings.isRichText = IS_RICH_TEXT;
@@ -158,6 +160,13 @@ async function initializePlayground({
   appSettings.selectBlock = !!selectBlock;
 
   appSettings.isShadowDOM = !!isShadowDOM;
+
+  if (isCodeLineNumbers !== undefined) {
+    appSettings.isCodeLineNumbers = isCodeLineNumbers;
+  }
+  if (isCodeShiki !== undefined) {
+    appSettings.isCodeShiki = isCodeShiki;
+  }
 
   const urlParams = appSettingsToURLParams(appSettings);
   const url = `http://localhost:${E2E_PORT}/${
