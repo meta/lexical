@@ -823,7 +823,8 @@ export interface SplitAtPointCaretNextOptions {
   $shouldSplit?: (node: ElementNode, edge: 'first' | 'last') => boolean;
   /**
    * If the destination would create an empty split on both sides, then
-   * remove it instead of splitting. Default `false`.
+   * remove it instead of splitting. The destination's parent is kept, even
+   * if it is now empty, for the next split to remove. Default `false`.
    */
   removeEmptyDestination?: boolean;
 }
@@ -857,7 +858,9 @@ export function $splitAtPointCaretNext(
     if ($isChildCaret(pointCaret)) {
       const beforeParentCaret = $rewindSiblingCaret(parentCaret);
       if (removeEmptyDestination && origin.isEmpty()) {
-        origin.remove();
+        // Keep the parent: the returned caret points into it, and the caller's
+        // next split removes it if it is now empty.
+        origin.remove(true);
         return beforeParentCaret;
       }
       if (!(origin.canBeEmpty() && $shouldSplit(origin, 'first'))) {
