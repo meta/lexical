@@ -7,7 +7,6 @@
  */
 
 import {
-  EditorModeAnnounceExtension,
   FocusManagerExtension,
   FocusTrapExtension,
   HistoryAnnounceExtension,
@@ -265,7 +264,6 @@ const AppExtension = defineExtension({
     // HistoryExtension is added by buildExtensionFromSettings: collab Y's
     // YCollabExtension provides undo and conflicts with it.
     HistoryAnnounceExtension,
-    EditorModeAnnounceExtension,
     KeywordsExtension,
     HashtagExtension,
     DateTimeExtension,
