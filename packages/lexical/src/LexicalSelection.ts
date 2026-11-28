@@ -118,7 +118,6 @@ import {
   getElementByKeyOrThrow,
   getNearestEditorFromDOMNode,
   getNodeKeyFromDOMNode,
-  getWindow,
   INTERNAL_$isBlock,
   isDOMCapturingSelection,
   isDOMDocumentNode,
@@ -1554,7 +1553,11 @@ export class RangeSelection implements BaseSelection {
     const collapse = alter === 'move';
 
     const editor = getActiveEditor();
-    const domSelection = getDOMSelection(getWindow(editor));
+    const windowObj = editor._window;
+    if (windowObj === null) {
+      return;
+    }
+    const domSelection = getDOMSelection(windowObj);
 
     if (!domSelection) {
       return;
@@ -2530,7 +2533,11 @@ function $extendSelectionForDeletion(
     return false;
   }
   const editor = getActiveEditor();
-  const domSelection = getDOMSelection(getWindow(editor));
+  const windowObj = editor._window;
+  if (windowObj === null) {
+    return false;
+  }
+  const domSelection = getDOMSelection(windowObj);
   if (!domSelection || typeof domSelection.modify !== 'function') {
     return false;
   }
@@ -3565,7 +3572,11 @@ export function $internalCreateSelection(
 ): null | BaseSelection {
   const currentEditorState = editor.getEditorState();
   const lastSelection = currentEditorState._selection;
-  const domSelection = getDOMSelection(getWindow(editor));
+  const windowObj = editor._window;
+  if (windowObj === null) {
+    return null;
+  }
+  const domSelection = getDOMSelection(windowObj);
 
   if ($isRangeSelection(lastSelection) || lastSelection == null) {
     return $internalCreateRangeSelection(
