@@ -1242,6 +1242,31 @@ function onBeforeInput(event: InputEvent, editor: LexicalEditor): void {
     return;
   }
 
+  // WebKit can send beforeinput to an unfocused contenteditable when its
+  // native caret remains there after another surface takes focus. Accepting
+  // it edits the stale selection and pulls focus back during reconciliation.
+  // Cancel the native edit before starting an update; explicit editor API
+  // updates from outside controls still use the saved Lexical selection.
+  const rootElement = editor.getRootElement();
+  const activeElement =
+    rootElement !== null
+      ? getActiveElementDeep(rootElement.ownerDocument)
+      : null;
+  if (
+    // Native history can be forwarded from an outside control (#6714).
+    // Drops target the editor's drop point, even with the source focused.
+    inputType !== 'historyUndo' &&
+    inputType !== 'historyRedo' &&
+    inputType !== 'insertFromDrop' &&
+    activeElement !== null &&
+    // The document's default body focus does not establish another owner.
+    activeElement !== activeElement.ownerDocument.body &&
+    getNearestEditorFromDOMNode(activeElement) !== editor
+  ) {
+    event.preventDefault();
+    return;
+  }
+
   // Always run the update so the editor selection stays in sync with the DOM
   // (the {event} option recomputes it). Only skip dispatching the command when
   // a native control inside a decorator owns this event: processing it would
