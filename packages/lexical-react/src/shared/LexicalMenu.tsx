@@ -276,13 +276,13 @@ function MenuItem({
   index,
   isSelected,
   onClick,
-  onMouseEnter,
+  onMouseMove,
   option,
 }: {
   index: number;
   isSelected: boolean;
   onClick: () => void;
-  onMouseEnter: () => void;
+  onMouseMove: () => void;
   option: MenuOption;
 }) {
   let className = 'item';
@@ -298,7 +298,10 @@ function MenuItem({
       role="option"
       aria-selected={isSelected}
       id={'typeahead-item-' + index}
-      onMouseEnter={onMouseEnter}
+      // Not onMouseEnter: scrolling the list with the arrow keys moves items
+      // under a stationary pointer, which fires mouseenter and would steal the
+      // highlight from the keyboard.
+      onMouseMove={onMouseMove}
       onClick={onClick}>
       {option.icon}
       <span className="text">{option.title}</span>
@@ -396,7 +399,7 @@ export function LexicalMenu<TOption extends MenuOption>({
                     setHighlightedIndex(i);
                     selectOptionAndCleanUp(option);
                   }}
-                  onMouseEnter={() => {
+                  onMouseMove={() => {
                     setHighlightedIndex(i);
                   }}
                   key={option.key}

@@ -6,6 +6,8 @@
  *
  */
 
+import {expect} from '@playwright/test';
+
 import {
   assertHTML,
   click,
@@ -122,5 +124,27 @@ test.describe('ComponentPicker', () => {
         </p>
       `,
     );
+  });
+
+  test('Arrow keys are not overridden by a stationary mouse when the menu scrolls', async ({
+    page,
+    isCollab,
+  }) => {
+    await initialize({isCollab, page});
+    await focusEditor(page);
+    await page.keyboard.type('/');
+    await waitForSelector(page, '.typeahead-popover');
+
+    // Rest the mouse on the second option, which highlights it
+    const items = page.locator('.typeahead-popover li');
+    const box = await items.nth(1).boundingBox();
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await expect(items.nth(1)).toHaveClass(/selected/);
+
+    // Arrow down far enough that the list scrolls under the mouse
+    for (let i = 0; i < 10; i++) {
+      await page.keyboard.press('ArrowDown');
+    }
+    await expect(items.nth(11)).toHaveClass(/selected/);
   });
 });
