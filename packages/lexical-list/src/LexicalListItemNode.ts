@@ -407,7 +407,7 @@ export class ListItemNode extends ElementNode {
     includeChildren?: boolean,
   ): N {
     if ($isListItemNode(replaceWithNode)) {
-      return super.replace(replaceWithNode);
+      return super.replace(replaceWithNode, includeChildren);
     }
     this.setIndent(0);
     const list = this.getParentOrThrow();
