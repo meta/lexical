@@ -288,9 +288,9 @@ function checkLiterals(
           );
         // The first link that does not read back as it was written, or -1,
         // and the literals before it that read back as links GFM's transform
-        // found (after a code span or `!`, say). Links read back after the
-        // last one written come from plain text, which the literals do not
-        // change.
+        // found (an email whose first character is encoded, say). Links read
+        // back after the last one written come from plain text, which the
+        // literals do not change.
         const changed = (markdown: string): {first: number; loose: Link[]} => {
           const keys = getLinkKeys(markdown);
           const loose: Link[] = [];

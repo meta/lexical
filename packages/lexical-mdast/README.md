@@ -54,6 +54,20 @@ GFM features:
 | `MdastAutolinkLiteralExtension` | – | literal autolinks (bare `https://…` in prose) |
 | `MdastTableExtension` | `TableNode`, … | tables |
 
+`MdastAutolinkLiteralExtension` reads bare URLs as GitHub does in comments:
+a URL links only where micromark finds one in the Markdown as written. So a URL
+that an escape or a character reference writes (`https\://x.com`,
+`&#x77;ww.x.com`) stays text, as does a `www.` URL right after `.`, `!`,
+`"` or a code span, and a URL typed as text, which export writes as
+`https\://x.com`, reads back as text. A URL that GitHub links but micromark
+does not find in the source stays text too, such as one with a `.` after it
+(`www._x.com. next`) or a `_` after a non-ASCII letter in its domain
+(`www.café_bar.com`). An email links where GitHub finds it in the decoded
+text, so one whose `@` is escaped or written as a reference (`a\@b.co`,
+`a&#64;b.co`) links, as on GitHub, and an email typed as text reads back as
+a link. A reference before an unescaped `@` can still cut an email short:
+`a&#98;c@d.co` links `c@d.co`.
+
 Behavior and convenience bundles:
 
 | Extension | Adds |

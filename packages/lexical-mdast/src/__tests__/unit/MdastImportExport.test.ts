@@ -1212,8 +1212,8 @@ describe('@lexical/mdast import/export', () => {
       'x[www.example.com](http://www.example.com)',
     ],
     [
-      // Bare, only GFM's transform links it: micromark starts no literal
-      // after `!`.
+      // Bare, it reads back as text: micromark starts no literal after
+      // `!`.
       '`!` before',
       'www.example.com',
       '!',
@@ -1564,15 +1564,14 @@ describe('@lexical/mdast import/export', () => {
 
   it.each([
     [
-      'the next literal keeps its bare form',
+      'the next literal too',
       null,
-      '`x`[www.a.example](http://www.a.example) and www.b.example',
+      '`x`[www.a.example](http://www.a.example) and [www.b.example](http://www.b.example)',
     ],
     [
-      // It reads back as a link to `www.a.exampley`, found by the transform.
       'a letter after it',
       0,
-      '`x`[www.a.example](http://www.a.example)y and www.b.example',
+      '`x`[www.a.example](http://www.a.example)y and [www.b.example](http://www.b.example)',
     ],
     [
       'before another literal that does not read back',
@@ -1603,8 +1602,10 @@ describe('@lexical/mdast import/export', () => {
         },
         {discrete: true},
       );
-      // GFM's transform reads `www.a.example` back after the code span, but
-      // micromark starts no literal there.
+      // micromark starts no literal after the code span, so `www.a.example`
+      // would read back as text there. The links that read back are matched
+      // in order, so none matches from it on, and each literal from it on
+      // is written in resource form.
       expectLiteralRoundTrip(
         editor,
         expected,
@@ -1623,14 +1624,14 @@ describe('@lexical/mdast import/export', () => {
       'so see [www.a.example](http://www.a.example)y then',
     ],
     [
-      "a literal that only GFM's transform links",
+      'a literal that micromark does not link after `!`',
       'www.example.com',
       () => $firstLink().insertBefore($createTextNode('!')),
       'so \\![www.example.com](http://www.example.com)',
     ],
     [
       // The resource link is not a literal, so none is left bare.
-      "a literal that only GFM's transform links, beside a link",
+      'a literal that micromark does not link after `!`, beside a link',
       '[a](http://a.example) www.example.com',
       () =>
         $assertNodeType($getRoot().getFirstChildOrThrow(), $isElementNode)
