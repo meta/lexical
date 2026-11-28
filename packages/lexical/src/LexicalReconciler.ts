@@ -1006,7 +1006,8 @@ function $isLastChildLineBreakOrDecorator(
     if (lastKey) {
       const node = nodeMap.get(lastKey);
       if (node) {
-        return $isLineBreakNode(node)
+        return $isLineBreakNode(node) ||
+          $isLineBreakNode($getTrailingInlineDescendant(node, nodeMap))
           ? 'line-break'
           : $isDecoratorNode(node) && node.isInline()
             ? 'decorator'
@@ -1016,6 +1017,24 @@ function $isLastChildLineBreakOrDecorator(
     return 'empty';
   }
   return null;
+}
+
+/**
+ * The last descendant of `node` reached through inline elements only, e.g. a
+ * LineBreakNode that ends an inline OverflowNode or LinkNode. A block ending
+ * with such a node needs the same extra `<br>` as one ending with a
+ * LineBreakNode directly, or the browser can't put the caret after it.
+ */
+function $getTrailingInlineDescendant(
+  node: LexicalNode,
+  nodeMap: NodeMap,
+): LexicalNode | null {
+  let current: LexicalNode | undefined = node;
+  while ($isElementNode(current) && current.isInline()) {
+    const lastKey: NodeKey | null = current.__last;
+    current = lastKey === null ? undefined : nodeMap.get(lastKey);
+  }
+  return current === node ? null : current || null;
 }
 
 function $isBlockDecoratorChild(node: LexicalNode | null): boolean {

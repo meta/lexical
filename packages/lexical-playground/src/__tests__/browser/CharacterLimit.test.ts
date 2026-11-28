@@ -18,7 +18,7 @@ import {
 import {RichTextExtension} from '@lexical/rich-text';
 import {$createParagraphNode, $getRoot, defineExtension} from 'lexical';
 import {act} from 'react';
-import {describe, onTestFinished, test} from 'vitest';
+import {describe, expect, onTestFinished, test} from 'vitest';
 
 import theme from '../../themes/PlaygroundEditorTheme';
 import {
@@ -130,6 +130,65 @@ describe.each(['UTF-8', 'UTF-16'] as const)('character limit %s', charset => {
         `,
       );
     });
+    test('Shift+Enter inside overflow keeps the caret after the line break (#9454)', async () => {
+      const {root} = await setup(charset, isRichText);
+
+      await typeText('123456');
+      await press('Shift+Enter');
+      await typeText('7');
+      await assertHTML(
+        root,
+        html`
+          <p class="PlaygroundEditorTheme__paragraph" dir="auto">
+            <span data-lexical-text="true">12345</span>
+            <span class="PlaygroundEditorTheme__characterLimit">
+              <span data-lexical-text="true">6</span>
+              <br />
+              <span data-lexical-text="true">7</span>
+            </span>
+          </p>
+        `,
+      );
+    });
+    // With the caret between the 6 and the 7 of 12345[67] (#9454)
+    describe('caret inside the overflow', () => {
+      async function setupMidOverflow() {
+        const {editor} = await setup(charset, isRichText);
+        await typeText('1234567');
+        await press('ArrowLeft');
+        return () => editor.read(() => $getRoot().getTextContent());
+      }
+
+      test('Shift+Enter breaks the line and keeps one paragraph', async () => {
+        const getText = await setupMidOverflow();
+        await press('Shift+Enter');
+        await typeText('x');
+        expect(getText()).toBe('123456\nx7');
+      });
+
+      test('Enter splits once', async () => {
+        const getText = await setupMidOverflow();
+        await press('Enter');
+        await typeText('x');
+        expect(getText()).toBe(isRichText ? '123456\n\nx7' : '123456\nx7');
+      });
+
+      test('Backspace at the start of the overflow deletes across the limit', async () => {
+        const getText = await setupMidOverflow();
+        await press('ArrowLeft');
+        await press('Backspace');
+        await typeText('x');
+        expect(getText()).toBe('1234x67');
+      });
+
+      test('Backspace deletes the character before the caret', async () => {
+        const getText = await setupMidOverflow();
+        await press('Backspace');
+        await typeText('x');
+        expect(getText()).toBe('12345x7');
+      });
+    });
+
     test('can delete text in front and overflow is recomputed', async () => {
       const {editor, root} = await setup(charset, isRichText);
 
