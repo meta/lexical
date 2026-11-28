@@ -557,7 +557,9 @@ export function LexicalMenu<TOption extends MenuOption>({
           if (
             options === null ||
             selectedIndex === null ||
-            options[selectedIndex] == null
+            options[selectedIndex] == null ||
+            // Shift+Tab must reach outdent handling or move focus back
+            event.shiftKey
           ) {
             return false;
           }

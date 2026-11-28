@@ -8,7 +8,7 @@
 
 import * as ComposerContext from '@lexical/react/LexicalComposerContext';
 import {type LexicalComposerContextWithEditor} from '@lexical/react/LexicalComposerContext';
-import {KEY_ENTER_COMMAND, type LexicalEditor} from 'lexical';
+import {KEY_ENTER_COMMAND, KEY_TAB_COMMAND, type LexicalEditor} from 'lexical';
 import {createTestEditor} from 'lexical/src/__tests__/utils';
 import * as React from 'react';
 import {act} from 'react';
@@ -299,6 +299,47 @@ describe('LexicalMenu', () => {
 
       expect(onSelectOption).toHaveBeenCalledTimes(1);
       expect(onSelectOption.mock.calls[0][0]).toBe(options[0]);
+    });
+
+    it.each([
+      {name: 'Tab picks the highlighted option', picks: true, shiftKey: false},
+      {
+        name: 'Shift+Tab leaves the key to the editor',
+        picks: false,
+        shiftKey: true,
+      },
+    ])('$name', async ({picks, shiftKey}) => {
+      const onSelectOption = vi.fn();
+      const options = [new TestOption('Option A'), new TestOption('Option B')];
+
+      await act(async () => {
+        reactRoot.render(
+          <LexicalMenu<TestOption>
+            close={vi.fn()}
+            editor={editor}
+            anchorElementRef={{current: anchorElement}}
+            resolution={createTestResolution('test')}
+            options={options}
+            onSelectOption={onSelectOption}
+            preselectFirstItem={true}
+          />,
+        );
+      });
+
+      const tab = {
+        preventDefault: vi.fn(),
+        shiftKey,
+        stopImmediatePropagation: vi.fn(),
+      } as unknown as KeyboardEvent;
+
+      let handled = false;
+      await act(async () => {
+        handled = editor.dispatchCommand(KEY_TAB_COMMAND, tab);
+      });
+
+      expect(handled).toBe(picks);
+      expect(onSelectOption).toHaveBeenCalledTimes(picks ? 1 : 0);
+      expect(tab.preventDefault).toHaveBeenCalledTimes(picks ? 1 : 0);
     });
 
     it('should render icon and title in default MenuItem', async () => {
