@@ -34,6 +34,7 @@ import {
   createCommand,
   DecoratorNode,
   defineExtension,
+  getDOMTextNode,
   IS_APPLE,
   isExactShortcutMatch,
   KEY_DOWN_COMMAND,
@@ -395,17 +396,11 @@ function $updateHighlights(
       state.allHighlight!.add(range);
       if (i === currentIndex) {
         state.currentHighlight!.add(range);
-        scrollRangeIntoView(range);
       }
     }
   } else {
     $updateOverlayHighlights(editor, matches, currentIndex, offsetMap, state);
   }
-}
-
-function scrollRangeIntoView(range: Range): void {
-  const el = range.startContainer.parentElement;
-  el?.scrollIntoView({behavior: 'smooth', block: 'nearest'});
 }
 
 function clearHighlights(state: HighlightState): void {
@@ -492,9 +487,6 @@ function $updateOverlayHighlights(
     }
     const rects = createRectsFromDOMRange(editor, range);
     const isCurrent = i === currentIndex;
-    if (isCurrent) {
-      scrollRangeIntoView(range);
-    }
     for (const rect of rects) {
       const span = doc.createElement('span');
       span.style.position = 'absolute';
@@ -611,12 +603,29 @@ export const FindReplaceExtension = defineExtension({
   register: (editor, _config, state) => {
     const output = state.getOutput();
     const highlightState = createHighlightState(editor.getKey());
+    const scrollToCurrentMatch = () => {
+      const match = output.matches.peek()[output.effectiveIndex.peek()];
+      if (!match) {
+        return;
+      }
+      const points = editor.read('latest', () =>
+        $resolveMatchToPoints(match, $buildOffsetMap()),
+      );
+      if (points) {
+        const text = getDOMTextNode(editor.getElementByKey(points.anchorKey));
+        text?.parentElement?.scrollIntoView({
+          behavior: 'smooth',
+          block: 'nearest',
+        });
+      }
+    };
 
     return mergeRegister(
       editor.registerCommand(
         TOGGLE_FIND_REPLACE_COMMAND,
         () => {
           output.isOpen.value = !output.isOpen.peek();
+          scrollToCurrentMatch();
           return true;
         },
         COMMAND_PRIORITY_LOW,
@@ -637,6 +646,7 @@ export const FindReplaceExtension = defineExtension({
           const len = output.matches.peek().length;
           if (len > 0) {
             output.currentIndex.value = (output.currentIndex.peek() + 1) % len;
+            scrollToCurrentMatch();
           }
           return true;
         },
@@ -650,6 +660,7 @@ export const FindReplaceExtension = defineExtension({
           if (len > 0) {
             output.currentIndex.value =
               (output.currentIndex.peek() - 1 + len) % len;
+            scrollToCurrentMatch();
           }
           return true;
         },
@@ -679,7 +690,8 @@ export const FindReplaceExtension = defineExtension({
                 $replaceMatch(points, replaceText, m[idx], regex);
               }
             },
-            {discrete: true},
+            // The next match takes this index, so show it.
+            {discrete: true, onUpdate: scrollToCurrentMatch},
           );
           return true;
         },
@@ -717,6 +729,7 @@ export const FindReplaceExtension = defineExtension({
         term => {
           output.searchTerm.value = term;
           output.currentIndex.value = 0;
+          scrollToCurrentMatch();
           return true;
         },
         COMMAND_PRIORITY_LOW,
@@ -736,6 +749,7 @@ export const FindReplaceExtension = defineExtension({
         () => {
           output.caseSensitive.value = !output.caseSensitive.peek();
           output.currentIndex.value = 0;
+          scrollToCurrentMatch();
           return true;
         },
         COMMAND_PRIORITY_LOW,
@@ -746,6 +760,7 @@ export const FindReplaceExtension = defineExtension({
         () => {
           output.isRegex.value = !output.isRegex.peek();
           output.currentIndex.value = 0;
+          scrollToCurrentMatch();
           return true;
         },
         COMMAND_PRIORITY_LOW,
