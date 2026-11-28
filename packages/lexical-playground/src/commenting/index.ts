@@ -107,12 +107,14 @@ export class CommentStore {
   _comments: Comments;
   _changeListeners: Set<() => void>;
   _collabProvider: null | Provider;
+  _deletedThreads: Map<string, {index: number; thread: Thread}>;
 
   constructor(editor: LexicalEditor) {
     this._comments = [];
     this._editor = editor;
     this._collabProvider = null;
     this._changeListeners = new Set();
+    this._deletedThreads = new Map();
   }
 
   isCollaborative(): boolean {
@@ -121,6 +123,34 @@ export class CommentStore {
 
   getComments(): Comments {
     return this._comments;
+  }
+
+  _findThread(id: string): Thread | undefined {
+    return this._comments.find(
+      (commentOrThread): commentOrThread is Thread =>
+        commentOrThread.type === 'thread' && commentOrThread.id === id,
+    );
+  }
+
+  hasThread(id: string): boolean {
+    return this._findThread(id) !== undefined;
+  }
+
+  restoreThread(id: string): boolean {
+    const tombstone = this._deletedThreads.get(id);
+    if (tombstone === undefined) {
+      return false;
+    }
+    this._deletedThreads.delete(id);
+    this.addComment(tombstone.thread, undefined, tombstone.index);
+    return true;
+  }
+
+  retireThread(id: string): void {
+    const thread = this._findThread(id);
+    if (thread !== undefined) {
+      this.deleteCommentOrThread(thread);
+    }
   }
 
   addComment(
@@ -206,6 +236,12 @@ export class CommentStore {
         });
       }
       nextComments.splice(commentIndex, 1);
+      if (commentOrThread.type === 'thread') {
+        this._deletedThreads.set(commentOrThread.id, {
+          index: commentIndex,
+          thread: commentOrThread,
+        });
+      }
     }
     this._comments = nextComments;
     triggerOnChange(this);
@@ -436,6 +472,8 @@ export class CommentStore {
     };
   }
 }
+
+export {registerCommentMarkHistorySync} from './commentMarkHistorySync';
 
 export function useCommentStore(commentStore: CommentStore): Comments {
   const [comments, setComments] = useState<Comments>(

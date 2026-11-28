@@ -72,6 +72,7 @@ import {
   CommentStore,
   createComment,
   createThread,
+  registerCommentMarkHistorySync,
   type Thread,
   useCommentStore,
 } from '../../commenting';
@@ -849,6 +850,7 @@ export default function CommentPlugin({
     const markNodeKeysToIDs: Map<NodeKey, string[]> = new Map();
 
     return mergeRegister(
+      registerCommentMarkHistorySync(editor, commentStore),
       registerNestedElementResolver<MarkNode>(
         editor,
         MarkNode,
@@ -954,7 +956,7 @@ export default function CommentPlugin({
         COMMAND_PRIORITY_EDITOR,
       ),
     );
-  }, [editor, markNodeMap]);
+  }, [commentStore, editor, markNodeMap]);
 
   const onAddComment = () => {
     editor.dispatchCommand(INSERT_INLINE_COMMAND);
