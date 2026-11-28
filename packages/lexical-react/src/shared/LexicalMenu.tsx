@@ -846,16 +846,24 @@ export function useMenuAnchorRef(
     onVisibilityChange,
   );
 
-  // Append the context for the menu immediately
-  if (
-    initialAnchorElement != null &&
-    initialAnchorElement === anchorElementRef.current
-  ) {
-    setContainerDivAttributes(initialAnchorElement, className);
-    if (resolvedParent != null) {
-      resolvedParent.append(initialAnchorElement);
+  // Attach the anchor once the component has mounted. Appending during
+  // render leaked an anchor for every render React threw away (a suspended
+  // or interrupted render never runs effect cleanups), so the DOM write has
+  // to happen in an effect. className is applied once here, matching the
+  // previous behavior; positionMenu re-applies attributes whenever it
+  // re-attaches the anchor.
+  useEffect(() => {
+    const containerDiv = anchorElementRef.current;
+    if (
+      containerDiv !== null &&
+      resolvedParent != null &&
+      !containerDiv.isConnected
+    ) {
+      setContainerDivAttributes(containerDiv, className);
+      resolvedParent.append(containerDiv);
     }
-  }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   return anchorElementRef;
 }
