@@ -40,10 +40,9 @@ const note = createState('note', {
   parse: value => (typeof value === 'string' ? value : ''),
 });
 
-// #9725 (known limit, see transforms.md): typing into a run of repeated
-// characters, read as text inserted at the end of the run, drops the NodeState
-// of the last existing character when a matcher that looks back into the run
-// makes it an entity. `test.fails` until the edit's reading is fixed.
+// #9725: the caret disambiguates an insertion into repeated characters, so
+// a matcher that looks back into the run preserves the NodeState of the
+// last existing character when it makes that character an entity.
 
 // Matches an "A" only when "$AA" comes right before it.
 // eslint-disable-next-line compat/compat -- a Node test
@@ -118,10 +117,7 @@ test('typing into a run of repeated characters keeps the text', () => {
   ).toBe('ya#x$AAA');
 });
 
-test.fails(
-  'typing into a run of repeated characters keeps NodeState on an existing character',
-  () => {
-    // the A that was last before typing is at index 7
-    expect(typeIntoRun()[7]).toEqual({note: 'c1', text: 'A'});
-  },
-);
+test('typing into a run of repeated characters keeps NodeState on an existing character', () => {
+  // the A that was last before typing is at index 7
+  expect(typeIntoRun()[7]).toEqual({note: 'c1', text: 'A'});
+});
