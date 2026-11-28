@@ -28,7 +28,7 @@ export function EditorRefPlugin({
 }): null {
   const [editor] = useLexicalComposerContext();
 
-  React.useEffect(() => {
+  React.useLayoutEffect(() => {
     if (typeof editorRef === 'function') {
       editorRef(editor);
     } else if (typeof editorRef === 'object' && editorRef !== null) {
