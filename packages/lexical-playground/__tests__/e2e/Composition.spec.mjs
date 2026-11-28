@@ -292,6 +292,118 @@ test.describe('Composition', () => {
           focusPath: [0, 1, 0],
         });
       });
+
+      // ibus-hangul on Chromium empties the composition of every syllable,
+      // then commits it with a plain insertText.
+      async function typeHangukLikeIbus(page) {
+        const client = await page.context().newCDPSession(page);
+        await imeCompose(client, ['ㅎ', '하', '한', ''], '한');
+        await imeCompose(client, ['ㄱ', '구', '국', ''], '국');
+      }
+
+      test('Can type Korean via an IME that empties each composition into a new bold format', async ({
+        page,
+      }) => {
+        await focusEditor(page);
+        await enableCompositionKeyEvents(page);
+
+        await page.keyboard.type('Hello');
+        await toggleBold(page);
+        await typeHangukLikeIbus(page);
+
+        await assertHTML(
+          page,
+          html`
+            <p class="PlaygroundEditorTheme__paragraph" dir="auto">
+              <span data-lexical-text="true">Hello</span>
+              <strong
+                class="PlaygroundEditorTheme__textBold"
+                data-lexical-text="true">
+                한국
+              </strong>
+            </p>
+          `,
+        );
+        await assertSelection(page, {
+          anchorOffset: 2,
+          anchorPath: [0, 1, 0],
+          focusOffset: 2,
+          focusPath: [0, 1, 0],
+        });
+      });
+
+      test('Can type Korean via an IME that empties each composition after turning bold off', async ({
+        page,
+      }) => {
+        await focusEditor(page);
+        await enableCompositionKeyEvents(page);
+
+        await page.keyboard.type('Hello');
+        await toggleBold(page);
+        await page.keyboard.type('World');
+        await toggleBold(page);
+        await typeHangukLikeIbus(page);
+
+        await assertHTML(
+          page,
+          html`
+            <p class="PlaygroundEditorTheme__paragraph" dir="auto">
+              <span data-lexical-text="true">Hello</span>
+              <strong
+                class="PlaygroundEditorTheme__textBold"
+                data-lexical-text="true">
+                World
+              </strong>
+              <span data-lexical-text="true">한국</span>
+            </p>
+          `,
+        );
+        await assertSelection(page, {
+          anchorOffset: 2,
+          anchorPath: [0, 2, 0],
+          focusOffset: 2,
+          focusPath: [0, 2, 0],
+        });
+      });
+
+      test('Keeps a new bold format after a cancelled IME composition', async ({
+        page,
+      }) => {
+        await focusEditor(page);
+        await enableCompositionKeyEvents(page);
+
+        await page.keyboard.type('Hello');
+        await toggleBold(page);
+        const client = await page.context().newCDPSession(page);
+        for (const text of ['ㅎ', '']) {
+          await client.send('Input.imeSetComposition', {
+            selectionEnd: text.length,
+            selectionStart: text.length,
+            text,
+          });
+        }
+        await page.keyboard.type('x');
+
+        await assertHTML(
+          page,
+          html`
+            <p class="PlaygroundEditorTheme__paragraph" dir="auto">
+              <span data-lexical-text="true">Hello</span>
+              <strong
+                class="PlaygroundEditorTheme__textBold"
+                data-lexical-text="true">
+                x
+              </strong>
+            </p>
+          `,
+        );
+        await assertSelection(page, {
+          anchorOffset: 1,
+          anchorPath: [0, 1, 0],
+          focusOffset: 1,
+          focusPath: [0, 1, 0],
+        });
+      });
     });
 
     test.describe(() => {
