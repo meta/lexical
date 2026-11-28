@@ -38,6 +38,7 @@ import {
   $createListNode,
   CheckListExtension,
   ListExtension,
+  TouchIndentationExtension,
 } from '@lexical/list';
 import {PlainTextExtension} from '@lexical/plain-text';
 import {LexicalCollaboration} from '@lexical/react/LexicalCollaborationContext';
@@ -300,6 +301,7 @@ const AppExtension = defineExtension({
     FocusTrapExtension,
     RovingTabIndexExtension,
     FocusManagerExtension,
+    TouchIndentationExtension,
   ],
   name: '@lexical/playground',
   namespace: 'Playground',

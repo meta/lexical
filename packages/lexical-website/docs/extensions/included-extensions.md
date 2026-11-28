@@ -86,6 +86,7 @@ Framework-agnostic accessibility extensions. See [Keyboard Accessibility](/docs/
 
 - [ListExtension](/docs/api/modules/lexical_list#listextension) - ListNode, ListItemNode
 - [CheckListExtension](/docs/api/modules/lexical_list#checklistextension) - Checklist support for ListNode and ListItemNode
+- [TouchIndentationExtension](/docs/api/modules/lexical_list#touchindentationextension) - Indent and outdent list items by swiping on touch devices
 
 [@lexical/mark](/docs/api/modules/lexical_mark)
 
