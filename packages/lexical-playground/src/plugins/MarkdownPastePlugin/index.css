@@ -1,0 +1,79 @@
+/**
+ * Copyright (c) Meta Platforms, Inc. and affiliates.
+ *
+ * This source code is licensed under the MIT license found in the
+ * LICENSE file in the root directory of this source tree.
+ *
+ */
+
+.markdown-paste-prompt {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 6px 6px 10px;
+  background-color: Canvas;
+  color: CanvasText;
+  border-radius: 8px;
+  box-shadow: 0 5px 10px rgba(0, 0, 0, 0.3);
+  font-size: 14px;
+  white-space: nowrap;
+  will-change: transform;
+}
+
+.markdown-paste-prompt i.format {
+  display: inline-block;
+  width: 18px;
+  height: 18px;
+  background-color: CanvasText;
+  -webkit-mask-size: contain;
+  mask-size: contain;
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-position: center;
+  mask-position: center;
+  opacity: 0.7;
+}
+
+.markdown-paste-prompt button {
+  display: flex;
+  align-items: center;
+  border: 0;
+  border-radius: 6px;
+  cursor: pointer;
+  font: inherit;
+}
+
+.markdown-paste-prompt-convert {
+  padding: 4px 10px;
+  background-color: rgb(60, 132, 244);
+  color: #fff;
+}
+
+.markdown-paste-prompt-convert kbd {
+  margin-left: 6px;
+  font: inherit;
+  font-size: 12px;
+  opacity: 0.85;
+}
+
+.markdown-paste-prompt-convert:hover {
+  background-color: rgb(45, 112, 216);
+}
+
+.markdown-paste-prompt-dismiss {
+  padding: 4px;
+  background: none;
+}
+
+.markdown-paste-prompt-dismiss:hover {
+  background-color: rgba(128, 128, 128, 0.2);
+}
+
+.markdown-paste-prompt-dismiss i.format {
+  width: 14px;
+  height: 14px;
+}
