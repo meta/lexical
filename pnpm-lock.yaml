@@ -9047,6 +9047,7 @@ packages:
   image-size@2.0.2:
     resolution: {integrity: sha512-IRqXKlaXwgSMAMtpNzZa1ZAe8m+Sa1770Dhk8VkSsP9LS+iHD62Zd8FQKs8fbPiagBE7BzoFX23cxFnwshpV6w==}
     engines: {node: '>=16.x'}
+    deprecated: Use latest 2.x please
     hasBin: true
 
   immediate@3.3.0:
@@ -11894,8 +11895,8 @@ packages:
     resolution: {integrity: sha512-6uZQLGyUkNA4N+Zii9fYukmNu9PEA1F5rqcwXzN/3LtBjwl2dFBbVZ1Zyn08/CGkB4H440PIemdOQBt1Wvjbrg==}
     engines: {node: ^12.20.0 || ^14.13.1 || >=16.0.0}
 
-  serialize-javascript@7.0.7:
-    resolution: {integrity: sha512-YAy8Od6KV+uuwUuU50np8fGB/Aues6Y0nAhA9y/hId74PlKUcme4pXcBD46NWKr1Q4osN/iseZ17YqO1XfmI8g==}
+  serialize-javascript@7.1.4:
+    resolution: {integrity: sha512-FqlEuoTq/zRmA4Lg6aOqyH3lCHbUtCB0bmHCeFniX2GBdDqMJM3FwdvEhlE5Pim1dlt2FfBdVPmUNNiGhhKqpw==}
     engines: {node: '>=20.0.0'}
 
   serve-handler@6.1.7:
@@ -18328,7 +18329,7 @@ snapshots:
 
   '@rollup/plugin-terser@1.0.0(rollup@4.63.5)':
     dependencies:
-      serialize-javascript: 7.0.7
+      serialize-javascript: 7.1.4
       smob: 1.4.1
       terser: 5.51.2
     optionalDependencies:
@@ -21092,7 +21093,7 @@ snapshots:
       globby: 13.2.2
       normalize-path: 3.0.0
       schema-utils: 4.5.0
-      serialize-javascript: 7.0.7
+      serialize-javascript: 7.1.4
       webpack: 5.111.1(@swc/core@1.16.1(@swc/helpers@0.5.21))(@swc/html@1.16.1)(clean-css@5.3.3)(cssnano@6.1.2(postcss@8.5.15))(csso@5.0.5)(esbuild@0.28.2)(html-minifier-terser@7.2.0)(lightningcss@1.33.0)(postcss@8.5.15)(svgo@3.3.2)
 
   copy-webpack-plugin@11.0.0(webpack@5.111.1(@swc/core@1.16.1(@swc/helpers@0.5.21))(esbuild@0.28.2)):
@@ -21102,7 +21103,7 @@ snapshots:
       globby: 13.2.2
       normalize-path: 3.0.0
       schema-utils: 4.5.0
-      serialize-javascript: 7.0.7
+      serialize-javascript: 7.1.4
       webpack: 5.111.1(@swc/core@1.16.1(@swc/helpers@0.5.21))(clean-css@5.3.3)(cssnano@6.1.2(postcss@8.5.15))(esbuild@0.28.2)(html-minifier-terser@7.2.0)(postcss@8.5.15)
 
   core-js-compat@3.49.0:
@@ -21219,7 +21220,7 @@ snapshots:
       jest-worker: 29.7.0
       postcss: 8.5.15
       schema-utils: 4.5.0
-      serialize-javascript: 7.0.7
+      serialize-javascript: 7.1.4
       webpack: 5.111.1(@swc/core@1.16.1(@swc/helpers@0.5.21))(@swc/html@1.16.1)(clean-css@5.3.3)(cssnano@6.1.2(postcss@8.5.15))(csso@5.0.5)(esbuild@0.28.2)(html-minifier-terser@7.2.0)(lightningcss@1.33.0)(postcss@8.5.15)(svgo@3.3.2)
     optionalDependencies:
       clean-css: 5.3.3
@@ -21234,7 +21235,7 @@ snapshots:
       jest-worker: 29.7.0
       postcss: 8.5.15
       schema-utils: 4.5.0
-      serialize-javascript: 7.0.7
+      serialize-javascript: 7.1.4
       webpack: 5.111.1(@swc/core@1.16.1(@swc/helpers@0.5.21))(clean-css@5.3.3)(cssnano@6.1.2(postcss@8.5.15))(esbuild@0.28.2)(html-minifier-terser@7.2.0)(postcss@8.5.15)
     optionalDependencies:
       clean-css: 5.3.3
@@ -26486,7 +26487,7 @@ snapshots:
     dependencies:
       type-fest: 2.19.0
 
-  serialize-javascript@7.0.7: {}
+  serialize-javascript@7.1.4: {}
 
   serve-handler@6.1.7:
     dependencies:
