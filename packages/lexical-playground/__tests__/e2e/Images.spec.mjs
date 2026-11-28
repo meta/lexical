@@ -551,6 +551,35 @@ test.describe('Images', () => {
         );
       }
     });
+
+    test('Keeps the link of a linked image that is dragged (#5305)', async ({
+      page,
+      browserName,
+      isCollab,
+    }) => {
+      test.skip(browserName === 'firefox' || isCollab);
+      await focusEditor(page);
+
+      await page.keyboard.type('HelloWorld');
+      await page.keyboard.press('Enter');
+
+      await insertSampleImage(page);
+
+      await click(page, '.editor-image img');
+      await click(page, '.link');
+      await page.keyboard.type('lexical.dev');
+      await page.keyboard.press('Enter');
+      await waitForSelector(page, 'a .editor-image img');
+
+      await click(page, '.editor-image img');
+      await dragImage(page, 'span[data-lexical-text="true"]');
+      await waitForSelector(page, 'p:first-of-type .editor-image img');
+
+      const link = page
+        .locator('[contenteditable="true"] p:first-of-type a')
+        .filter({has: page.locator('.editor-image')});
+      await expect(link).toHaveAttribute('href', 'https://lexical.dev');
+    });
   });
 
   test.describe(() => {

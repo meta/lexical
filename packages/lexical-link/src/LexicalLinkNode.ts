@@ -863,7 +863,9 @@ function $replaceAutoLink(
 
 /**
  * Generates or updates a LinkNode. It can also delete a LinkNode if the URL is null,
- * but saves any children and brings them up to the parent node.
+ * but saves any children and brings them up to the parent node. A collapsed
+ * selection that is not inside a link covers no text, so it is left as it is;
+ * select the text to link first.
  * @param urlOrAttributes - The URL the link directs to, or an attributes object with an url property
  * @param attributes - Optional HTML a tag attributes. \\{ target, rel, title \\}
  */
@@ -963,6 +965,15 @@ export function $toggleLink(
       }
       return;
     }
+  }
+
+  if (
+    selection.isCollapsed() &&
+    $findMatchingParent(selection.anchor.getNode(), $isLinkNode) === null
+  ) {
+    // A collapsed selection outside a link covers no text, so there is nothing
+    // to link. extract() would return the whole node around the caret (#5305).
+    return;
   }
 
   // Handle RangeSelection

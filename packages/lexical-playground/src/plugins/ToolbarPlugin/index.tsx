@@ -879,6 +879,14 @@ export default function ToolbarPlugin({
 
   const insertLink = useCallback(() => {
     if (!toolbarState.isLink) {
+      const isCollapsed = activeEditor.read(() => {
+        const selection = $getSelection();
+        return $isRangeSelection(selection) && selection.isCollapsed();
+      });
+      if (isCollapsed) {
+        // A bare caret outside a link has no text to link (#5305).
+        return;
+      }
       setIsLinkEditMode(true);
       activeEditor.dispatchCommand(
         TOGGLE_LINK_COMMAND,

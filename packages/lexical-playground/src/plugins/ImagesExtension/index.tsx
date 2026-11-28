@@ -21,12 +21,15 @@ import {
 } from '@lexical/link';
 import {$wrapNodeInElement} from '@lexical/utils';
 import {
+  $createNodeSelection,
   $createParagraphNode,
   $createRangeSelection,
   $findMatchingParent,
+  $getAdjacentNode,
   $getSelection,
   $insertNodes,
   $isNodeSelection,
+  $isRangeSelection,
   $isRootOrShadowRoot,
   $selectAll,
   $setSelection,
@@ -408,6 +411,17 @@ function $onDrop(event: DragEvent, editor: LexicalEditor): boolean {
     $setSelection(rangeSelection);
     editor.dispatchCommand(INSERT_IMAGE_COMMAND, data);
     if (existingLink) {
+      // The insert leaves a collapsed caret after the image, which
+      // $toggleLink ignores, so select the image itself to link it again.
+      const selection = $getSelection();
+      const image = $isRangeSelection(selection)
+        ? $getAdjacentNode(selection.anchor, true)
+        : null;
+      if ($isImageNode(image)) {
+        const nodeSelection = $createNodeSelection();
+        nodeSelection.add(image.getKey());
+        $setSelection(nodeSelection);
+      }
       editor.dispatchCommand(TOGGLE_LINK_COMMAND, existingLink.getURL());
     }
   }
