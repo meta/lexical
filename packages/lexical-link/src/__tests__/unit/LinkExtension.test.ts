@@ -21,6 +21,7 @@ import {
   LinkExtension,
   TOGGLE_LINK_COMMAND,
 } from '@lexical/link';
+import {$createMarkNode, $isMarkNode, MarkExtension} from '@lexical/mark';
 import {RichTextExtension} from '@lexical/rich-text';
 import {
   $createParagraphNode,
@@ -424,6 +425,70 @@ describe('Link', () => {
         assert($isLinkNode(link), 'Expected a LinkNode');
         expect(link.getURL()).toBe(pasteUrl);
         expect(link.getTextContent()).toBe('click here');
+      });
+    });
+
+    it('links a selection crossing a comment without changing the comment', () => {
+      const pasteExtension = defineExtension({
+        $initialEditorState: () => {
+          $getRoot().append(
+            $createParagraphNode().append(
+              $createTextNode('before '),
+              $createMarkNode(['comment']).append($createTextNode('marked')),
+              $createTextNode(' after'),
+            ),
+          );
+        },
+        dependencies: [
+          configExtension(LinkExtension, {validateUrl: () => true}),
+          RichTextExtension,
+          MarkExtension,
+        ],
+        name: '[root-mark-paste]',
+      });
+      using editor = buildEditorFromExtensions(pasteExtension);
+      editor.update(
+        () => {
+          const paragraph = $getRoot().getFirstChild()!;
+          assert($isParagraphNode(paragraph), 'Expected a ParagraphNode');
+          const before = paragraph.getFirstChild();
+          const mark = paragraph.getChildAtIndex(1);
+          assert($isTextNode(before), 'Expected a TextNode');
+          assert($isMarkNode(mark), 'Expected a MarkNode');
+          const marked = mark.getFirstChild();
+          assert($isTextNode(marked), 'Expected marked text');
+          before.select(3, 3);
+          const selection = $getSelection();
+          assert($isRangeSelection(selection), 'Expected a RangeSelection');
+          selection.focus.set(marked.getKey(), 3, 'text');
+          dispatchPaste(editor);
+        },
+        {discrete: true},
+      );
+      editor.read(() => {
+        const paragraph = $getRoot().getFirstChild()!;
+        assert($isParagraphNode(paragraph), 'Expected a ParagraphNode');
+        expect(paragraph.getTextContent()).toBe('before marked after');
+        const runs = paragraph.getAllTextNodes().map(text => {
+          let isLinked = false;
+          let isCommented = false;
+          for (
+            let parent = text.getParent();
+            parent;
+            parent = parent.getParent()
+          ) {
+            isLinked ||= $isLinkNode(parent);
+            isCommented ||= $isMarkNode(parent) && parent.hasID('comment');
+          }
+          return [text.getTextContent(), isLinked, isCommented];
+        });
+        expect(runs).toEqual([
+          ['bef', false, false],
+          ['ore ', true, false],
+          ['mar', true, true],
+          ['ked', false, true],
+          [' after', false, false],
+        ]);
       });
     });
   });
