@@ -104,6 +104,8 @@ describe('MdastAutolinkLiteralExtension', () => {
     ['世www.x.com', '世www\\.x.com'],
     ['www.', 'www\\.'],
     ['a www. b', 'a www\\. b'],
+    // No literal starts at a single `w`, so its `.` needs no escape.
+    ['new.file', 'new.file'],
   ])('reads back the export of %j as text', (text, markdown) => {
     for (const mode of modes) {
       using editor = createEditor(mode);
@@ -344,6 +346,32 @@ describe('MdastAutolinkLiteralExtension', () => {
     expect(importMarkdown(editor, 'a')).toEqual([
       'a www.x.com a@b.co',
       [['a@b.co', 'mailto:a@b.co']],
+    ]);
+  });
+
+  it('leaves the transforms no URL to find in a masked text', () => {
+    // The mask copies the start of the library's URL pattern. A later
+    // version that finds URLs of another form in the decoded text would
+    // link them here, as this text has every form we know of.
+    const {transforms} = gfmAutolinkLiteralFromSource();
+    const value =
+      'http://a.co HTTPS://b.co Http://c.co www.d.co WWW.e.co Www.f.co ' +
+      'ftp://g.co FTP://h.co file://i.co a@b.co';
+    const tree: Root = {
+      children: [{children: [{type: 'text', value}], type: 'paragraph'}],
+      type: 'root',
+    };
+    for (const transform of transforms || []) {
+      transform(tree);
+    }
+    expect(tree.children).toEqual([
+      {
+        children: [
+          {type: 'text', value: value.slice(0, -'a@b.co'.length)},
+          {...createLink('mailto:a@b.co', 'a@b.co'), title: null},
+        ],
+        type: 'paragraph',
+      },
     ]);
   });
 
