@@ -127,8 +127,9 @@ describe('MdastAutolinkLiteralExtension', () => {
     }
   });
 
-  // Markdown, its text, and its links, as cmark-gfm (`-e autolink`) reads
-  // them, but where a comment says otherwise.
+  // Markdown, its text, and its links, as cmark-gfm 0.29.0.gfm.14 reads
+  // them, but where a comment says otherwise. To check one again:
+  // `printf '%s\n' '<markdown>' | cmark-gfm -e autolink`.
   it.each<[string, string, Links]>([
     // GitHub finds a URL in the source in comments, so one that an escape
     // or a reference writes stays text.
