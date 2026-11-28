@@ -176,6 +176,10 @@ export function describeLeftoversCorpus(
     const now = seedJSON(docJSON(nowDoc));
     const report = describeUnsyncedEdits({
       base: seedJSON(docJSON(c.base)),
+      // Off here: this corpus is about where a block that is not replayed
+      // goes, so every block both sides changed must stay a leftover. The
+      // merge has its own corpus (BlockMergeCorpus, BlockMergeReplay).
+      blockMerge: false,
       capturedAt: 0,
       config,
       current: now,

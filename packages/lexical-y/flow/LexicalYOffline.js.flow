@@ -287,6 +287,7 @@ export type YOfflineDescribeOptions = {
   readonly current: Uint8Array,
   readonly config: HeadlessYConfig,
   readonly migrate?: (state: Uint8Array) => Uint8Array,
+  readonly blockMerge?: boolean,
 };
 declare export function describeYOfflineCapture(
   capture: YOfflineCapture,
@@ -382,6 +383,7 @@ export type YReplayInput = {
   readonly binding: YOfflineBinding,
   readonly report: YOfflineReport | YUnsyncedReport,
   readonly only?: ReadonlyArray<string>,
+  readonly blockMerge?: boolean,
   readonly now?: () => number,
   ...YLeftoversRequiredPassWrapOrHandle,
   ...YAutoReplayRequiredPassReplayableNoneOrMaxBaseAge,
@@ -406,6 +408,7 @@ export type YOfflineRecoverInput = {
   readonly stage: YOfflineStage,
   readonly config: HeadlessYConfig,
   readonly migrate?: (state: Uint8Array) => Uint8Array,
+  readonly blockMerge?: boolean,
   readonly session?: YOfflineSession,
   readonly now?: () => number,
   ...YLeftoversRequiredPassWrapOrHandle,

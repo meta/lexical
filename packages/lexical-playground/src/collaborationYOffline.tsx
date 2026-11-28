@@ -615,13 +615,17 @@ function CaptureView({
       ) : (
         blocks.map(block => {
           const preview = previewOf(block.yours ?? block.base);
+          // A block someone else changed too can be reapplied when the
+          // report merged the two.
+          const merged = block.resolution === 'merged';
           return (
             <div
               key={block.id}
               className="collab-y-offline-block"
               data-test-id="collab-y-offline-block"
               data-change={block.change}
-              data-replayable={block.replayable}>
+              data-replayable={block.replayable}
+              data-resolution={block.resolution}>
               <span className="collab-y-offline-change">
                 {CHANGE_LABEL[block.change]}
               </span>
@@ -635,13 +639,15 @@ function CaptureView({
                 title={
                   block.replayable
                     ? 'Put this block back as you had it'
-                    : block.yours === null
-                      ? 'Someone changed this block since, so it stays'
-                      : `Someone changed this block since: insert yours after it, under "${LEFTOVERS_LABEL}"`
+                    : merged
+                      ? 'Someone changed this block since: put your changes into it'
+                      : block.yours === null
+                        ? 'Someone changed this block since, so it stays'
+                        : `Someone changed this block since: insert yours after it, under "${LEFTOVERS_LABEL}"`
                 }
-                disabled={!block.replayable && block.yours === null}
+                disabled={!block.replayable && !merged && block.yours === null}
                 onClick={() => void offline.reapply(capture.id, block.id)}>
-                {block.replayable ? 'Reapply' : 'Insert'}
+                {block.replayable || merged ? 'Reapply' : 'Insert'}
               </button>
             </div>
           );
