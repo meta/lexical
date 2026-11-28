@@ -99,6 +99,7 @@ import {InsertPollDialog} from '../PollExtension';
 import {$isRubyNode, $toggleRuby} from '../RubyExtension/RubyNode';
 import {shortcut} from '../ShortcutsExtension/shortcuts';
 import {InsertTableDialog} from '../TablePlugin';
+import {TextSubstitutionDialog} from '../TextSubstitutionPlugin';
 import FontSize, {parseFontSizeForToolbar} from './fontSize';
 import {
   clearFormatting,
@@ -1312,6 +1313,21 @@ export default function ToolbarPlugin({
                 <span className="text">Clear Formatting</span>
               </div>
               <span className="shortcut">{shortcut('CLEAR_FORMATTING')}</span>
+            </DropDownItem>
+            <Divider />
+            <DropDownItem
+              onClick={() => {
+                showModal('Text Substitutions', onClose => (
+                  <TextSubstitutionDialog
+                    activeEditor={activeEditor}
+                    onClose={onClose}
+                  />
+                ));
+              }}
+              className="item wide"
+              title="Text Substitutions..."
+              aria-label="Open text substitutions">
+              <span className="text">Text Substitutions...</span>
             </DropDownItem>
           </DropDown>
           <ExtensionComponent lexical:extension={PagesReactExtension} />

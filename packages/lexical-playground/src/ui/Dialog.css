@@ -9,6 +9,7 @@
 .DialogActions {
   display: flex;
   flex-direction: row;
+  gap: 8px;
   justify-content: right;
   margin-top: 20px;
 }

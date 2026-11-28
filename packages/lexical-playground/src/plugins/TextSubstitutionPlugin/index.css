@@ -1,0 +1,97 @@
+/**
+ * Copyright (c) Meta Platforms, Inc. and affiliates.
+ *
+ * This source code is licensed under the MIT license found in the
+ * LICENSE file in the root directory of this source tree.
+ *
+ */
+
+.TextSubstitutionDialog {
+  width: min(560px, 100%);
+  overflow-x: auto;
+}
+
+.TextSubstitutionDialog__master {
+  align-items: center;
+  cursor: pointer;
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.TextSubstitutionDialog__master input[type='checkbox'] {
+  margin: 0;
+}
+
+.TextSubstitutionDialog__list {
+  list-style: none;
+  margin: 0 0 12px 0;
+  padding: 0;
+  max-height: 240px;
+  overflow-y: auto;
+}
+
+.TextSubstitutionDialog__row {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+  padding: 4px 0;
+}
+
+.TextSubstitutionDialog__row input[type='checkbox'] {
+  flex: 0 0 16px;
+  margin: 0;
+}
+
+.TextSubstitutionDialog__input {
+  flex: 1;
+  min-width: 0;
+}
+
+.TextSubstitutionDialog__input:disabled {
+  opacity: 0.5;
+}
+
+.TextSubstitutionDialog__remove {
+  background: none;
+  border: none;
+  color: #5f6368;
+  cursor: pointer;
+  font-size: 18px;
+  line-height: 1;
+  padding: 0 4px;
+  width: 24px;
+}
+
+.TextSubstitutionDialog__remove:hover {
+  color: #000;
+}
+
+.TextSubstitutionDialog__table-header {
+  color: #888;
+  display: flex;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  gap: 8px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #e0e0e0;
+}
+
+.TextSubstitutionDialog__table-header span {
+  flex: 1;
+}
+
+.TextSubstitutionDialog__table-header
+  .TextSubstitutionDialog__table-header-spacer {
+  flex: 0 0 auto;
+}
+
+.TextSubstitutionDialog__table-header-spacer--checkbox {
+  width: 16px;
+}
+
+.TextSubstitutionDialog__table-header-spacer--remove {
+  width: 24px;
+}
