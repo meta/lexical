@@ -1493,13 +1493,20 @@ function $handleBeforeInput(event: InputEvent): boolean {
       selection.insertRawText(text);
     } else if (
       data != null &&
-      $shouldPreventDefaultAndInsertText(
-        selection,
-        targetRange,
-        data,
-        event.timeStamp,
-        true,
-      )
+      // Chromium can split a multiline commit into DOM edits beyond the
+      // current text node. Handle the complete payload before that happens.
+      ((inputType === 'insertText' &&
+        event.cancelable &&
+        !event.isComposing &&
+        data.includes('\n') &&
+        /[^\r\n]/.test(data)) ||
+        $shouldPreventDefaultAndInsertText(
+          selection,
+          targetRange,
+          data,
+          event.timeStamp,
+          true,
+        ))
     ) {
       event.preventDefault();
       dispatchCommand(editor, CONTROLLED_TEXT_INSERTION_COMMAND, data);
