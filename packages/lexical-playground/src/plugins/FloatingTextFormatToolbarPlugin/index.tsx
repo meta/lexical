@@ -454,7 +454,13 @@ function useFloatingTextFormatToolbar(
     };
     const onDragEnd = () => {
       if (ref.current && ref.current.style.display === 'none') {
-        ref.current.style.display = 'block';
+        // Clear the inline display so the stylesheet's `display: flex` applies
+        // again; 'block' stacks the buttons in a single column.
+        ref.current.style.display = '';
+        // A drag ends without the mouseup that turns pointer events back on
+        // after the mousemove listener turned them off, which would leave the
+        // buttons unclickable.
+        ref.current.style.pointerEvents = 'auto';
       }
     };
     return registerEventListeners(
