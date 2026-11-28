@@ -681,8 +681,8 @@ export const $exportList: MdastExportHandler = (node, ctx) => {
  * mdast-util-to-markdown writes back as `***x***` when both markers are
  * `*`).
  * The emphasis/strong *delimiter* (`*` vs `_`) is a document-level to-markdown
- * option (see the exporter) rather than per-node, because mixing delimiters in
- * one document desyncs to-markdown's character escaping.
+ * option (see the exporter) rather than per-node, as to-markdown takes one
+ * delimiter of each for the whole tree.
  */
 export function phrasingFromFormattedText(
   value: string,
@@ -774,10 +774,11 @@ function phrasingFromEmphasisRuns(runs: readonly TextRun[]): PhrasingContent[] {
 /**
  * Converts a sequence of text runs into properly *nested* mdast phrasing.
  * Runs whose formats overlap (e.g. `llo` bold, `wor` bold+italic, `ld`
- * italic) must share a container wherever they share a format bit — emitting
- * each run as its own fully-wrapped sibling produces adjacent delimiter runs
- * (`**llo*****wor****ld*`) that CommonMark resolves differently, so the
- * output would not re-parse to the same formatting (issue #4895).
+ * italic) share a container wherever they share a format bit. Emitting each
+ * run as its own fully-wrapped sibling made `mdast-util-to-markdown` 2.2.2
+ * and earlier write adjacent delimiter runs (`**llo*****wor****ld*`) that
+ * CommonMark resolves differently, so the output did not re-parse to the
+ * same formatting (issue #4895).
  *
  * Strikethrough segments the sequence first and always wraps outermost (the
  * single-run nesting order): a `~~` delimiter is only reliably flanking next

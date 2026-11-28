@@ -1026,11 +1026,6 @@ export function getExportedLengths(values: string[]): number[] {
  * each such character in text stands in, while the text is serialized, as a
  * punctuation character of the Basic Multilingual Plane that the tree does
  * not hold, and {@link restoreStoodIn} puts it back.
- *
- * `mdast-util-to-markdown` 2.2.2 and earlier serialize many touching runs of attention,
- * or attention without content, in quadratic time
- * (https://github.com/syntax-tree/mdast-util-to-markdown/issues/96). Check
- * again when its version changes, and vendor the fix if no release has it.
  */
 function toMarkdownWithStandIns(
   tree: Root,
@@ -3227,9 +3222,9 @@ function toCmarkGfmCompatibleCells(
 /**
  * Picks the document-level emphasis and strong delimiters, scanning the tree
  * rooted at `node`: `_` when any italic / bold text node recorded `_` on
- * import, otherwise to-markdown's default. Mixing delimiters within one
- * document is not supported by to-markdown's escaping, so a single choice is
- * made per document.
+ * import, otherwise to-markdown's default. to-markdown takes one delimiter
+ * for each and writes the other only where that one would not pair, such as
+ * where attention touches attention, so a single choice is made per document.
  */
 function $dominantInlineMarkers(node: ElementNode): {
   emphasis: '*' | '_' | undefined;

@@ -1542,7 +1542,7 @@ describe('mdast middleware', () => {
         {discrete: true},
       );
       const markdown = editor.read(() => $convertToMarkdownString());
-      expect(markdown).toBe('**ab*****cd***');
+      expect(markdown).toBe('**ab**_**cd**_');
       editor.update(() => $convertFromMarkdownString(markdown), {
         discrete: true,
       });
@@ -1672,7 +1672,9 @@ describe('mdast middleware', () => {
             ),
         {discrete: true},
       );
-      expect(editor.read(() => $convertToMarkdownString())).toBe('**ab*cd***');
+      expect(editor.read(() => $convertToMarkdownString())).toBe(
+        '**a&#x62;_&#x63;d_**',
+      );
     },
   );
 
@@ -1716,7 +1718,7 @@ describe('mdast middleware', () => {
         ['b', IS_STRIKETHROUGH | IS_BOLD],
       ],
       () => true,
-      '~~*a***b**~~',
+      '~~*a*__b__~~',
     ],
   ])(
     'joins touching deletes an export rule returns with %s',

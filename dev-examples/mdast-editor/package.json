@@ -28,7 +28,7 @@
     "@lexical/utils": "workspace:*",
     "lexical": "workspace:*",
     "mdast-util-gfm-footnote": "^2.1.0",
-    "mdast-util-to-markdown": "^2.2.0",
+    "mdast-util-to-markdown": "^2.2.4",
     "micromark-extension-gfm-footnote": "^2.1.0",
     "react": "^19.1.0",
     "react-dom": "^19.1.0"

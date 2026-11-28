@@ -41,8 +41,9 @@ import {
 // does, so that "a strict export reads the same in every reader" holds
 // beyond Lexical's importers. The cases the READMEs list as exceptions (a
 // variation selector after a tab, a line ending, a vertical tab or a form
-// feed that ends a run, a vertical tab beside a marker, and a `***` run that
-// a pair uses only part of) are left out.
+// feed that ends a run, a vertical tab beside a marker, and, for
+// `@lexical/markdown`, a `***` run that a pair uses only part of) are left
+// out.
 
 type Runs = [text: string, format: number][];
 type Reader = InstanceType<typeof MarkdownIt>;
@@ -76,6 +77,13 @@ const ALPHABET = [
   '~',
 ];
 const FIXED_CASES: Runs[] = [
+  // `@lexical/mdast` no longer writes one run for touching formats
+  // (`***a*b*c***`), which markdown-it reads with literal markers.
+  [
+    ['a', bold | italic],
+    ['b', bold],
+    ['c', bold | italic],
+  ],
   [
     ['你好。', bold],
     ['世界', 0],
@@ -333,14 +341,15 @@ describe('Markdown export read by markdown-it', () => {
             }),
           {discrete: true},
         );
-        for (const [text, expected] of [
-          [exported, mdast.read('latest', $getRuns)],
-          [exportedMarkdown, markdown.read('latest', $getRuns)],
+        for (const [text, expected, writesSharedRuns] of [
+          [exported, mdast.read('latest', $getRuns), false],
+          [exportedMarkdown, markdown.read('latest', $getRuns), true],
         ] as const) {
           // markdown-it applies the rule of 3 to the whole length of a run,
           // and micromark to what is left of it, so a run of three or more
           // markers that one pair uses only part of reads differently.
-          if (/\*{3}|_{3}/.test(text)) {
+          // `@lexical/markdown` writes such runs; `@lexical/mdast` does not.
+          if (writesSharedRuns && /\*{3}|_{3}/.test(text)) {
             continue;
           }
           for (const reader of readers) {

@@ -197,17 +197,6 @@ configExtension(MdastExtension, {
 });
 ```
 
-Export time can grow with the square of a paragraph's size, because of how
-`mdast-util-to-markdown` (2.2.2 and earlier) picks emphasis, strong and
-strikethrough markers that read back correctly
-([syntax-tree/mdast-util-to-markdown#96](https://github.com/syntax-tree/mdast-util-to-markdown/issues/96)).
-The known cases are a paragraph of many short runs of formatting side by
-side whose markers have to change, such as alternating bold, italic, and
-bold italic text (2,000 runs take about 7.5 s), with or without
-strikethrough among them, and many empty emphasis,
-strong or strikethrough nodes side by side, which only a contributed handler
-or mdast tree makes (1,000 take about 14 s).
-
 ### Punctuation modes
 
 CommonMark doesn't let `**` open or close between a letter and punctuation,
@@ -241,11 +230,7 @@ reading of those.
 Export defaults to `'strict-commonmark'`: it writes a character reference
 where a marker would not open or close otherwise (`**你好。**&#x4E16;界`),
 which every CommonMark, GFM and CJK-friendly reader reads the same way, with
-three exceptions. A run of three or more markers that a pair uses only part
-of (`***a*b*c***` or `***x****y*`, as on earlier versions, or
-`**“***!。**」!a***`) is read
-differently by micromark and by commonmark.js and markdown-it, which apply the
-rule of 3 to the whole run. A selector after a tab, a line ending, a vertical
+two exceptions. A selector after a tab, a line ending, a vertical
 tab or a form feed that ends a run (`**。\v︎**`) reads as that whitespace in
 `markdown-it-cjk-friendly`, which leaves those markers literal.
 A vertical tab beside a marker (`p\v**.**\vq`) reads as whitespace in
@@ -258,6 +243,10 @@ amendment:
 ```ts
 configExtension(MdastExtension, {exportPunctuation: 'cjk-friendly'});
 ```
+
+It keeps the references beside a `_` run, which the export writes where
+formatting touches formatting and which no reader opens or closes between two
+letters (`&#x61;*__。__&#x4E16;*&#x62;`).
 
 A CJK-friendly import reads the `~~` runs of `MdastStrikethroughExtension`
 as it reads emphasis. A strikethrough syntax contributed some other way
