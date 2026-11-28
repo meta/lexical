@@ -42,6 +42,7 @@ import {
 } from 'lexical';
 
 import {$inlineStylesFromStyleSheetsDOM} from './import/inlineStylesFromStyleSheets';
+import {wrapMonospacePreSiblingRunsDOM} from './import/wrapMonospacePreRuns';
 import {contextValue} from './internal/ContextRecord';
 import {
   $getSessionDOMRenderConfig,
@@ -144,12 +145,17 @@ const IGNORE_TAGS = new Set(['STYLE', 'SCRIPT']);
  * How you parse your html string to get a document is left up to you. In the browser you can use the native
  * DOMParser API to generate a document (see clipboard.ts), but to use in a headless environment you can use JSDom
  * or an equivalent library and pass in the document here.
+ *
+ * The `dom` passed in is rewritten in place before it is converted (for example,
+ * code pasted from VS Code in Safari is regrouped into one block), so pass a copy
+ * if you use it afterwards.
  */
 export function $generateNodesFromDOM(
   editor: LexicalEditor,
   dom: Document | ParentNode,
 ): LexicalNode[] {
   $inlineStylesFromStyleSheetsDOM(dom);
+  wrapMonospacePreSiblingRunsDOM(dom);
 
   const elements = isDOMDocumentNode(dom)
     ? dom.body.childNodes
