@@ -13,6 +13,7 @@ import {
   $createParagraphNode,
   $createTextNode,
   $getRoot,
+  $onUpdate,
   $setSelection,
   COLLABORATION_TAG,
   COMMAND_PRIORITY_EDITOR,
@@ -444,5 +445,277 @@ describe('an update listener that throws', () => {
       expect(editor._pendingEditorState).toBe(null);
       expect(textOf(editor.getEditorState())).toBe('ONE\n\ntwo');
     }
+  });
+
+  test('does not stop the listeners after it from seeing the commit; its error is rethrown', () => {
+    for (const mode of MODES) {
+      const {editor, errors} = setUp(mode);
+      const seen: string[] = [];
+      const removeThrower = editor.registerUpdateListener(() => {
+        throw new Error('listener bug');
+      });
+      const removeLater = editor.registerUpdateListener(({editorState}) => {
+        seen.push(textOf(editorState));
+      });
+      expect(() =>
+        editor.update(() => void $first().setTextContent('ONE'), {
+          discrete: true,
+        }),
+      ).toThrow('listener bug');
+      removeThrower();
+      removeLater();
+      expect(seen).toEqual(['ONE\n\ntwo']);
+      expect(errors).toEqual([]);
+      expect(editor._pendingEditorState).toBe(null);
+    }
+  });
+
+  test('when several throw, every listener is called and the first error is rethrown', () => {
+    const {editor} = setUp('rethrows');
+    const calls: string[] = [];
+    const first = new Error('first');
+    const second = new Error('second');
+    editor.registerUpdateListener(() => {
+      calls.push('a');
+      throw first;
+    });
+    editor.registerUpdateListener(() => {
+      calls.push('b');
+      throw second;
+    });
+    editor.registerUpdateListener(() => {
+      calls.push('c');
+    });
+    let thrown: unknown = null;
+    try {
+      editor.update(() => void $first().setTextContent('ONE'), {
+        discrete: true,
+      });
+    } catch (error) {
+      thrown = error;
+    }
+    expect(thrown).toBe(first);
+    expect(calls).toEqual(['a', 'b', 'c']);
+  });
+
+  test('a listener after it still runs, and the update it queues commits with the next update', () => {
+    const {editor, commits} = setUp('rethrows');
+    let throwOnce = true;
+    editor.registerUpdateListener(() => {
+      if (throwOnce) {
+        throwOnce = false;
+        throw new Error('listener bug');
+      }
+    });
+    let nested = true;
+    editor.registerUpdateListener(() => {
+      if (nested) {
+        nested = false;
+        editor.update(() => void $last().setTextContent('TWO'), {
+          discrete: true,
+        });
+      }
+    });
+    const callbacks: string[] = [];
+    expect(() =>
+      editor.update(
+        () => {
+          $first().setTextContent('ONE');
+          $onUpdate(() => {
+            callbacks.push('$onUpdate');
+            throw new Error('$onUpdate');
+          });
+        },
+        {
+          discrete: true,
+          onUpdate: () => {
+            callbacks.push('onUpdate');
+            throw new Error('onUpdate');
+          },
+        },
+      ),
+    ).toThrow('listener bug');
+    expect(callbacks).toEqual([]);
+    // Queued while the listeners ran: as before, the error leaves it queued
+    // (nothing of it committed, and the update's onUpdate did not run), and
+    // it commits with the next update.
+    expect(nested).toBe(false);
+    expect(textOf(editor.getEditorState())).toBe('ONE\n\ntwo');
+    expect(commits.map(c => c.next)).toEqual(['ONE\n\ntwo']);
+    editor.update(() => void $first().setTextContent('UNO'), {discrete: true});
+    expect(textOf(editor.getEditorState())).toBe('UNO\n\nTWO');
+    expect(commits[0].next).toBe('ONE\n\ntwo');
+  });
+
+  test('the unregister callback a later listener returns still runs on the next commit', () => {
+    const {editor} = setUp('rethrows');
+    let throwOnce = true;
+    editor.registerUpdateListener(() => {
+      if (throwOnce) {
+        throwOnce = false;
+        throw new Error('listener bug');
+      }
+    });
+    const calls: string[] = [];
+    editor.registerUpdateListener(({editorState}) => {
+      const text = textOf(editorState);
+      calls.push(`run ${text}`);
+      return () => calls.push(`cleanup ${text}`);
+    });
+    expect(() =>
+      editor.update(() => void $first().setTextContent('ONE'), {
+        discrete: true,
+      }),
+    ).toThrow('listener bug');
+    editor.update(() => void $last().setTextContent('TWO'), {discrete: true});
+    expect(calls).toEqual([
+      'run ONE\n\ntwo',
+      'cleanup ONE\n\ntwo',
+      'run ONE\n\nTWO',
+    ]);
+  });
+
+  test('a text content listener that throws does not hide the commit from the update listeners', () => {
+    const {editor, commits, errors} = setUp('rethrows');
+    const remove = editor.registerTextContentListener(() => {
+      throw new Error('text content bug');
+    });
+    expect(() =>
+      editor.update(() => void $first().setTextContent('ONE'), {
+        discrete: true,
+      }),
+    ).toThrow('text content bug');
+    remove();
+    expect(commits.map(c => c.next)).toEqual(['ONE\n\ntwo']);
+    expect(errors).toEqual([]);
+  });
+
+  test('a cleanup that throws: its listener still runs, the cleanup runs once, its error is rethrown', () => {
+    const {editor} = setUp('rethrows');
+    const calls: string[] = [];
+    let cleanups = 0;
+    const remove = editor.registerUpdateListener(({editorState}) => {
+      calls.push(textOf(editorState));
+      if (cleanups === 0) {
+        return () => {
+          cleanups++;
+          throw new Error('cleanup bug');
+        };
+      }
+    });
+    editor.update(() => void $first().setTextContent('ONE'), {discrete: true});
+    expect(() =>
+      editor.update(() => void $last().setTextContent('TWO'), {
+        discrete: true,
+      }),
+    ).toThrow('cleanup bug');
+    editor.update(() => void $last().setTextContent('THREE'), {
+      discrete: true,
+    });
+    remove();
+    expect(calls).toEqual(['ONE\n\ntwo', 'ONE\n\nTWO', 'ONE\n\nTHREE']);
+    expect(cleanups).toBe(1);
+  });
+
+  test('an editable listener that throws does not stop the others', () => {
+    const {editor} = setUp('rethrows');
+    const seen: boolean[] = [];
+    editor.registerEditableListener(() => {
+      throw new Error('editable bug');
+    });
+    editor.registerEditableListener(editable => {
+      seen.push(editable);
+    });
+    expect(() => editor.setEditable(false)).toThrow('editable bug');
+    expect(seen).toEqual([false]);
+    expect(editor.isEditable()).toBe(false);
+  });
+
+  test('a cleanup returned by a listener that unregistered itself, and throws, does not stop the others', () => {
+    const {editor} = setUp('rethrows');
+    const first = new Error('first');
+    const calls: string[] = [];
+    let throwFirst = true;
+    editor.registerUpdateListener(() => {
+      if (throwFirst) {
+        throwFirst = false;
+        throw first;
+      }
+    });
+    let cleanups = 0;
+    const remove = editor.registerUpdateListener(() => {
+      remove();
+      return () => {
+        cleanups++;
+        throw new Error('second');
+      };
+    });
+    editor.registerUpdateListener(() => void calls.push('later'));
+    let thrown: unknown = null;
+    try {
+      editor.update(() => void $first().setTextContent('ONE'), {
+        discrete: true,
+      });
+    } catch (error) {
+      thrown = error;
+    }
+    expect(thrown).toBe(first);
+    expect(calls).toEqual(['later']);
+    expect(cleanups).toBe(1);
+  });
+
+  test('a cleanup a nested dispatch installed is run, not lost', () => {
+    const {editor} = setUp('rethrows');
+    let nest = false;
+    editor.registerEditableListener(() => {
+      if (nest) {
+        nest = false;
+        editor.setEditable(false);
+      }
+    });
+    let generation = 0;
+    const cleaned: number[] = [];
+    const remove = editor.registerEditableListener(editable => {
+      if (!editable) {
+        const id = ++generation;
+        return () => {
+          cleaned.push(id);
+          if (id === 1) {
+            throw new Error('cleanup bug');
+          }
+        };
+      }
+    });
+    editor.setEditable(false);
+    nest = true;
+    expect(() => editor.setEditable(true)).toThrow('cleanup bug');
+    remove();
+    expect(generation).toBe(2);
+    expect(cleaned).toEqual([1, 2]);
+  });
+
+  test('a cleanup a nested dispatch inside the same listener installed is run when the listener replaces it', () => {
+    const {editor} = setUp('rethrows');
+    let nest = false;
+    const cleaned: string[] = [];
+    const calls: string[] = [];
+    editor.registerEditableListener(editable => {
+      if (nest) {
+        nest = false;
+        editor.setEditable(true);
+        return () => void cleaned.push('outer');
+      }
+      return () => {
+        cleaned.push(`nested ${editable}`);
+        throw new Error('nested cleanup');
+      };
+    });
+    editor.registerEditableListener(editable => {
+      calls.push(`later ${editable}`);
+    });
+    nest = true;
+    expect(() => editor.setEditable(false)).toThrow('nested cleanup');
+    expect(cleaned).toEqual(['nested true']);
+    expect(calls).toEqual(['later true', 'later false']);
   });
 });
