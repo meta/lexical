@@ -348,13 +348,33 @@ describe('MdastAutolinkLiteralExtension', () => {
   });
 
   it('masks the URLs of a long text in linear time', () => {
-    using editor = createEditor('strict-commonmark');
-    // 100,000 places where the URL pattern starts, after `!`, where
-    // micromark starts no literal.
-    const markdown = '!www. '.repeat(100000);
-    const start = performance.now();
-    expect(importMarkdown(editor, markdown)).toEqual([markdown.trimEnd(), []]);
-    expect(performance.now() - start).toBeLessThan(4000);
+    // A text with a place where the URL pattern starts every five
+    // characters, read by the transforms alone, as the parse would take
+    // most of the time of an import. Four times the text takes about four
+    // times as long, not sixteen; the fastest of five runs keeps a pause
+    // out.
+    const {transforms} = gfmAutolinkLiteralFromSource();
+    const time = (n: number) => {
+      const value = 'www. '.repeat(n);
+      let fastest = Infinity;
+      for (let i = 0; i < 5; i++) {
+        const tree: Root = {
+          children: [{children: [{type: 'text', value}], type: 'paragraph'}],
+          type: 'root',
+        };
+        const start = performance.now();
+        for (const transform of transforms || []) {
+          transform(tree);
+        }
+        fastest = Math.min(fastest, performance.now() - start);
+        expect(tree.children).toEqual([
+          {children: [{type: 'text', value}], type: 'paragraph'},
+        ]);
+      }
+      return fastest;
+    };
+    time(20000);
+    expect(time(80000) / time(20000)).toBeLessThan(8);
   });
 
   // How transforms other than the library's replace the children of the
